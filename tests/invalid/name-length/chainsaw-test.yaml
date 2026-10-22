@@ -1,0 +1,16 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-name-length
+spec:
+  steps:
+    - name: reject names that exceed the OCI node-pool limit
+      try:
+        - command:
+            entrypoint: crossplane
+            env:
+              - {name: CROSSPLANE_IMAGE, value: ($values.crossplaneImage)}
+            args: [resource, validate, "../../../.local/tmp/check/schemas,../../../charts/environment/definition.yaml", ../../../.local/tmp/check/rejected-name-length.yaml, --crossplane-image, $CROSSPLANE_IMAGE, --cache-dir=../../../.local/tmp/check/crossplane, --error-on-missing-schemas]
+            check:
+              ($error != null): true
+              (contains($stdout, 'Environment names must use 3-23')): true

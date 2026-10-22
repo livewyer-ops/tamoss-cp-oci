@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind != 'Usage' && kind != 'TamossEnvironment'])): 23
+(length(resources[?kind == 'NodePool'])): 3
+(resources[?kind == 'Cluster'] | [0].spec.forProvider.endpointConfig[0].subnetId): ocid1.test.oc1..api-subnet
+(resources[?kind == 'Cluster'] | [0].spec.forProvider.options[0].serviceLbSubnetIds): [ocid1.test.oc1..loadBalancer-subnet]
+(length(resources[?kind == 'NodePool' && spec.forProvider.nodeConfigDetails[0].placementConfigs[0].subnetId == 'ocid1.test.oc1..workers-subnet'])): 3
+(resources[?kind == 'RouteTable' && ends_with(metadata.name, 'private-routes')] | [0].spec.forProvider.routeRules[0].networkEntityId): ocid1.test.oc1..nat
+(length(resources[?kind == 'NodePool' && to_string(spec.forProvider.nodeConfigDetails[0].size) == '1'])): 3
+(length(resources[?kind == 'PsqlDbSystem' && to_string(spec.forProvider.instanceCount) == '2'])): 1
+(length(resources[?kind == 'PsqlDbSystem'].spec.forProvider.instancesDetails[])): 2
+(resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[0].displayName == join('-', [metadata.name, '1'])): true
+(resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[1].displayName == join('-', [metadata.name, '2'])): true
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.networkDetails[0].subnetId): ocid1.test.oc1..database-subnet
+(length(resources[?kind == 'Usage' && spec.replayDeletion == `true`])): 41
+(length(resources[?kind == 'CustomerSecretKey' || kind == 'LoadBalancer'])): 0
+(length(resources[?kind == 'TamossEnvironment'].status.conditions[] | [?type == 'Ready' && status == 'True'])): 0

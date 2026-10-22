@@ -1,0 +1,29 @@
+services:
+  oci:
+    image: ghcr.io/oracle/oci-cli@sha256:9b13656be34c1c147e5a6d68246a01ee2a7da27ae2c132f1a22d488dfede9bbe
+    read_only: true
+    network_mode: bridge
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    user: ${OCI_UID:?}:${OCI_GID:?}
+    volumes:
+      - type: bind
+        source: ${OCI_CONFIG:?}
+        target: /oci/config
+        read_only: true
+      - type: bind
+        source: ${OCI_KEY_FILE:?}
+        target: ${OCI_KEY_FILE}
+        read_only: true
+    entrypoint:
+      - oci
+      - --config-file
+      - /oci/config
+      - --profile
+      - ${OCI_PROFILE:-DEFAULT}
+      - --connection-timeout
+      - '10'
+      - --read-timeout
+      - '30'
+      - --max-retries
+      - '0'

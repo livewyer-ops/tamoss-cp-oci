@@ -1,0 +1,19 @@
+apiVersion: qualification.livewyer.io/v1alpha1
+kind: CostEstimate
+# Replace the date, duration and every price from current regional pricing.
+date: 'REPLACE'
+currency: USD
+allowanceUSD: 50
+spentUSD: 0
+runHours: 0
+cleanupHours: 0
+reserveUSD: 0
+hourlyUSD:
+  compute: 0
+  database: 0
+  kubernetes: 0
+  loadBalancer: 0
+  networking: 0
+  storage: 0
+transferUSD: 0
+priceReferences: []

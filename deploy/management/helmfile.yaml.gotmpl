@@ -1,0 +1,32 @@
+repositories:
+  - name: crossplane-stable
+    url: https://charts.crossplane.io/stable
+helmDefaults:
+  wait: true
+  timeout: 600
+releases:
+  - name: crossplane
+    namespace: crossplane-system
+    chart: crossplane-stable/crossplane
+    version: {{ (readFile "../../dependencies.yaml" | fromYaml).crossplane.version | quote }}
+    labels:
+      stage: crossplane
+  - name: oci-family
+    namespace: crossplane-system
+    chart: ../../charts/packages
+    labels:
+      stage: family
+    values:
+      - family: true
+  - name: oci-services
+    namespace: crossplane-system
+    chart: ../../charts/packages
+    labels:
+      stage: services
+    values:
+      - services: true
+  - name: tamoss-environment-api
+    namespace: crossplane-system
+    chart: ../../charts/environment
+    labels:
+      stage: api

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Render
+(sort(resources[?kind == 'Subnet'].spec.forProvider.securityListIdRefs[].name) == sort(resources[?kind == 'SecurityList'].metadata.name)): true
+(length(resources[?kind == 'NodePool'])): 0
+(length(resources[?kind == 'Cluster'])): 0
+(length(resources[?kind == 'PsqlDbSystem'])): 0
+(length(resources[?kind == 'Usage'])): 41
+(length(resources[?kind == 'Bucket'])): 1
+(length(resources[?kind == 'CustomerSecretKey' || kind == 'LoadBalancer'])): 0
+(resources[?kind == 'TamossEnvironment'] | [0].status.outputs.objectEndpoint): https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com

@@ -1,0 +1,31 @@
+{{- if .Values.family }}
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: oracle-provider-family-oci
+spec:
+  package: ghcr.io/oracle/provider-family-oci:{{ .Values.providerVersion }}
+  revisionHistoryLimit: 1
+{{- end }}
+{{- if .Values.services }}
+{{- range $service := list "networking" "containerengine" "psql" "objectstorage" }}
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-oci-{{ $service }}
+spec:
+  package: ghcr.io/oracle/provider-oci-{{ $service }}:{{ $.Values.providerVersion }}
+  revisionHistoryLimit: 1
+{{- end }}
+{{- range $name, $version := .Values.functions }}
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-{{ $name }}
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-{{ $name }}:{{ $version }}
+  revisionHistoryLimit: 1
+{{- end }}
+{{- end }}

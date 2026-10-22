@@ -1,0 +1,216 @@
+{{- $xr := .observed.composite.resource -}}
+{{- $p := $xr.spec -}}
+{{- $n := $xr.metadata.name -}}
+{{- $ns := $xr.metadata.namespace -}}
+{{- $observed := .observed.resources | default dict -}}
+{{- $tags := dict "tamoss-environment" $n "tamoss-deployment-id" (index ($xr.metadata.annotations | default dict) "tamoss.livewyer.io/deployment-id" | default "render-only") "tamoss-composite-uid" ($xr.metadata.uid | default "render-only") "tamoss-owner" $p.owner "tamoss-expires" $p.expiresAt "tamoss-budget" (printf "%v %s" $p.budget.amount $p.budget.currency) -}}
+{{- $resources := dict -}}
+{{- $edges := list -}}
+{{- $net := "networking.oci.m.upbound.io/v1alpha1" -}}
+{{- $oke := "containerengine.oci.m.upbound.io/v1alpha1" -}}
+{{- $vcnRef := dict "name" (printf "%s-vcn" $n) -}}
+
+{{/* Store resource bodies in a map so naming, provider selection and tagging are uniform. */}}
+{{- $_ := set $resources "vcn" (dict "apiVersion" $net "kind" "Vcn" "parameters" (dict "cidrBlocks" (list $p.network.vcn) "dnsLabel" "tamoss")) -}}
+{{- range $key, $kind := dict "internet" "InternetGateway" "nat" "NatGateway" -}}
+  {{- $_ := set $resources $key (dict "apiVersion" $net "kind" $kind "parameters" (dict "vcnIdRef" $vcnRef)) -}}
+  {{- $edges = append $edges (list "vcn" $key) -}}
+{{- end -}}
+{{- $_ := set $resources "service" (dict "apiVersion" $net "kind" "ServiceGateway" "parameters" (dict "vcnIdRef" $vcnRef "services" (list (dict "serviceId" $p.network.ociServiceId)))) -}}
+{{- $edges = append $edges (list "vcn" "service") -}}
+
+{{/* Resolve IDs inside atomic lists here: the provider's reference resolver can
+     remove previously owned lists. Retain values through transient status loss. */}}
+{{- $internetId := dig "internet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $natId := dig "nat" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $serviceId := dig "service" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $publicRules := dig "public-routes" "resource" "spec" "forProvider" "routeRules" (list) $observed -}}
+{{- $privateRules := dig "private-routes" "resource" "spec" "forProvider" "routeRules" (list) $observed -}}
+{{- if $internetId -}}
+  {{- $publicRules = list (dict "destination" "0.0.0.0/0" "destinationType" "CIDR_BLOCK" "networkEntityId" $internetId) -}}
+{{- end -}}
+{{- if and $natId $serviceId -}}
+  {{- $privateRules = list (dict "destination" "0.0.0.0/0" "destinationType" "CIDR_BLOCK" "networkEntityId" $natId) (dict "destination" $p.network.ociServiceCidr "destinationType" "SERVICE_CIDR_BLOCK" "networkEntityId" $serviceId) -}}
+{{- end -}}
+{{- range $key, $rules := dict "public-routes" $publicRules "private-routes" $privateRules -}}
+  {{- $_ := set $resources $key (dict "apiVersion" $net "kind" "RouteTable" "parameters" (dict "vcnIdRef" $vcnRef "routeRules" $rules)) -}}
+  {{- $edges = append $edges (list "vcn" $key) -}}
+{{- end -}}
+{{- $edges = append $edges (list "internet" "public-routes") -}}
+{{- $edges = append $edges (list "nat" "private-routes") -}}
+{{- $edges = append $edges (list "service" "private-routes") -}}
+
+{{- $outbound := list (dict "protocol" "all" "destination" "0.0.0.0/0" "destinationType" "CIDR_BLOCK") -}}
+{{- $internal := list (dict "protocol" "all" "source" $p.network.workers) (dict "protocol" "all" "source" $p.network.pods) -}}
+{{- $apiRules := list -}}
+{{- range $cidr := concat $p.network.adminCidrs (list $p.network.workers $p.network.pods) -}}
+  {{- $apiRules = append $apiRules (dict "protocol" "6" "source" $cidr "tcpOptions" (list (dict "min" 6443 "max" 6443))) -}}
+{{- end -}}
+{{- range $cidr := list $p.network.workers $p.network.pods -}}
+  {{- $apiRules = append $apiRules (dict "protocol" "6" "source" $cidr "tcpOptions" (list (dict "min" 12250 "max" 12250))) -}}
+{{- end -}}
+{{- $workerRules := concat $internal (list (dict "protocol" "all" "source" $p.network.api) (dict "protocol" "6" "source" $p.network.loadBalancer "tcpOptions" (list (dict "min" 30000 "max" 32767)))) -}}
+{{- $podRules := concat $internal (list (dict "protocol" "all" "source" $p.network.api) (dict "protocol" "6" "source" $p.network.loadBalancer)) -}}
+{{- $dbRules := list (dict "protocol" "6" "source" $p.network.pods "tcpOptions" (list (dict "min" 5432 "max" 5432))) -}}
+{{- $lbRules := list (dict "protocol" "6" "source" "0.0.0.0/0" "tcpOptions" (list (dict "min" 80 "max" 80))) (dict "protocol" "6" "source" "0.0.0.0/0" "tcpOptions" (list (dict "min" 443 "max" 443))) -}}
+{{- range $key, $rules := dict "api" $apiRules "workers" $workerRules "pods" $podRules "database" $dbRules "loadBalancer" $lbRules -}}
+  {{- $security := printf "%s-security" $key -}}
+  {{- $subnet := printf "%s-subnet" $key -}}
+  {{- $private := not (has $key (list "api" "loadBalancer")) -}}
+  {{- $route := ternary "private-routes" "public-routes" $private -}}
+  {{- $_ := set $resources $security (dict "apiVersion" $net "kind" "SecurityList" "parameters" (dict "vcnIdRef" $vcnRef "ingressSecurityRules" $rules "egressSecurityRules" $outbound)) -}}
+  {{- $_ := set $resources $subnet (dict "apiVersion" $net "kind" "Subnet" "parameters" (dict "vcnIdRef" $vcnRef "cidrBlock" (index $p.network $key) "prohibitPublicIpOnVnic" $private "dnsLabel" (lower $key) "routeTableIdRef" (dict "name" (printf "%s-%s" $n $route)) "securityListIdRefs" (list (dict "name" (printf "%s-%s" $n $security | lower))))) -}}
+  {{- $edges = append $edges (list "vcn" $security) -}}
+  {{- $edges = append $edges (list "vcn" $subnet) -}}
+  {{- $edges = append $edges (list $route $subnet) -}}
+  {{- $edges = append $edges (list $security $subnet) -}}
+{{- end -}}
+
+{{- $apiId := dig "api-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $lbId := dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $oldEndpoint := dig "cluster" "resource" "spec" "forProvider" "endpointConfig" (list) $observed -}}
+{{- $oldOptions := dig "cluster" "resource" "spec" "forProvider" "options" (list) $observed -}}
+{{- if and (not $apiId) $oldEndpoint -}}
+  {{- $apiId = (index $oldEndpoint 0).subnetId | default "" -}}
+{{- end -}}
+{{- if and (not $lbId) $oldOptions -}}
+  {{- $lbIds := (index $oldOptions 0).serviceLbSubnetIds | default list -}}
+  {{- if $lbIds -}}{{- $lbId = index $lbIds 0 -}}{{- end -}}
+{{- end -}}
+{{- $_ := set $resources "cluster" (dict "apiVersion" $oke "kind" "Cluster" "emit" (and $apiId $lbId) "parameters" (dict
+  "name" $n "type" "ENHANCED_CLUSTER" "vcnIdRef" $vcnRef "kubernetesVersion" $p.oke.version
+  "clusterPodNetworkOptions" (list (dict "cniType" "OCI_VCN_IP_NATIVE"))
+  "endpointConfig" (list (dict "isPublicIpEnabled" true "subnetId" $apiId))
+  "options" (list (dict "serviceLbSubnetIds" (list $lbId) "serviceLbConfig" (list (dict "freeformTags" $tags)) "persistentVolumeConfig" (list (dict "freeformTags" $tags)) "kubernetesNetworkConfig" (list (dict "servicesCidr" $p.network.services)))))) -}}
+{{- range $dependency := list "vcn" "api-subnet" "loadBalancer-subnet" -}}
+  {{- $edges = append $edges (list $dependency "cluster") -}}
+{{- end -}}
+
+{{/* The provider lacks podSubnetId references. Delay the first node pool until
+     it is known, then retain its resolved ID through transient status loss. */}}
+{{- $podId := dig "pods-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $workersId := dig "workers-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- range $i, $placement := $p.oke.placements -}}
+  {{- $key := printf "worker-%d" $i -}}
+  {{- $oldConfig := dig $key "resource" "spec" "forProvider" "nodeConfigDetails" (list) $observed -}}
+  {{- $workerId := $workersId -}}
+  {{- $podIds := list -}}
+  {{- if $podId -}}
+    {{- $podIds = list $podId -}}
+  {{- else if $oldConfig -}}
+    {{- $podIds = (index (index $oldConfig 0).nodePoolPodNetworkOptionDetails 0).podSubnetIds -}}
+  {{- end -}}
+  {{- if and (not $workerId) $oldConfig -}}
+    {{- $workerId = (index (index $oldConfig 0).placementConfigs 0).subnetId | default "" -}}
+  {{- end -}}
+  {{- if and $podIds $workerId -}}
+    {{- $_ := set $resources $key (dict "apiVersion" $oke "kind" "NodePool" "parameters" (dict
+      "name" (printf "%s-%s" $n $key) "clusterIdRef" (dict "name" (printf "%s-cluster" $n)) "kubernetesVersion" $p.oke.version
+      "nodeShape" $p.oke.shape "nodeShapeConfig" (list (dict "ocpus" $p.oke.ocpus "memoryInGbs" $p.oke.memoryGiB))
+      "nodeSourceDetails" (list (dict "sourceType" "IMAGE" "imageId" $p.oke.imageId "bootVolumeSizeInGbs" "100"))
+      "nodeConfigDetails" (list (dict "size" 1 "freeformTags" $tags "isPvEncryptionInTransitEnabled" true
+        "placementConfigs" (list (dict "availabilityDomain" $placement.availabilityDomain "faultDomains" (list $placement.faultDomain) "subnetId" $workerId))
+        "nodePoolPodNetworkOptionDetails" (list (dict "cniType" "OCI_VCN_IP_NATIVE" "maxPodsPerNode" 31 "podSubnetIds" $podIds)))))) -}}
+  {{- end -}}
+  {{- range $dependency := list "cluster" "workers-subnet" "pods-subnet" -}}
+    {{- $edges = append $edges (list $dependency $key) -}}
+  {{- end -}}
+{{- end -}}
+
+{{- $storage := dict "isRegionallyDurable" $p.database.regionalStorage "systemType" "OCI_OPTIMIZED_STORAGE" -}}
+{{- if not $p.database.regionalStorage -}}
+  {{- $_ := set $storage "availabilityDomain" $p.database.availabilityDomain -}}
+{{- end -}}
+{{- $databaseSubnetId := dig "database-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $oldNetwork := dig "database" "resource" "spec" "forProvider" "networkDetails" (list) $observed -}}
+{{- if and (not $databaseSubnetId) $oldNetwork -}}
+  {{- $databaseSubnetId = (index $oldNetwork 0).subnetId | default "" -}}
+{{- end -}}
+{{/* Non-empty instance details survive provider serialisation and retain immutable creation state. */}}
+{{- $_ := set $resources "database" (dict "apiVersion" "psql.oci.m.upbound.io/v1alpha1" "kind" "PsqlDbSystem" "emit" $databaseSubnetId "parameters" (dict
+  "dbVersion" $p.database.version "shape" $p.database.shape "instanceCount" 2 "instanceOcpuCount" $p.database.ocpus "instanceMemorySizeInGbs" $p.database.memoryGiB
+  "instancesDetails" (list (dict "displayName" (printf "%s-database-1" $n)) (dict "displayName" (printf "%s-database-2" $n)))
+  "credentials" (list (dict "username" $p.database.administrator "passwordDetails" (list (dict "passwordSecretRef" (dict "name" $p.database.credentialsSecret "key" "password") "passwordTypeSecretRef" (dict "name" $p.database.credentialsSecret "key" "passwordType")))))
+  "storageDetails" (list $storage) "networkDetails" (list (dict "subnetId" $databaseSubnetId))
+  "managementPolicy" (list (dict "backupPolicy" (list (dict "kind" "DAILY" "backupStart" "02:00" "retentionDays" $p.database.backupRetentionDays)))))) -}}
+{{- $edges = append $edges (list "database-subnet" "database") -}}
+{{- $_ := set $resources "bucket" (dict "apiVersion" "objectstorage.oci.m.upbound.io/v1alpha1" "kind" "Bucket" "parameters" (dict "name" $p.storage.bucket "namespace" $p.storage.namespace "accessType" "NoPublicAccess" "versioning" "Disabled" "storageTier" "Standard")) -}}
+{{- $_ := set $resources "public-ip" (dict "apiVersion" $net "kind" "PublicIp" "parameters" (dict "lifetime" "RESERVED")) -}}
+
+{{- range $key, $resource := $resources }}
+{{- if or (not (hasKey $resource "emit")) $resource.emit }}
+---
+apiVersion: {{ $resource.apiVersion }}
+kind: {{ $resource.kind }}
+metadata:
+  name: {{ printf "%s-%s" $n $key | lower }}
+  namespace: {{ $ns }}
+  annotations:
+    {{ setResourceNameAnnotation $key }}
+  labels:
+    tamoss.livewyer.io/environment: {{ $n }}
+spec:
+  managementPolicies: ["*"]
+  providerConfigRef:
+    kind: ProviderConfig
+    name: {{ $p.providerConfigName }}
+  forProvider:
+    compartmentId: {{ $p.compartmentId | quote }}
+    freeformTags:
+{{ toYaml $tags | indent 6 }}
+{{- if not (has $resource.kind (list "Bucket" "Cluster" "NodePool")) }}
+    displayName: {{ printf "%s-%s" $n $key | lower }}
+{{- end }}
+{{ toYaml $resource.parameters | indent 4 }}
+{{- end }}
+{{- end }}
+
+{{/* Every dependency edge has a Usage. Emit even before the consumer exists;
+     the Usage controller resolves it when Crossplane creates that consumer. */}}
+{{- range $edge := $edges -}}
+{{- $of := index $edge 0 -}}
+{{- $by := index $edge 1 -}}
+{{- $ofResource := index $resources $of -}}
+{{- $byResource := index $resources $by -}}
+{{- $byApi := $oke -}}
+{{- $byKind := "NodePool" -}}
+{{- if $byResource -}}
+  {{- $byApi = $byResource.apiVersion -}}
+  {{- $byKind = $byResource.kind -}}
+{{- end }}
+---
+apiVersion: protection.crossplane.io/v1beta1
+kind: Usage
+metadata:
+  name: {{ printf "%s-%s-by-%s" $n $of $by | lower }}
+  namespace: {{ $ns }}
+  annotations:
+    {{ setResourceNameAnnotation (printf "usage-%s-%s" $of $by) }}
+    gotemplating.fn.crossplane.io/ready: "True"
+spec:
+  replayDeletion: true
+  of:
+    apiVersion: {{ $ofResource.apiVersion }}
+    kind: {{ $ofResource.kind }}
+    resourceRef:
+      name: {{ printf "%s-%s" $n $of | lower }}
+  by:
+    apiVersion: {{ $byApi }}
+    kind: {{ $byKind }}
+    resourceRef:
+      name: {{ printf "%s-%s" $n $by | lower }}
+{{- end }}
+
+---
+apiVersion: {{ $xr.apiVersion }}
+kind: {{ $xr.kind }}
+status:
+  outputs:
+    clusterId: {{ dig "cluster" "resource" "status" "atProvider" "id" "" $observed | quote }}
+    databaseId: {{ dig "database" "resource" "status" "atProvider" "id" "" $observed | quote }}
+    publicIp: {{ dig "public-ip" "resource" "status" "atProvider" "ipAddress" "" $observed | quote }}
+    bucket: {{ $p.storage.bucket | quote }}
+    objectEndpoint: {{ printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $p.storage.namespace $p.region | quote }}
+    loadBalancerSubnetId: {{ dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed | quote }}
+{{- $dbNetworks := dig "database" "resource" "status" "atProvider" "networkDetails" (list) $observed }}
+    databaseIp: {{ if $dbNetworks }}{{ (index $dbNetworks 0).primaryDbEndpointPrivateIp | default "" | quote }}{{ else }}""{{ end }}

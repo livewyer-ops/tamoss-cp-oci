@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../environments/example
+patches:
+  - target:
+      kind: TamossEnvironment
+    patch: |-
+      [{"op": "replace", "path": "/spec/oke/placements", "value": [{"availabilityDomain": "REPLACE:EU-FRANKFURT-1-AD-1", "faultDomain": "FAULT-DOMAIN-1"}, {"availabilityDomain": "REPLACE:EU-FRANKFURT-1-AD-1", "faultDomain": "FAULT-DOMAIN-1"}, {"availabilityDomain": "REPLACE:EU-FRANKFURT-1-AD-1", "faultDomain": "FAULT-DOMAIN-1"}]}]

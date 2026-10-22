@@ -1,0 +1,5 @@
+apiVersion: v2
+name: oci-packages
+description: OCI provider packages and Crossplane composition functions
+type: application
+version: 0.1.0

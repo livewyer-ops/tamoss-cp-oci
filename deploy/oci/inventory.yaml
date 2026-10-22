@@ -1,0 +1,18 @@
+- {name: buckets, command: 'os bucket list'}
+- {name: clusters, command: 'ce cluster list'}
+- {name: node-pools, command: 'ce node-pool list'}
+- {name: databases, command: 'psql db-system-collection list-db-systems'}
+- {name: backups, command: 'psql backup-collection list-backups'}
+- {name: instances, command: 'compute instance list'}
+- {name: volumes, command: 'bv volume list'}
+- {name: volume-backups, command: 'bv backup list'}
+- {name: boot-volume-backups, command: 'bv boot-volume-backup list'}
+- {name: load-balancers, command: 'lb load-balancer list'}
+- {name: public-ips, command: 'network public-ip list --scope REGION'}
+- {name: vcns, command: 'network vcn list'}
+- {name: subnets, command: 'network subnet list'}
+- {name: nat-gateways, command: 'network nat-gateway list'}
+- {name: internet-gateways, command: 'network internet-gateway list'}
+- {name: service-gateways, command: 'network service-gateway list'}
+- {name: routes, command: 'network route-table list'}
+- {name: security-lists, command: 'network security-list list'}
