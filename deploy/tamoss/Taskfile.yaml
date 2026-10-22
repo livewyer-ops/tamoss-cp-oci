@@ -135,6 +135,30 @@ tasks:
         msg: Existing environment has no TAMOSS release record; recover its original selection before continuing
       - sh: test ! -e '{{.ENV_DIR}}/tamoss-release.yaml' || yq -n -e '(load("{{.ENV_DIR}}/tamoss-release.yaml") | sort_keys(.) | to_json) == (load("{{.LOCK}}") | sort_keys(.) | to_json)' > /dev/null
         msg: Environment TAMOSS release differs from the repository pin; use its original selection or tear down before changing releases
+  bundle:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      BUNDLE: '{{.ROOT_DIR}}/.local/tmp/tamoss-bundle'
+    cmds:
+      - task: metadata
+        vars: {RELEASE_LOCK: '{{.LOCK}}'}
+      - rm -rf '{{.BUNDLE}}'
+      - mkdir -p -m 700 '{{.BUNDLE}}'
+      - for: [install.yaml, compatibility.yaml, catalogue.json, dependencies.yaml]
+        cmd: 'yq -r ''.artifacts."{{.ITEM}}".sha256 + "  {{.ASSETS}}/{{.ITEM}}"'' {{.ASSETS}}/release.json | sha256sum --check --status'
+      - cp '{{.ASSETS}}/install.yaml' '{{.ASSETS}}/compatibility.yaml' '{{.ASSETS}}/catalogue.json' '{{.ASSETS}}/dependencies.yaml' '{{.ASSETS}}/release.json' '{{.BUNDLE}}/'
+      - cp '{{.LOCK}}' '{{.BUNDLE}}/release.yaml'
+      - cp '{{.ROOT_DIR}}/deploy/tamoss/bundle/kustomization.yaml' '{{.BUNDLE}}/'
+      - find '{{.BUNDLE}}' -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > '{{.CACHE}}/bundle-files.txt'
+      - diff -u '{{.ROOT_DIR}}/deploy/tamoss/bundle/files.txt' '{{.CACHE}}/bundle-files.txt'
+      - test -z "$(find '{{.BUNDLE}}' -mindepth 1 ! -type f -print)"
+      - kubectl kustomize '{{.BUNDLE}}' > '{{.CACHE}}/bundle-render.yaml'
+      - flux build artifact --path '{{.BUNDLE}}' --output '{{.CACHE}}/tamoss-bundle.tgz'
+      - touch -t 200001010000 '{{.BUNDLE}}/install.yaml'
+      - flux build artifact --path '{{.BUNDLE}}' --output '{{.CACHE}}/tamoss-bundle-repeat.tgz'
+      - cmp '{{.CACHE}}/tamoss-bundle.tgz' '{{.CACHE}}/tamoss-bundle-repeat.tgz'
   record:
     vars:
       LOCK: *releaseLock

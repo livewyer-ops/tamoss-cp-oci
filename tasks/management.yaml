@@ -4,6 +4,7 @@ tasks:
   check:
     vars:
       CHECK_NAME: 'tamoss-cp-check-{{now | unixEpoch}}'
+      RELEASE_KEY: {sh: 'yq -r .releaseSha256 {{.ROOT_DIR}}/deploy/tamoss/release.yaml'}
     cmds:
       - defer: kind delete cluster --name '{{.CHECK_NAME}}'
       - defer: rm -f '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig'
@@ -12,13 +13,24 @@ tasks:
       - task: install
         vars:
           MANAGEMENT_KUBECONFIG: '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig'
+      - helmfile --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-api sync
+      - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io --for=condition=Established --timeout=120s
+      - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' apply --server-side -f '{{.ROOT_DIR}}/.local/tmp/check/schemas/kms.oci.m.upbound.io_vaults.yaml' -f '{{.ROOT_DIR}}/.local/tmp/check/schemas/kms.oci.m.upbound.io_keys.yaml'
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --exec-timeout 180s --test-dir tests/lifecycle --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-identity' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name lifecycle
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/management --report-format JUNIT-TEST --report-path .local/reports --report-name management
+      - helmfile --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --assert-timeout 90s --test-dir tests/secret-persistence --report-format JUNIT-TEST --report-path .local/reports --report-name secret-persistence
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --assert-timeout 120s --test-dir tests/database-connection --report-format JUNIT-TEST --report-path .local/reports --report-name database-connection
+      - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' apply --server-side -f '{{.ROOT_DIR}}/.local/tmp/check/flux-install.yaml'
+      - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' -n flux-system wait deployment --all --for=condition=Available --timeout=300s
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --exec-timeout 180s --assert-timeout 180s --test-dir tests/gitops-adoption --set-string root='{{.ROOT_DIR}}' --set-string chart='{{.ROOT_DIR}}/.local/tmp/tamoss/{{.RELEASE_KEY}}/source/deploy/platform/charts/authentik-bootstrap' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops-adoption
       - defer: rm -rf '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-storage'
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/storage-cleanup --set-string root='{{.ROOT_DIR}}' --set-string name='{{.CHECK_NAME}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-storage' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name storage-cleanup
   install:
     requires:
       vars: [MANAGEMENT_KUBECONFIG]
+    env:
+      TAMOSS_GITOPS_VALUES: '{{.GITOPS_VALUES | default ""}}'
     cmds:
       - helmfile --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' -f deploy/management/helmfile.yaml.gotmpl -l stage=crossplane sync
       - helmfile --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' -f deploy/management/helmfile.yaml.gotmpl -l stage=family sync

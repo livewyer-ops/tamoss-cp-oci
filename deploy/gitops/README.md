@@ -1,0 +1,130 @@
+# GitOps integration
+
+Kind creates the environment and its retained OCI Vault/key. Flux, Crossplane
+and External Secrets on OKE then take responsibility for ongoing operations.
+The original Kind is stopped after ownership transfer and retained for teardown.
+TAMOSS source, charts, profiles and release assets remain read-only.
+
+The integration has local rendering, admission, secret persistence, database
+adapter and Flux adoption checks. Real OCI workload authentication, private GHCR
+pulls, complete ownership transfer and a TAMOSS upgrade still need qualification.
+The internal `bootstrap`, `gitops` and `transfer` Task namespaces are not public
+entry points. The root `up`, `qualify` and `down` commands retain the previously
+tested Kind-owned lifecycle until the replacement is qualified.
+
+## Repository contents
+
+The operator clones this product and prepares a separate private environment
+repository. Initial export writes one cluster directory containing:
+
+| File | Responsibility |
+| --- | --- |
+| `values.yaml` | Non-secret environment outputs, settings, dependency pins and TAMOSS release hashes/OCI digest |
+| `sources.yaml` | Exact product and TAMOSS source commits |
+| `infrastructure/environment.yaml` | Observe-only environment declaration with all exact provider bindings and the original creation identity |
+| `infrastructure/kustomization.yaml` | Infrastructure entry point |
+| `releases.yaml` | Integration HelmRelease and infrastructure readiness dependencies |
+| `namespaces.yaml` | Runtime namespaces |
+| `flux.yaml` | Controller installation exported by the pinned Flux CLI |
+| `sync.yaml` | Environment Git source and root reconciliation |
+| `kustomization.yaml` | Root entry point and watched settings ConfigMap |
+
+Export validates the checkout's origin, branch, path and deployment identity.
+It writes this directory once and preserves subsequent user changes. Incomplete
+existing configuration and missing provider bindings stop export. It does not
+commit or push. Secrets, Kubernetes status, kubeconfigs and owner references are
+excluded; non-secret cloud identifiers belong in the private environment repo.
+
+Flux fetches reusable integration charts from the pinned product commit and
+upstream platform charts from the release's recorded TAMOSS commit. Git source
+includes make the upstream instance profile and platform defaults available in
+the product's source artefact. The defaults become a watched ConfigMap consumed
+through `valuesFrom`, so changing the TAMOSS source can update values independently
+of the product chart. The environment repo contains neither source tree.
+
+The operator installation comes from an immutable private GHCR bundle. The
+[bundle workflow](../tamoss/README.md#private-release-bundle) verifies published
+assets, packages an explicit allowlist and preserves upstream bytes. Flux applies
+local HA patches. The root configuration owns runtime namespaces; the operator
+overlay excludes its bundled Namespace to avoid a second owner.
+
+## Inputs and secret delivery
+
+Start with the existing environment, settings and bounded cost inputs, plus
+[`foundation.yaml`](../../environments/example/foundation.yaml) and
+[`gitops.yaml`](../../environments/example/gitops.yaml). Select an existing
+environment checkout, published product commit and private bundle digest.
+The GitHub App needs read access to both Git sources that use it. GHCR uses a
+separate package-read credential.
+
+The bootstrap OCI principal also needs scoped access to create/read the vault and
+key, persist/read/retire its secrets, and manage the runtime IAM policies in the
+dedicated compartment. The original infrastructure grants alone are insufficient.
+Keep these grants and the foundation owner available through retirement; a
+retained vault/key prevents treating the compartment as empty after teardown.
+
+Bootstrap reads these owner-only files under the private environment's `secrets/`:
+
+- `github-app-id`, `github-app-installation-id`, `github-app-private-key`;
+- `ghcr-dockerconfigjson`, containing the Docker registry authentication document;
+- `s3-access-key` and `s3-secret-key`, containing exact credential bytes.
+
+Supply the two GitHub App IDs as decimal digits without a trailing line ending.
+PEM and Docker JSON files retain their native formats.
+
+Kind's ESO uses the configured OCI user principal. Password generators and
+`PushSecret` with `IfNotExists` persist initial credentials; all consumers use
+ExternalSecret readback. After readback succeeds, bootstrap removes creation
+resources and imported Kubernetes staging Secrets. Missing established Vault
+secrets fail visibly. Original local input files remain under the operator's
+control.
+
+OKE receives namespace-scoped SecretStores using workload identity. The local
+OCI signing key stays out of OKE. Separate IAM grants identify the exact cluster,
+namespace and service account. The database adapter can only read connection
+details in the dedicated compartment; Kubernetes limits it to patching its named
+ConfigMap. Flux waits for the current Job and matching connection data before
+delivering the CA to consumers. PostgreSQL connections retain `verify-full` TLS.
+
+## Lifecycle stages
+
+1. Validate bounded inputs; create original Kind, retained foundation and persisted
+   credentials; provision the infrastructure and export the environment directory.
+2. Review and publish the exported configuration. Install OKE secret delivery and
+   Flux, then verify release adoption and observe-only infrastructure reconciliation.
+3. Compare exact external names, provider configuration, cloud status and ownership
+   tags. Set Kind to observation, wait for operations to finish, pause reconciliation
+   and persist its non-writing configuration locally.
+4. Prepare the Git promotion, grant runtime provider writes and publish the reviewed
+   change. Verify OKE reconciliation and TAMOSS readiness, then stop original Kind.
+5. Make operational changes through Git. Qualification uses the running release's
+   verified assets and exercises ingest, TLS, external storage, UI and worker drain.
+6. For teardown, restart original Kind and verify the current published checkout.
+   Suspend Flux reconciliation, quiesce OKE's provider resources and revoke its write
+   grants. Refresh Kind's controllers/API from the current product and Git selections,
+   retaining Kind's API-key authentication. Return current configuration to Kind in observe-only mode; compare both
+   inventories before granting deletion authority.
+7. Finalise TAMOSS while its operator is available. Keep parent reconciliation
+   suspended and resume each application declaration for deletion. Remove releases and
+   the load balancer, then delete infrastructure. Confirm direct OCI inventory,
+   remove runtime IAM grants and schedule environment-secret deletion before
+   removing Kind. Record the retained vault/key, owner and pending secret deletions.
+
+The transfer uses the same deployment ID and original cloud ownership tags, with
+separate Kubernetes composite UIDs for Kind and OKE. It requires the original
+Kind state; it does not restore a lost management cluster. A failed gate retains
+state for diagnosis and retry.
+
+## Release changes
+
+Prepare and verify the next published TAMOSS release, publish its allowlisted
+bundle and review its compatibility metadata. Update the matching source commit
+in `sources.yaml`, bundle digest, release checksums, image and dependency selections
+in `values.yaml` together. Keep the product integration commit unless that release
+needs an integration change. Flux reconciles the upstream charts/profile and
+operator bundle; the TAMOSS operator owns application images and migrations.
+
+Successful reconciliation and a supported upgrade must be observed before a
+release is qualified. Schema or chart incompatibilities may require an integration
+change. Teardown uses current Git/live inventory and the recorded installed
+release, while preserving the initial release record for audit.

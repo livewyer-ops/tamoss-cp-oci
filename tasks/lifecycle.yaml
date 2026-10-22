@@ -75,7 +75,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', INVENTORY_DIR: '{{.ENV_DIR}}/inventory-pending'}
       - 'yq eval-all -e ''[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED") | select(."freeform-tags"."tamoss-environment" == strenv(ENVIRONMENT_NAME) or .name == strenv(BUCKET_NAME))] | length == 0'' {{.ENV_DIR}}/inventory-pending/*.json'
       - mv '{{.ENV_DIR}}/inventory-pending' '{{.ENV_DIR}}/inventory-before'
-  up:
+  prepare:
     requires: {vars: [ENV_DIR]}
     cmds:
       - "echo 'Checking deployment inputs, cost allowance and environment identity'"
@@ -96,8 +96,15 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :management:install
         vars: {MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'}
+      - task: :identity:local-owner
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:credentials
         vars: {CREDENTIAL_DIR: '{{.ENV_DIR}}/provider', MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'}
+  up:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: prepare
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - for: [database-admin-password, tams-database-password]
         task: password
         vars: {ENV_DIR: '{{.ENV_DIR}}', DESTINATION: '{{.ENV_DIR}}/secrets/{{.ITEM}}'}
@@ -133,6 +140,8 @@ tasks:
         msg: Baseline inventory is missing; retain Kind and recover the environment records
     cmds:
       - "echo 'Checking ownership before teardown; retain {{.ENV_DIR}} until the cloud audit succeeds'"
+      - task: :identity:local-owner
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:resources
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: wait-deletion

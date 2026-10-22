@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["deploymentId", "compartmentId", "clusterId", "vaultId", "bucket", "providerConfigName", "providerWrites"],
+  "additionalProperties": false,
+  "properties": {
+    "deploymentId": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "compartmentId": {"type": "string", "pattern": "^ocid1\\.compartment\\.[a-z0-9.]+$"},
+    "clusterId": {"type": "string", "pattern": "^ocid1\\.cluster\\.[a-z0-9.]+$"},
+    "vaultId": {"type": "string", "pattern": "^ocid1\\.vault\\.[a-z0-9.]+$"},
+    "bucket": {"type": "string", "pattern": "^[a-zA-Z0-9_.-]{1,256}$"},
+    "providerConfigName": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
+    "providerWrites": {"type": "boolean"}
+  }
+}

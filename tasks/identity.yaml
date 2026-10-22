@@ -80,7 +80,23 @@ tasks:
       - task: composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -e ''.metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
-      - 'yq -i ''.compositeUID = load("{{.ENV_DIR}}/composite.json").metadata.uid'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.compositeUID = load("{{.ENV_DIR}}/composite.json").metadata.uid | .creationCompositeUID = (.creationCompositeUID // load("{{.ENV_DIR}}/composite.json").spec.adoption.creationCompositeUID // .compositeUID)'' {{.ENV_DIR}}/identity.yaml'
+  local-owner:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - chainsaw assert -r '{{.ENV_DIR}}/environment.yaml' -f '{{.ROOT_DIR}}/deploy/contracts/local-owner.yaml' --timeout 1s
+      - task: assert-local-owner
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  assert-local-owner:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    # Foreground deletion can finish before a teardown retry.
+    status: ["test -f '{{.ENV_DIR}}/composite.json' && test ! -s '{{.ENV_DIR}}/composite.json'"]
+    cmds:
+      - chainsaw assert -r '{{.ENV_DIR}}/composite.json' -f '{{.ROOT_DIR}}/deploy/contracts/local-owner.yaml' --timeout 1s
   resources:
     silent: true
     requires: {vars: [ENV_DIR]}
@@ -90,7 +106,8 @@ tasks:
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get managed -o json |
         yq -p=json '[.items[] | select([.metadata.ownerReferences[].uid] | contains([load("{{.ENV_DIR}}/identity.yaml").compositeUID])) |
-        {"kind": .kind, "name": .metadata.name, "uid": .metadata.uid,
+        {"apiVersion": .apiVersion, "kind": .kind, "name": .metadata.name, "uid": .metadata.uid,
+        "resourceName": .metadata.annotations."crossplane.io/composition-resource-name",
         "id": .status.atProvider.id, "externalName": .metadata.annotations."crossplane.io/external-name"}]'
         > '{{.ENV_DIR}}/resources-current.yaml'
       - touch '{{.ENV_DIR}}/resources.yaml'
@@ -104,3 +121,31 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' config view --minify -o json | yq -p=json -e '.clusters[0].cluster.server == load("{{.ENV_DIR}}/identity.yaml").remoteServer and ([.users[0].user.exec.args[]] | contains([load("{{.ENV_DIR}}/identity.yaml").clusterID]))' > /dev/null
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").remoteUID' > /dev/null
+  runtime-composite:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - task: remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} -o json > '{{.ENV_DIR}}/runtime-composite.json'
+      - task: assert-runtime-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.runtimeCompositeUID = load("{{.ENV_DIR}}/runtime-composite.json").metadata.uid'' {{.ENV_DIR}}/identity.yaml'
+  assert-runtime-composite:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - >-
+        yq -e 'load("{{.ENV_DIR}}/identity.yaml") as $i |
+        [.metadata.uid != $i.compositeUID,
+        (.metadata.uid == $i.runtimeCompositeUID or $i.runtimeCompositeUID == null),
+        .metadata.deletionTimestamp == null,
+        .metadata.annotations."tamoss.livewyer.io/deployment-id" == $i.deploymentUID,
+        .spec.adoption.deploymentId == $i.deploymentUID,
+        .spec.adoption.creationCompositeUID == $i.creationCompositeUID,
+        .spec.region == $i.environment.region, .spec.compartmentId == $i.environment.compartmentId,
+        .spec.storage.namespace == $i.environment.storage.namespace,
+        .spec.storage.bucket == $i.environment.storage.bucket,
+        .spec.providerConfigName == $i.environment.providerConfigName] | all'
+        '{{.ENV_DIR}}/runtime-composite.json' > /dev/null

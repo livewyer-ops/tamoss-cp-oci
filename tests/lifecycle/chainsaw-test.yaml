@@ -29,6 +29,46 @@ spec:
             entrypoint: task
             env: *paths
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, repeat-bootstrap, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+    - name: reject stale local configuration after write authority is relinquished
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: tamoss-infra}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare-composite, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command: &localOwner
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, local-owner, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: qualification, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
+        - command:
+            <<: *localOwner
+            check:
+              ($error != null): true
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: qualification, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
+      finally:
+        - command:
+            entrypoint: kubectl
+            args: [delete, tamossenvironment, qualification, -n, tamoss-infra, --ignore-not-found, --wait=false]
+    - name: allow local cleanup after the original composite has disappeared
+      try:
+        - command: *localOwner
     - name: preserve credential bytes in generated Secrets
       try:
         - command:

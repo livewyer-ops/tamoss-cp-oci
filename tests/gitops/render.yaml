@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'Secret'])): 0
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-secrets'])): 4
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentik.secretKey): null
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentik.bootstrap.password): null
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentikChart.authentik.postgresql.host): null
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[0].name): authentik-values
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[1].targetPath): authentikChart.authentik.postgresql.host
+(resources[?kind == 'OCIRepository'] | [0].spec.ref.digest): sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+(resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.prune): false
+(resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.deletionPolicy): Orphan
+(length(resources[?kind == 'Kustomization' && metadata.name == 'credentials'] | [0].spec.healthChecks)): 9
+(resources[?kind == 'HelmRelease' && metadata.name == 'oci-services'] | [0].spec.values.foundation): false

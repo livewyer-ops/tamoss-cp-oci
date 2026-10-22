@@ -1,0 +1,52 @@
+name: Publish TAMOSS release assets
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: tamoss-release-assets
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PACKAGE_NAME: tamoss-release-assets
+      PACKAGE_OWNER: ${{ github.repository_owner }}
+      PRODUCT_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aquaproj/aqua-installer@611554c6f0137ba41c8dd15aca8bee82504ea461 # v4.1.1
+        with:
+          aqua_version: v2.65.2
+      - name: Verify the release and prepare the allowlisted bundle
+        run: |
+          export PATH="$(aqua root-dir)/bin:$PATH"
+          task check
+      - name: Require private visibility for any existing package
+        run: |
+          gh api --paginate --slurp "/users/$PACKAGE_OWNER/packages?package_type=container" > .local/tmp/check/packages.json
+          aqua exec -- yq -e '[.[][] | select(.name == strenv(PACKAGE_NAME)) | .visibility == "private" and .repository.full_name == strenv(PRODUCT_REPOSITORY)] | all' .local/tmp/check/packages.json
+      - name: Authenticate the publisher
+        env:
+          PUBLISHER: ${{ github.actor }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$PUBLISHER" --password-stdin
+      - name: Publish reproducibly and record the digest
+        env:
+          PRODUCT_COMMIT: ${{ github.sha }}
+          PRODUCT_BRANCH: ${{ github.ref_name }}
+        run: |
+          export PATH="$(aqua root-dir)/bin:$PATH"
+          bundle_tag="$(yq -r .tag deploy/tamoss/release.yaml)-$PRODUCT_COMMIT"
+          flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path .local/tmp/tamoss-bundle --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
+          gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/published-package.json
+          yq -e '.visibility == "private" and .repository.full_name == strenv(PRODUCT_REPOSITORY)' .local/tmp/check/published-package.json
+          yq -r '"OCI digest: `" + .digest + "`"' .local/tmp/check/published-bundle.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove publisher credentials
+        if: always()
+        run: docker logout ghcr.io

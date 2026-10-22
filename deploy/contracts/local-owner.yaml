@@ -1,0 +1,4 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossEnvironment
+(spec.managementPolicies == null || spec.managementPolicies == `["*"]`): true
+(spec.adoption == null): true

@@ -12,3 +12,4 @@ packages:
   - name: kyverno/chainsaw@v0.2.15
   - name: tsenart/vegeta@v12.13.0
   - name: Orange-OpenSource/hurl@8.0.1
+  - name: fluxcd/flux2@v2.9.6

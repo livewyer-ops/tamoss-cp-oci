@@ -1,0 +1,36 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossEnvironment
+metadata:
+  name: qualification
+  namespace: tamoss-infra
+  annotations:
+    tamoss.livewyer.io/deployment-id: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+spec:
+  managementPolicies: [Observe]
+  adoption:
+    deploymentId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    creationCompositeUID: 11111111-1111-4111-8111-111111111111
+    externalNames:
+      vcn: ocid1.test.oc1..vcn
+      internet: ocid1.test.oc1..internet
+      nat: ocid1.test.oc1..nat
+      service: ocid1.test.oc1..service
+      public-routes: ocid1.test.oc1..public-routes
+      private-routes: ocid1.test.oc1..private-routes
+      api-security: ocid1.test.oc1..api-security
+      api-subnet: ocid1.test.oc1..api-subnet
+      workers-security: ocid1.test.oc1..workers-security
+      workers-subnet: ocid1.test.oc1..workers-subnet
+      pods-security: ocid1.test.oc1..pods-security
+      pods-subnet: ocid1.test.oc1..pods-subnet
+      database-security: ocid1.test.oc1..database-security
+      database-subnet: ocid1.test.oc1..database-subnet
+      loadBalancer-security: ocid1.test.oc1..loadBalancer-security
+      loadBalancer-subnet: ocid1.test.oc1..loadBalancer-subnet
+      cluster: ocid1.test.oc1..cluster
+      worker-0: ocid1.test.oc1..worker-0
+      worker-1: ocid1.test.oc1..worker-1
+      worker-2: ocid1.test.oc1..worker-2
+      database: ocid1.test.oc1..database
+      bucket: n/REPLACE/b/qualification-media
+      public-ip: ocid1.test.oc1..public-ip

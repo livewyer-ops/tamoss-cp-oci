@@ -11,7 +11,8 @@ tasks:
     cmds:
       - task: :verify:artifact
         vars: {CACHE: '{{.CACHE}}', TARGET: calico/calico-policy-only.yaml, URL: '{{.URL}}', SHA: '{{.SHA}}'}
-      - cp deploy/calico/kustomization.yaml deploy/calico/oci.yaml '{{.CACHE}}/calico/'
+      - cp deploy/calico/kustomization.yaml '{{.CACHE}}/calico/'
+      - cp charts/gitops/files/calico-oci.yaml '{{.CACHE}}/calico/oci.yaml'
       - mkdir -p '{{.CACHE}}/calico-chart/templates'
       - cp charts/calico/Chart.yaml '{{.CACHE}}/calico-chart/'
       - cp charts/calico/templates/policy.yaml '{{.CACHE}}/calico-chart/templates/'

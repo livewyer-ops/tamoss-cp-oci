@@ -20,6 +20,9 @@ includes:
   application: {taskfile: tasks/application.yaml, internal: true}
   lifecycle: {taskfile: tasks/lifecycle.yaml, internal: true}
   identity: {taskfile: tasks/identity.yaml, internal: true}
+  gitops: {taskfile: tasks/gitops.yaml, internal: true}
+  bootstrap: {taskfile: tasks/bootstrap.yaml, internal: true}
+  transfer: {taskfile: tasks/transfer.yaml, internal: true}
   qualification: {taskfile: tasks/qualification.yaml, internal: true}
 tasks:
   check:
@@ -31,6 +34,7 @@ tasks:
       - task: verify:artifacts
       - task: tamoss:fetch
       - task: tamoss:release
+      - task: tamoss:bundle
       - task: verify:render
       - task: verify:database
       - task: tamoss:tls

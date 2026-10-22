@@ -1,0 +1,40 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  ROOT_DIR: '{{.PROJECT_ROOT}}'
+  CORE:
+    sh: 'yq -r ''"xpkg.crossplane.io/crossplane/crossplane:v" + .crossplane.version'' {{.PROJECT_ROOT}}/dependencies.yaml'
+includes:
+  gitops: {taskfile: ../../tasks/gitops.yaml, dir: '{{.PROJECT_ROOT}}'}
+  verify: {taskfile: ../../tasks/check.yaml, dir: '{{.PROJECT_ROOT}}'}
+tasks:
+  check:
+    cmds:
+      - task: verify:gitops
+  export:
+    cmds:
+      - task: gitops:export
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+  fixture:
+    cmds:
+      - mkdir -p '{{.DIRECTORY}}/inputs' '{{.DIRECTORY}}/checkout'
+      - git -C '{{.DIRECTORY}}/checkout' init --initial-branch=main
+      - git -C '{{.DIRECTORY}}/checkout' remote add origin https://github.com/example/tamoss-environments
+      - cp '{{.ROOT_DIR}}/environments/example/environment.yaml' '{{.ROOT_DIR}}/environments/example/settings.yaml' '{{.DIRECTORY}}/inputs/'
+      - cp '{{.ROOT_DIR}}/tests/runtime/outputs.json' '{{.DIRECTORY}}/inputs/'
+      - cp '{{.ROOT_DIR}}/deploy/tamoss/release.yaml' '{{.DIRECTORY}}/inputs/tamoss-release.yaml'
+      - >-
+        yq -n '{"deploymentUID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "creationCompositeUID": "11111111-1111-4111-8111-111111111111"}' > '{{.DIRECTORY}}/inputs/identity.yaml'
+      - 'yq -n ''{"vaultId": "ocid1.vault.oc1..example"}'' > {{.DIRECTORY}}/inputs/foundation-record.yaml'
+      - >-
+        yq -n '{"url": "https://github.com/example/tamoss-environments", "branch": "main", "path": "clusters/oci-dev",
+        "product": {"url": "https://github.com/example/tamoss-cp-oci", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "bundle": {"url": load("{{.ROOT_DIR}}/tests/gitops/values.yaml").release.bundleURL,
+        "digest": load("{{.ROOT_DIR}}/tests/gitops/values.yaml").release.digest}}' > '{{.DIRECTORY}}/inputs/gitops.yaml'
+      - >-
+        yq -n 'load("{{.ROOT_DIR}}/.local/tmp/check/adoption.yaml").spec.adoption.externalNames |
+        to_entries | map({"resourceName": .key, "externalName": .value})' > '{{.DIRECTORY}}/inputs/resources-current.yaml'
+      - >-
+        yq -i '.loadBalancerSubnetId = "ocid1.subnet.oc1..example" |
+        .databaseId = "ocid1.postgresqldbsystem.oc1..example"' '{{.DIRECTORY}}/inputs/outputs.json'

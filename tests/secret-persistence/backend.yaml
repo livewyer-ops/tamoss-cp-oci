@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secret-check
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secret-backend
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: store-client
+  namespace: secret-check
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: store-client
+  namespace: secret-backend
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: store-client
+  namespace: secret-backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: store-client
+subjects:
+  - kind: ServiceAccount
+    name: store-client
+    namespace: secret-check
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: store-token
+  namespace: secret-check
+rules:
+  - apiGroups: ['']
+    resources: [serviceaccounts/token]
+    resourceNames: [store-client]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: store-token
+  namespace: secret-check
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: store-token
+subjects:
+  - kind: ServiceAccount
+    name: external-secrets
+    namespace: external-secrets
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: git-auth-input
+  namespace: secret-check
+stringData:
+  githubAppID: 'fixture-original'

@@ -1,0 +1,340 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  OCI_CONFIG: '{{env "OCI_CLI_CONFIG_FILE" | default (printf "%s/.oci/config" (env "HOME"))}}'
+  OCI_PROFILE: '{{env "OCI_CLI_PROFILE" | default "DEFAULT"}}'
+tasks:
+  up:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/foundation.yaml' && test -s '{{.ENV_DIR}}/gitops.yaml'
+        msg: Prepare the retained foundation and GitOps inputs before provisioning
+      - sh: >-
+          yq -e '[(.product.commit | test("^[a-f0-9]{40}$")),
+          (.product.url | test("^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")),
+          (.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")),
+          (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))] | all'
+          '{{.ENV_DIR}}/gitops.yaml' > /dev/null
+        msg: Select the published product commit and private release bundle digest before provisioning
+    cmds:
+      - task: :verify:tools
+      - task: :verify:privacy
+      - task: :gitops:export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - for: [github-app-id, github-app-installation-id, github-app-private-key, ghcr-dockerconfigjson]
+        cmd: test -s '{{.ENV_DIR}}/secrets/{{.ITEM}}'
+      - task: :tamoss:assert-current
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :tamoss:fetch
+      - task: :tamoss:release
+      - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
+      - task: :lifecycle:prepare
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: foundation
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: secrets
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -e ''load("{{.ENV_DIR}}/identity.yaml").compositeUID == null or .metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
+      - task: :lifecycle:baseline
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq ''.metadata.annotations."tamoss.livewyer.io/deployment-id" = load("{{.ENV_DIR}}/identity.yaml").deploymentUID'' {{.ENV_DIR}}/environment.yaml > {{.ENV_DIR}}/bootstrap-environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/bootstrap-environment.yaml'
+      - task: :identity:record-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - defer:
+          task: :identity:resources
+          vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:infrastructure-ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:resources
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:export
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  runtime:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    preconditions:
+      - sh: 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null'
+        msg: Bootstrap must begin with observe-only infrastructure in Git
+    cmds:
+      - task: :gitops:current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: runtime-access
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: runtime-secrets
+        vars: {ENV_DIR: '{{.ENV_DIR}}', GITOPS_VALUES: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/flux.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait deployment --all --for=condition=Available --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml'
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=15m
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=condition=Ready --timeout=900s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait kustomization/infrastructure --for=condition=Ready --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
+      - for: [flux-system, tamoss-infra, auth, tams]
+        cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.ITEM}}' wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=300s
+      - task: :identity:runtime-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+  runtime-access:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: :identity:local-owner
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - >-
+        yq -n 'load("{{.ENV_DIR}}/identity.yaml") as $i |
+        {"deploymentId": $i.deploymentUID, "compartmentId": $i.environment.compartmentId,
+        "clusterId": $i.clusterID, "bucket": $i.environment.storage.bucket,
+        "vaultId": load("{{.ENV_DIR}}/foundation-record.yaml").vaultId,
+        "providerWrites": false}' > '{{.ENV_DIR}}/runtime-access.yaml'
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
+  foundation:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .metadata.name {{shellQuote .ENV_DIR}}/foundation.yaml'}
+    preconditions:
+      - sh: >-
+          yq -e '[.metadata.namespace == "tamoss-infra", .spec.providerConfigName == "oci",
+          .spec.region == load("{{.ENV_DIR}}/identity.yaml").environment.region,
+          .spec.compartmentId == load("{{.ENV_DIR}}/identity.yaml").environment.compartmentId] | all'
+          '{{.ENV_DIR}}/foundation.yaml' > /dev/null
+        msg: Foundation must use the verified bootstrap region, compartment and provider
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-providers sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait provider.pkg.crossplane.io/provider-oci-kms provider.pkg.crossplane.io/provider-oci-identity --for=condition=Healthy --timeout=600s
+      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-api sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io --for=condition=Established --timeout=120s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/foundation.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait secretfoundation/{{.NAME}} --for=condition=Ready --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secretfoundation/{{.NAME}} -o json > '{{.ENV_DIR}}/foundation-observed.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get key.kms.oci.m.upbound.io/{{.NAME}} -o json > '{{.ENV_DIR}}/foundation-key.json'
+      - >-
+        yq -e '[.status.vaultId, .status.keyId, .status.managementEndpoint] |
+        [.[] | (tag == "!!str" and length > 0)] | all'
+        '{{.ENV_DIR}}/foundation-observed.json' > /dev/null
+      - >-
+        yq -p=json '{"name": .metadata.name, "owner": .spec.owner, "region": .spec.region,
+        "compartmentId": .spec.compartmentId, "creationCompositeUID": (.spec.adoption.creationCompositeUID // .metadata.uid),
+        "vaultId": .status.vaultId, "keyId": .status.keyId, "managementEndpoint": .status.managementEndpoint,
+        "keyExternalName": load("{{.ENV_DIR}}/foundation-key.json").metadata.annotations."crossplane.io/external-name"}'
+        '{{.ENV_DIR}}/foundation-observed.json' > '{{.ENV_DIR}}/foundation-record.pending.yaml'
+      - >-
+        test ! -e '{{.ENV_DIR}}/foundation-record.yaml' ||
+        diff -u '{{.ENV_DIR}}/foundation-record.yaml' '{{.ENV_DIR}}/foundation-record.pending.yaml'
+      - mv '{{.ENV_DIR}}/foundation-record.pending.yaml' '{{.ENV_DIR}}/foundation-record.yaml'
+  secret-inputs:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    env:
+      OCI_PROFILE: '{{.OCI_PROFILE}}'
+    vars:
+      KEY_FILE: {sh: 'OCI_PROFILE={{shellQuote .OCI_PROFILE}} yq -p=ini -oy -r ''(. * (.[strenv(OCI_PROFILE)] // {})).key_file'' {{shellQuote .OCI_CONFIG}}'}
+    preconditions:
+      - sh: test -z "$(find '{{.ENV_DIR}}/secrets' -type f -perm /077 -print)"
+        msg: Bootstrap secret files must have owner-only permissions
+      - sh: test -z "$(find {{shellQuote .KEY_FILE}} -perm /077 -print)"
+        msg: OCI signing key must have owner-only permissions
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - install -m 600 {{shellQuote .KEY_FILE}} '{{.ENV_DIR}}/secrets/oci-private-key'
+      - defer: rm -f '{{.ENV_DIR}}/secrets/oci-private-key' '{{.ENV_DIR}}/secrets/oci-fingerprint'
+      - install -m 600 /dev/null '{{.ENV_DIR}}/secrets/oci-fingerprint'
+      - yq -p=ini -r '(. * (.[strenv(OCI_PROFILE)] // {})).fingerprint' {{shellQuote .OCI_CONFIG}} | tr -d '\n' > '{{.ENV_DIR}}/secrets/oci-fingerprint'
+      - cp deploy/secrets/bootstrap/kustomization.yaml '{{.ENV_DIR}}/secrets/'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/secrets'
+      - task: imports
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  imports:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    status:
+      - 'yq -e ''.credentialsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    cmds:
+      - cp deploy/secrets/imports/kustomization.yaml '{{.ENV_DIR}}/secrets/'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/secrets'
+  secret-store:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - >-
+        yq -n 'load("{{.ENV_DIR}}/identity.yaml") as $i | load("{{.ENV_DIR}}/foundation-record.yaml") as $f |
+        {"deploymentId": $i.deploymentUID, "initialise": ($i.credentialsEstablished != true),
+        "oracle": {"region": $f.region, "vault": $f.vaultId, "compartment": $f.compartmentId,
+        "encryptionKey": $f.keyId, "principalType": "UserPrincipal",
+        "auth": {"user": $i.oci.user, "tenancy": $i.oci.tenancy,
+        "secretRef": {"privatekey": {"name": "oci-vault-bootstrap", "key": "privatekey"},
+        "fingerprint": {"name": "oci-vault-bootstrap", "key": "fingerprint"}}}}}'
+        > '{{.ENV_DIR}}/secret-store.yaml'
+  secrets:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: secret-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
+      - task: secret-store
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/bootstrap-helmfile.yaml.gotmpl sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret --all --for=condition=Ready --timeout=300s
+      - 'yq -i ''.credentialsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+      - task: secret-store
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/bootstrap-helmfile.yaml.gotmpl sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait pushsecret --all --for=delete --timeout=120s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait password.generators.external-secrets.io --all --for=delete --timeout=120s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete secret github-app-input ghcr-input s3-input --ignore-not-found
+  runtime-secrets:
+    requires: {vars: [ENV_DIR, GITOPS_VALUES]}
+    status:
+      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    vars:
+      KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .ENV_DIR}}/tamoss-release.yaml'}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - helm template tamoss-gitops '{{.ROOT_DIR}}/charts/gitops' -n flux-system -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml' -f {{shellQuote .GITOPS_VALUES}} > '{{.ENV_DIR}}/gitops-runtime.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f deploy/gitops/starter/namespaces.yaml
+      - helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
+      - for: [flux-system, tamoss-infra, auth, tams]
+        cmd: 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "{{.ITEM}}") | .spec.values'' {{.ENV_DIR}}/gitops-runtime.yaml > {{.ENV_DIR}}/runtime-secrets-{{.ITEM}}.yaml'
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/secrets/runtime-helmfile.yaml.gotmpl sync
+      - for: [flux-system, tamoss-infra, auth, tams]
+        cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.ITEM}}' wait externalsecret --all --for=condition=Ready --timeout=300s
+  remove-application:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - >-
+        yq -e '.applicationRemoved == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
+        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null) ||
+        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get helmrelease/tamoss-gitops --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null)
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :transfer:freeze-runtime
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :application:remove-instance
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remove-operator
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - for: [tamoss-platform/tamoss-platform-config, auth/authentik, auth/tamoss-database-init, auth/authentik-bootstrap, auth/tamoss-database-connection, traefik/traefik, cert-manager/cert-manager]
+        task: remove-release
+        vars:
+          KUBECONFIG: '{{.ENV_DIR}}/remote.kubeconfig'
+          NAMESPACE: '{{splitList "/" .ITEM | first}}'
+          NAME: '{{splitList "/" .ITEM | last}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tamoss-database-init --ignore-not-found --wait=true --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n traefik delete service/traefik --ignore-not-found --wait=true --timeout=600s
+      - 'yq -i ''.applicationRemoved = true'' {{.ENV_DIR}}/identity.yaml'
+  remove-operator:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get kustomization/tamoss-operator --ignore-not-found -o json | yq -p=json -e 'length == 0'
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth patch kustomization/tamoss-operator --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete kustomization/tamoss-operator --wait=true --timeout=300s
+  remove-release:
+    requires: {vars: [KUBECONFIG, NAMESPACE, NAME]}
+    status:
+      - kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' get helmrelease/{{.NAME}} --ignore-not-found -o json | yq -p=json -e 'length == 0'
+    cmds:
+      - kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' patch helmrelease/{{.NAME}} --type=merge -p '{"spec":{"suspend":false}}'
+      - kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' delete helmrelease/{{.NAME}} --wait=true --timeout=600s
+  down:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    preconditions:
+      - sh: test -f '{{.ENV_DIR}}/inventory-before/.complete' && test -s '{{.ENV_DIR}}/foundation-record.yaml'
+        msg: Restore the baseline and retained foundation record before teardown
+    cmds:
+      - task: :transfer:start-kind
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :transfer:return-ownership
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: :identity:resources
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:observe-owned
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remove-application
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:prepare-deletion
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{.NAME}} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s
+      - task: :cloud:delete-backups
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:audit
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remove-access
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=delete --timeout=300s
+      - task: :cloud:secret-inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:retire-secrets
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:retained-foundation
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kind delete cluster --name 'tamoss-cp-{{.NAME}}'
+      - rm -f '{{.ENV_DIR}}/management.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig'
+      - echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{.ENV_DIR}}/retained-foundation.yaml'
+  remove-access:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - helm --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' list -n tamoss-infra --all -o json | yq -p=json -e '[.[] | select(.name == "runtime-access")] | length == 0'
+    cmds:
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl destroy
+  qualify:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=10m
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile helmrelease tamoss-gitops --with-source --timeout=15m
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth reconcile kustomization tamoss-operator --with-source --timeout=15m
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth reconcile kustomization tamoss --with-source --timeout=15m
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss/tamoss -o json |
+        yq -p=json -e '.spec.version == load("{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml").release.tag' > /dev/null
+      - >-
+        yq '.release | {"tag": .tag, "releaseSha256": .releaseSha256, "sourceSha256": .sourceSha256}'
+        '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml' > '{{.ENV_DIR}}/tamoss-release.current.yaml'
+      - task: :tamoss:fetch
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.current.yaml'}
+      - task: :tamoss:release
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.current.yaml'}
+      - task: record-release
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get configmap/database-connection -o json |
+        yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml").databaseId) |
+        {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}'
+        > '{{.ENV_DIR}}/database-connection.json'
+      - task: :qualification:run
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  record-release:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      KEY: {sh: 'yq -r .releaseSha256 {{.ENV_DIR}}/tamoss-release.current.yaml'}
+    cmds:
+      - >-
+        yq -e 'select(.metadata.name == "tamoss-upstream") |
+        .spec.ref.commit == load("{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/release.json").sourceCommit'
+        '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sources.yaml' > /dev/null
+      - cp --no-clobber '{{.ENV_DIR}}/tamoss-release.yaml' '{{.ENV_DIR}}/tamoss-release.bootstrap.yaml'
+      - mv '{{.ENV_DIR}}/tamoss-release.current.yaml' '{{.ENV_DIR}}/tamoss-release.yaml'

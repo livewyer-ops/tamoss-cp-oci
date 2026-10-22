@@ -1,0 +1,223 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+tasks:
+  inventory:
+    requires: {vars: [ENV_DIR, KUBECONFIG, COMPOSITE, OUTPUT]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - >-
+        kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n tamoss-infra get managed -l 'tamoss.livewyer.io/environment={{.NAME}}' -o json |
+        yq -p=json -o=json '{"apiVersion": "v1", "kind": "TransferInventory", "resources": .items}' > {{shellQuote .OUTPUT}}
+      - >-
+        yq -e 'load("{{.ENV_DIR}}/identity.yaml") as $i | load("{{.COMPOSITE}}") as $xr |
+        [(.resources | length == 23),
+        ([.resources[].metadata.annotations."crossplane.io/composition-resource-name"] | unique | length == 23),
+        ([.resources[] | .metadata.deletionTimestamp == null and
+        (.metadata.ownerReferences | map(.uid) | contains([$xr.metadata.uid])) and
+        .spec.forProvider.compartmentId == $i.environment.compartmentId and
+        .spec.providerConfigRef.name == $i.environment.providerConfigName and
+        .status.atProvider.freeformTags."tamoss-deployment-id" == $i.deploymentUID and
+        .status.atProvider.freeformTags."tamoss-composite-uid" == $i.creationCompositeUID and
+        (.status.atProvider.id | tag == "!!str" and length > 0)] | all)] | all'
+        {{shellQuote .OUTPUT}} > /dev/null
+  compare:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - >-
+        yq '.resources | map({"apiVersion": .apiVersion, "kind": .kind,
+        "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
+        "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}},
+        "spec": {"forProvider": .spec.forProvider, "providerConfigRef": .spec.providerConfigRef},
+        "status": {"atProvider": .status.atProvider}}) |
+        {"apiVersion": "v1", "kind": "TransferInventory", "resources": .}' '{{.ENV_DIR}}/remote-resources.json'
+        > '{{.ENV_DIR}}/transfer-expected.yaml'
+      - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f '{{.ENV_DIR}}/transfer-expected.yaml'
+  inspect:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: :identity:composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:runtime-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig', COMPOSITE: '{{.ENV_DIR}}/composite.json', OUTPUT: '{{.ENV_DIR}}/management-resources.json'}
+      - task: inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', KUBECONFIG: '{{.ENV_DIR}}/remote.kubeconfig', COMPOSITE: '{{.ENV_DIR}}/runtime-composite.json', OUTPUT: '{{.ENV_DIR}}/remote-resources.json'}
+      - task: compare
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  quiesce-kind:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
+      - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f deploy/contracts/quiesce-input.yaml
+      # Persist the guard before changing the live control plane.
+      - 'yq -i ''.spec.managementPolicies = ["Observe"]'' {{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch tamossenvironment/{{.NAME}} --type=merge -p '{"spec":{"managementPolicies":["Observe"]}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.spec.managementPolicies[0]}=Observe' --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{.NAME}}' crossplane.io/paused=true --overwrite
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{.NAME}} crossplane.io/paused=true --overwrite
+      - 'yq -i ''.metadata.annotations."crossplane.io/paused" = "true"'' {{.ENV_DIR}}/environment.yaml'
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: assert-quiesced
+        vars: {FILE: '{{.ENV_DIR}}/management-resources.json'}
+  assert-quiesced:
+    requires: {vars: [FILE]}
+    cmds:
+      - chainsaw assert --timeout 1s -r {{shellQuote .FILE}} -f '{{.ROOT_DIR}}/deploy/contracts/quiesced.yaml'
+  prepare-promotion:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - task: :gitops:current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: quiesce-kind
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.spec.managementPolicies = ["*"]'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml'
+      - git -C {{shellQuote .CHECKOUT}} diff -- '{{.PATH_IN_GIT}}/infrastructure/environment.yaml'
+  runtime-writes:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: assert-quiesced
+        vars: {FILE: '{{.ENV_DIR}}/management-resources.json'}
+      - 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
+      - 'yq -i ''.providerWrites = true'' {{.ENV_DIR}}/runtime-access.yaml'
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
+  stop-kind:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+      NODES: {sh: 'kind get nodes --name tamoss-cp-{{.NAME}}'}
+    cmds:
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: assert-quiesced
+        vars: {FILE: '{{.ENV_DIR}}/management-resources.json'}
+      - 'yq -e ''.spec.managementPolicies | join(",") == "*"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth wait kustomization/tamoss --for=condition=Ready --timeout=1800s
+      - for: {var: NODES}
+        cmd: docker stop '{{.ITEM}}'
+  freeze-runtime:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      DEPLOYMENT: {sh: 'yq -r .deploymentUID {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' suspend kustomization environment
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' suspend helmrelease tamoss-gitops
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=0
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait pod -l 'app in (kustomize-controller,helm-controller)' --for=delete --timeout=180s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get kustomizations.kustomize.toolkit.fluxcd.io,helmreleases.helm.toolkit.fluxcd.io -A -l 'tamoss.livewyer.io/deployment-id={{.DEPLOYMENT}}' -o yaml > '{{.ENV_DIR}}/gitops-controllers.yaml'
+      - 'yq -e ''.items | length > 0'' {{.ENV_DIR}}/gitops-controllers.yaml > /dev/null'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' patch -f '{{.ENV_DIR}}/gitops-controllers.yaml' --type=merge -p '{"spec":{"suspend":true}}'
+      # Keep controllers available; resume each application declaration before deletion.
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=1
+  return-observe:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      REVISION: {sh: 'git -C {{shellQuote .CHECKOUT}} rev-parse HEAD'}
+      PRODUCT_COMMIT: {sh: 'yq -r ''select(.metadata.name == "tamoss-product") | .spec.ref.commit'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sources.yaml'}
+    cmds:
+      - task: start-kind
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = '{{.PRODUCT_COMMIT}}'
+      - git -C '{{.ROOT_DIR}}' diff --quiet HEAD -- charts/environment charts/packages
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/environment -o json |
+        yq -p=json -e '.status.lastAppliedRevision | split(":")[-1] == "{{.REVISION}}"' > /dev/null
+      - task: freeze-runtime
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', KUBECONFIG: '{{.ENV_DIR}}/remote.kubeconfig', COMPOSITE: '{{.ENV_DIR}}/runtime-composite.json', OUTPUT: '{{.ENV_DIR}}/remote-resources.json'}
+      - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/remote-resources.json' -f deploy/contracts/quiesce-input.yaml
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra patch tamossenvironment/{{.NAME}} --type=merge -p '{"spec":{"managementPolicies":["Observe"]}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.spec.managementPolicies[0]}=Observe' --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{.NAME}}' crossplane.io/paused=true --overwrite
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{.NAME}} crossplane.io/paused=true --overwrite
+      - task: :identity:runtime-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', KUBECONFIG: '{{.ENV_DIR}}/remote.kubeconfig', COMPOSITE: '{{.ENV_DIR}}/runtime-composite.json', OUTPUT: '{{.ENV_DIR}}/remote-resources.json'}
+      - task: assert-quiesced
+        vars: {FILE: '{{.ENV_DIR}}/remote-resources.json'}
+      - 'yq -i ''.providerWrites = false'' {{.ENV_DIR}}/runtime-access.yaml'
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
+      - cp '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml' '{{.ENV_DIR}}/gitops-current-values.yaml'
+      - task: :management:install
+        vars:
+          MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'
+          GITOPS_VALUES: '{{.ENV_DIR}}/gitops-current-values.yaml'
+      - 'yq ''.spec.managementPolicies = ["Observe"] | .metadata.annotations."crossplane.io/paused" = "false"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > {{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{.NAME}}' crossplane.io/paused- --overwrite
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  deletion-authority:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: assert-quiesced
+        vars: {FILE: '{{.ENV_DIR}}/remote-resources.json'}
+      - 'yq -i ''.spec.managementPolicies = ["Observe", "Delete"]'' {{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.spec.managementPolicies[1]}=Delete' --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
+  start-kind:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+      NODES: {sh: 'kind get nodes --name tamoss-cp-{{.NAME}}'}
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/management.kubeconfig' && test -n '{{.NODES}}'
+        msg: Restore the original Kind containers and identity records; do not create a replacement
+    cmds:
+      - for: {var: NODES}
+        cmd: docker start '{{.ITEM}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait --for=condition=Ready nodes --all --timeout=180s
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  return-ownership:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    status:
+      - >-
+        (yq -e '.returnComplete == true' '{{.ENV_DIR}}/identity.yaml > /dev/null &&
+        kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} --ignore-not-found -o json |
+        yq -p=json -e 'length == 0 or (.spec.managementPolicies | join(",") == "Observe,Delete")' > /dev/null) ||
+        (kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} -o json |
+        yq -p=json -e '[.spec.adoption == null, ((.spec.managementPolicies // ["*"]) | join(",") == "*")] | all' > /dev/null &&
+        (test ! -f '{{.ENV_DIR}}/runtime-access.yaml' || yq -e '.providerWrites == false' '{{.ENV_DIR}}/runtime-access.yaml' > /dev/null))
+    cmds:
+      - task: return-observe
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: deletion-authority
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.returnComplete = true'' {{.ENV_DIR}}/identity.yaml'

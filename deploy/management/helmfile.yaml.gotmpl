@@ -1,3 +1,8 @@
+{{- $selection := dict "dependencies" (readFile "../../dependencies.yaml" | fromYaml) "packages" (readFile "../../charts/packages/values.yaml" | fromYaml) -}}
+{{- with env "TAMOSS_GITOPS_VALUES" -}}
+{{- $selection = readFile . | fromYaml -}}
+{{- end -}}
+{{- $packages := mergeOverwrite (deepCopy $selection.packages) (dict "family" false "services" false "foundation" false "okeWorkloadIdentity" (dict "region" "")) -}}
 repositories:
   - name: crossplane-stable
     url: https://charts.crossplane.io/stable
@@ -8,7 +13,7 @@ releases:
   - name: crossplane
     namespace: crossplane-system
     chart: crossplane-stable/crossplane
-    version: {{ (readFile "../../dependencies.yaml" | fromYaml).crossplane.version | quote }}
+    version: {{ $selection.dependencies.crossplane.version | quote }}
     labels:
       stage: crossplane
   - name: oci-family
@@ -17,6 +22,7 @@ releases:
     labels:
       stage: family
     values:
+      - {{ $packages | toJson }}
       - family: true
   - name: oci-services
     namespace: crossplane-system
@@ -24,9 +30,23 @@ releases:
     labels:
       stage: services
     values:
+      - {{ $packages | toJson }}
       - services: true
   - name: tamoss-environment-api
     namespace: crossplane-system
     chart: ../../charts/environment
     labels:
       stage: api
+  - name: tamoss-secret-foundation-api
+    namespace: crossplane-system
+    chart: ../../charts/secret-foundation
+    labels:
+      stage: foundation-api
+  - name: oci-foundation
+    namespace: crossplane-system
+    chart: ../../charts/packages
+    labels:
+      stage: foundation-providers
+    values:
+      - {{ $packages | toJson }}
+      - foundation: true

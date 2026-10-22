@@ -165,10 +165,21 @@ tasks:
       - 'yq -r ''.data[] | [.name, .id] | @tsv'' {{.STORAGE_DIR}}/baseline.json | sort > {{.STORAGE_DIR}}/baseline-names.txt'
       - 'yq -r ''.data[] | [.name, .id] | @tsv'' {{.STORAGE_DIR}}/after.json | sort > {{.STORAGE_DIR}}/after-names.txt'
       - diff -u '{{.STORAGE_DIR}}/baseline-names.txt' '{{.STORAGE_DIR}}/after-names.txt'
+  infrastructure-ready:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait 'tamossenvironment/{{.NAME}}' --for=condition=Ready --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=120s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get 'tamossenvironment/{{.NAME}}' -o json | yq -p=json -o=json .status.outputs > '{{.ENV_DIR}}/outputs.json'
+      - task: observe-owned
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   connection:
     vars:
       OCI_KEY_FILE: {sh: *keyFile}
-      NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
     env:
       OCI_CONFIG: '{{.OCI_CONFIG}}'
       OCI_PROFILE: '{{.OCI_PROFILE}}'
@@ -177,17 +188,12 @@ tasks:
       OCI_GID: {sh: id -g}
       PROJECT_ROOT: '{{.ROOT_DIR}}'
     cmds:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait 'tamossenvironment/{{.NAME}}' --for=condition=Ready --timeout=1800s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=120s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get 'tamossenvironment/{{.NAME}}' -o json | yq -p=json -o=json .status.outputs > '{{.ENV_DIR}}/outputs.json'
+      - task: infrastructure-ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - '{{.OCI}} psql connection-details get --db-system-id "$(yq -r .databaseId {{.ENV_DIR}}/outputs.json)" > {{.ENV_DIR}}/database-connection.json'
       - 'yq -e ''(.data."primary-db-endpoint".fqdn | length > 0) and (.data."ca-certificate" | length > 0)'' {{.ENV_DIR}}/database-connection.json'
       - 'yq -r ''.data."ca-certificate"'' {{.ENV_DIR}}/database-connection.json > {{.ENV_DIR}}/database-ca.pem'
       - openssl x509 -in '{{.ENV_DIR}}/database-ca.pem' -noout -checkend 0
-      - task: observe-owned
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: remote
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   inventory:
     requires: {vars: [ENV_DIR, INVENTORY_DIR]}
     vars:
@@ -251,7 +257,7 @@ tasks:
       - 'yq -r ''.data[] | select(."lifecycle-state" != "DELETED") | .id'' {{.ENV_DIR}}/load-balancers.json | sort > {{.ENV_DIR}}/load-balancers.json.ids'
       - diff -u '{{.ENV_DIR}}/inventory-before/load-balancers.json.ids' '{{.ENV_DIR}}/load-balancers.json.ids'
       - '{{.OCI}} psql db-system-collection list-db-systems --compartment-id {{shellQuote .COMPARTMENT}} --all > {{.ENV_DIR}}/database-systems.json'
-      - 'yq -r ''.data.items[] | select(."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and ."freeform-tags"."tamoss-composite-uid" == load("{{.ENV_DIR}}/identity.yaml").compositeUID) | .id'' {{.ENV_DIR}}/database-systems.json >> {{.ENV_DIR}}/database-ids.txt'
+      - 'yq -r ''.data.items[] | select(."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and ."freeform-tags"."tamoss-composite-uid" == (load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID // load("{{.ENV_DIR}}/identity.yaml").compositeUID)) | .id'' {{.ENV_DIR}}/database-systems.json >> {{.ENV_DIR}}/database-ids.txt'
       - '{{.OCI}} os bucket list --compartment-id {{shellQuote .COMPARTMENT}} --namespace-name {{shellQuote .NAMESPACE}} --all > {{.ENV_DIR}}/buckets.json'
       - 'yq -i ''. // {"data": []}'' {{.ENV_DIR}}/buckets.json'
       - 'yq -r ''.[] | select(.kind == "PsqlDbSystem" and .id != null) | .id'' {{.ENV_DIR}}/resources.yaml >> {{.ENV_DIR}}/database-ids.txt'
@@ -276,7 +282,7 @@ tasks:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - '{{.OCI}} os bucket get --namespace-name {{shellQuote .NAMESPACE}} --name {{shellQuote .BUCKET}} > {{.ENV_DIR}}/bucket.json'
-      - 'yq -e ''.data."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == load("{{.ENV_DIR}}/identity.yaml").compositeUID and .data."compartment-id" == load("{{.ENV_DIR}}/identity.yaml").environment.compartmentId'' {{.ENV_DIR}}/bucket.json'
+      - 'yq -e ''.data."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID // load("{{.ENV_DIR}}/identity.yaml").compositeUID) and .data."compartment-id" == load("{{.ENV_DIR}}/identity.yaml").environment.compartmentId'' {{.ENV_DIR}}/bucket.json'
       - '{{.OCI}} os multipart list --namespace-name {{shellQuote .NAMESPACE}} --bucket-name {{shellQuote .BUCKET}} --all > {{.ENV_DIR}}/uploads.json'
       - '{{.OCI}} os object list-object-versions --namespace-name {{shellQuote .NAMESPACE}} --bucket-name {{shellQuote .BUCKET}} --all > {{.ENV_DIR}}/versions.json'
       - 'yq -i ''. // {"data": []}'' {{.ENV_DIR}}/uploads.json'
@@ -361,7 +367,7 @@ tasks:
       - >-
         yq eval-all '[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] |
         select(."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and
-        ."freeform-tags"."tamoss-composite-uid" == load("{{.ENV_DIR}}/identity.yaml").compositeUID) |
+        ."freeform-tags"."tamoss-composite-uid" == (load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID // load("{{.ENV_DIR}}/identity.yaml").compositeUID)) |
         select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED")]'
         {{.ENV_DIR}}/inventory-current/*.json > '{{.ENV_DIR}}/owned-current.yaml'
       - touch '{{.ENV_DIR}}/owned-cloud.yaml'
@@ -371,7 +377,7 @@ tasks:
         yq -e '[.data[] | select(."lifecycle-state" != "DELETED") |
         select(.id == load("{{.ENV_DIR}}/identity.yaml").clusterID) |
         select(."freeform-tags"."tamoss-deployment-id" != load("{{.ENV_DIR}}/identity.yaml").deploymentUID or
-        ."freeform-tags"."tamoss-composite-uid" != load("{{.ENV_DIR}}/identity.yaml").compositeUID)] | length == 0'
+        ."freeform-tags"."tamoss-composite-uid" != (load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID // load("{{.ENV_DIR}}/identity.yaml").compositeUID))] | length == 0'
         '{{.ENV_DIR}}/inventory-current/clusters.json' > /dev/null
   remote:
     silent: true
@@ -428,8 +434,66 @@ tasks:
       OCI_UID: {sh: id -u}
       OCI_GID: {sh: id -g}
     cmds:
-      - task: :identity:management
+      - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - '{{.OCI}} os bucket get --namespace-name {{shellQuote .NAMESPACE}} --name {{shellQuote .BUCKET}} > {{.ENV_DIR}}/fixture-bucket.json'
-      - 'yq -e ''.data."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == load("{{.ENV_DIR}}/identity.yaml").compositeUID'' {{.ENV_DIR}}/fixture-bucket.json'
+      - 'yq -e ''.data."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID // load("{{.ENV_DIR}}/identity.yaml").compositeUID)'' {{.ENV_DIR}}/fixture-bucket.json'
       - docker compose -f '{{.ROOT_DIR}}/deploy/oci/compose.yaml' run --rm -T -v '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.mp4:/fixture.mp4:ro' oci os object put --namespace-name '{{.NAMESPACE}}' --bucket-name '{{.BUCKET}}' --name 'qualification-input/{{.HASH}}.mp4' --file /fixture.mp4 --content-type video/mp4 --force --verify-checksum > '{{.ENV_DIR}}/fixture-upload.json'
+  secret-inventory:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      OCI_KEY_FILE: {sh: *keyFile}
+      COMPARTMENT: {sh: 'yq -r .compartmentId {{.ENV_DIR}}/foundation-record.yaml'}
+      VAULT: {sh: 'yq -r .vaultId {{.ENV_DIR}}/foundation-record.yaml'}
+    env: &foundationEnvironment
+      OCI_CONFIG: '{{.OCI_CONFIG}}'
+      OCI_PROFILE: '{{.OCI_PROFILE}}'
+      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
+      OCI_UID: {sh: id -u}
+      OCI_GID: {sh: id -g}
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - '{{.OCI}} vault secret list --compartment-id {{shellQuote .COMPARTMENT}} --vault-id {{shellQuote .VAULT}} --all > {{.ENV_DIR}}/vault-secrets.json'
+      - >-
+        yq -p=json -o=json '[.data[] | select(."secret-name" | test("^" + load("{{.ENV_DIR}}/identity.yaml").deploymentUID + "-"))]'
+        '{{.ENV_DIR}}/vault-secrets.json' > '{{.ENV_DIR}}/environment-secrets.json'
+  retire-secrets:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      OCI_KEY_FILE: {sh: *keyFile}
+      IDS_JSON: {sh: 'yq -o=json -I=0 ''[.[] | select(."lifecycle-state" == "ACTIVE") | .id]'' {{.ENV_DIR}}/environment-secrets.json'}
+      IDS: {ref: .IDS_JSON | fromJson}
+      DELETION_TIME: {sh: "date -u -d '+25 hours' +%Y-%m-%dT%H:%M:%SZ"}
+    env: *foundationEnvironment
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - for: {var: IDS}
+        cmd: '{{.OCI}} vault secret schedule-secret-deletion --secret-id {{shellQuote .ITEM}} --time-of-deletion {{shellQuote .DELETION_TIME}} > /dev/null'
+      - task: secret-inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -e ''[.[] | ."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED"] | all'' {{.ENV_DIR}}/environment-secrets.json > /dev/null'
+  retained-foundation:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      OCI_KEY_FILE: {sh: *keyFile}
+      COMPARTMENT: {sh: 'yq -r .compartmentId {{.ENV_DIR}}/foundation-record.yaml'}
+      VAULT: {sh: 'yq -r .vaultId {{.ENV_DIR}}/foundation-record.yaml'}
+      KEY: {sh: 'yq -r .keyId {{.ENV_DIR}}/foundation-record.yaml'}
+      ENDPOINT: {sh: 'yq -r .managementEndpoint {{.ENV_DIR}}/foundation-record.yaml'}
+    env: *foundationEnvironment
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - '{{.OCI}} kms management vault get --vault-id {{shellQuote .VAULT}} > {{.ENV_DIR}}/retained-vault.json'
+      - '{{.OCI}} kms management key get --endpoint {{shellQuote .ENDPOINT}} --key-id {{shellQuote .KEY}} > {{.ENV_DIR}}/retained-key.json'
+      - '{{.OCI}} iam policy list --compartment-id {{shellQuote .COMPARTMENT}} --all > {{.ENV_DIR}}/remaining-policies.json'
+      - 'yq -e ''[.data[] | select(.name | test("^" + load("{{.ENV_DIR}}/identity.yaml").deploymentUID + "-"))] | length == 0'' {{.ENV_DIR}}/remaining-policies.json > /dev/null'
+      - 'yq -e ''.data.id == load("{{.ENV_DIR}}/foundation-record.yaml").vaultId and .data."lifecycle-state" == "ACTIVE"'' {{.ENV_DIR}}/retained-vault.json > /dev/null'
+      - 'yq -e ''.data.id == load("{{.ENV_DIR}}/foundation-record.yaml").keyId and .data."lifecycle-state" == "ENABLED"'' {{.ENV_DIR}}/retained-key.json > /dev/null'
+      - >-
+        yq -n '{"foundation": load("{{.ENV_DIR}}/foundation-record.yaml"),
+        "environmentSecrets": load("{{.ENV_DIR}}/environment-secrets.json"),
+        "runtimePoliciesAbsent": true, "vaultRetained": true, "keyRetained": true}'
+        > '{{.ENV_DIR}}/retained-foundation.yaml'

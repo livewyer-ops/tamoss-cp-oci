@@ -1,0 +1,179 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: helmfile-to-flux-adoption}
+spec:
+  steps:
+    - name: install the existing release before Flux adoption
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: flux-check}
+        - command:
+            entrypoint: helm
+            env:
+              - {name: CHART, value: ($values.chart)}
+            args: [upgrade, --install, authentik-bootstrap, $CHART, -n, flux-check, -f, values.yaml, --wait, --timeout=120s]
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: authentik, namespace: flux-check}
+              data:
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+    - name: adopt the same release and preserve its Secrets
+      bindings:
+        - name: originalSecretUID
+          value: (x_k8s_get($client, 'v1', 'Secret', 'flux-check', 'authentik').metadata.uid)
+      try:
+        - apply:
+            file: ../../.local/tmp/check/gitops-adoption-source.yaml
+        - apply:
+            file: resources.yaml
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+                lastAttemptedReleaseAction: upgrade
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: authentik
+                namespace: flux-check
+                uid: ($originalSecretUID)
+              data:
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: bootstrap-values, namespace: flux-check}
+              data:
+                values.yaml: (replace_all(x_k8s_get($client, 'v1', 'ConfigMap', 'flux-check', 'bootstrap-values').data."values.yaml", 'admin@example.invalid', 'changed@example.invalid'))
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: authentik
+                namespace: flux-check
+                uid: ($originalSecretUID)
+              data:
+                AUTHENTIK_BOOTSTRAP_EMAIL: (base64_encode('changed@example.invalid'))
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              spec:
+                chart:
+                  spec:
+                    chart: ./missing-chart
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: authentik
+                namespace: flux-check
+                uid: ($originalSecretUID)
+              data:
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+        - apply:
+            file: resources.yaml
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: evaluate connection readiness without applying application objects
+      try:
+        - apply:
+            file: ../../.local/tmp/check/gitops-adoption-health-source.yaml
+        - assert:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: health-only, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: connection-readiness, namespace: flux-check}
+              data: {DATABASE_ID: stale}
+        - apply:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              spec:
+                interval: 5s
+                retryInterval: 5s
+                timeout: 5s
+                path: ./
+                prune: false
+                sourceRef: {kind: GitRepository, name: health-only}
+                healthChecks:
+                  - {apiVersion: v1, kind: ConfigMap, name: connection-readiness, namespace: flux-check}
+                healthCheckExprs:
+                  - apiVersion: v1
+                    kind: ConfigMap
+                    current: "'DATABASE_ID' in data && data.DATABASE_ID == 'expected'"
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+                (conditions[?type == 'Ready'] | [0].reason): HealthCheckFailed
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: connection-readiness, namespace: flux-check}
+              data: {DATABASE_ID: expected}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: resume a frozen release for finalisation and allow repeated removal
+      try:
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              spec: {suspend: true}
+        - command: &removeRelease
+            entrypoint: task
+            env:
+              - {name: PROJECT_ROOT, value: ($values.root)}
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, remove-release, NAMESPACE=flux-check, NAME=authentik-bootstrap]
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: authentik, namespace: flux-check}
+        - command: *removeRelease

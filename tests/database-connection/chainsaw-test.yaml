@@ -1,0 +1,120 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: bounded-database-connection
+spec:
+  steps:
+    - name: publish validated details with restricted permissions
+      try:
+        - apply:
+            file: backend.yaml
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/database-connection-list.yaml, -f, render.yaml, --timeout, 1s]
+        - apply:
+            file: ../../.local/tmp/check/database-connection-fixture.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: connection-success, namespace: database-connection-check}
+              status:
+                (conditions[?type == 'Complete'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: database-connection, namespace: database-connection-check}
+              data:
+                DATABASE_ID: ocid1.postgresqldbsystem.oc1..example
+                DATABASE_HOST: db.example.invalid
+                (base64_decode(DATABASE_CA_BASE64)): "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
+        - command:
+            entrypoint: kubectl
+            args: [patch, configmap, unrelated, -n, database-connection-check, --as=system:serviceaccount:database-connection-check:database-connection, --type=merge, -p, '{"data":{"unexpected":"write"}}']
+            check:
+              ($error != null): true
+              (contains($stderr, 'forbidden')): true
+    - name: reject publication from a stale database identity
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: database-connection
+                namespace: database-connection-check
+                annotations:
+                  tamoss.livewyer.io/database-id: ocid1.postgresqldbsystem.oc1..replacement
+        - apply:
+            file: ../../.local/tmp/check/database-connection-stale.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: connection-stale, namespace: database-connection-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: database-connection, namespace: database-connection-check}
+              data:
+                DATABASE_ID: ocid1.postgresqldbsystem.oc1..example
+                DATABASE_HOST: db.example.invalid
+    - name: retrieval failure cannot publish an empty result
+      try:
+        - apply:
+            file: ../../.local/tmp/check/database-connection-failed.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: connection-failed, namespace: database-connection-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: database-connection, namespace: database-connection-check}
+              data:
+                DATABASE_HOST: db.example.invalid
+    - name: reject invalid hostname and CA data
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: database-connection
+                namespace: database-connection-check
+                annotations:
+                  tamoss.livewyer.io/database-id: ocid1.postgresqldbsystem.oc1..example
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: connection-fixture, namespace: database-connection-check}
+              data:
+                connection.json: '{"data":{"primary-db-endpoint":{"fqdn":""},"ca-certificate":""}}'
+        - apply:
+            file: ../../.local/tmp/check/database-connection-invalid.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: connection-invalid, namespace: database-connection-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                namespace: database-connection-check
+                labels:
+                  job-name: connection-invalid
+              status:
+                (initContainerStatuses[?name == 'validate'] | [0].state.terminated.exitCode): 1

@@ -1,0 +1,24 @@
+deploymentId: ''
+region: ''
+vaultId: ''
+databaseId: ''
+databaseAdministrator: postgres
+databaseRefreshRevision: '1'
+release:
+  tag: ''
+  releaseSha256: ''
+  sourceSha256: ''
+  bundleURL: ''
+  digest: ''
+  postgresImage: ''
+runtime:
+  publicIp: ''
+  loadBalancerSubnetId: ''
+  bucket: ''
+  objectEndpoint: ''
+  acmeEmail: ''
+  adminEmail: ''
+dependencies: {}
+packages: {}
+externalSecrets: {}
+connectionImages: {}

@@ -1,0 +1,56 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: tamoss-gitops, namespace: flux-system}
+spec:
+  interval: 5m
+  timeout: 10m
+  releaseName: tamoss-gitops
+  chart:
+    spec:
+      chart: ./charts/gitops
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-product}
+  valuesFrom:
+    - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
+    - {kind: ConfigMap, name: tamoss-gitops-values, valuesKey: values.yaml}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: platform-defaults, namespace: flux-system}
+spec:
+  interval: 1m
+  timeout: 2m
+  prune: true
+  path: ./deploy/gitops/platform-defaults
+  sourceRef: {kind: GitRepository, name: tamoss-product}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: infrastructure, namespace: flux-system}
+spec:
+  interval: 5m
+  timeout: 15m
+  prune: false
+  deletionPolicy: Orphan
+  sourceRef: {kind: GitRepository, name: environment}
+  path: REPLACE
+  dependsOn: [{name: infrastructure-controllers}]
+  healthChecks:
+    - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossEnvironment, name: REPLACE, namespace: tamoss-infra}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: infrastructure-controllers, namespace: flux-system}
+spec:
+  interval: 1m
+  timeout: 10m
+  prune: false
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-product}
+  healthChecks:
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-environment-api, namespace: crossplane-system}
+    - {apiVersion: pkg.crossplane.io/v1, kind: Provider, name: provider-oci-networking}
+    - {apiVersion: pkg.crossplane.io/v1, kind: Provider, name: provider-oci-containerengine}
+    - {apiVersion: pkg.crossplane.io/v1, kind: Provider, name: provider-oci-psql}
+    - {apiVersion: pkg.crossplane.io/v1, kind: Provider, name: provider-oci-objectstorage}
+    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: database-admin, namespace: tamoss-infra}

@@ -1,0 +1,139 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+tasks:
+  pins:
+    requires: {vars: [RELEASE_LOCK, OUTPUT]}
+    vars:
+      KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .RELEASE_LOCK}}'}
+      ASSETS: '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}'
+    cmds:
+      - >-
+        yq -n 'load("{{.ROOT_DIR}}/dependencies.yaml") as $d |
+        {"dependencies": {"crossplane": $d.crossplane, "externalSecrets": $d.externalSecrets,
+        "platform": load("{{.ASSETS}}/dependencies.yaml").spec,
+        "calicoCommit": ($d.artifacts[] | select(.path == "calico/calico-policy-only.yaml") | .url | split("/")[5])},
+        "packages": load("{{.ROOT_DIR}}/charts/packages/values.yaml"),
+        "externalSecrets": load("{{.ROOT_DIR}}/deploy/secrets/controller-values.yaml"),
+        "connectionImages": {"oci": load("{{.ROOT_DIR}}/deploy/oci/compose.yaml").services.oci.image,
+        "yq": $d.connectionDetails.yqImage, "kubectl": $d.connectionDetails.kubectlImage},
+        "release": {"tag": load("{{.RELEASE_LOCK}}").tag,
+        "releaseSha256": load("{{.RELEASE_LOCK}}").releaseSha256,
+        "sourceSha256": load("{{.RELEASE_LOCK}}").sourceSha256,
+        "postgresImage": (load("{{.ASSETS}}/release.json").runtime.images.postgresClient | sub("^postgres:"; "docker.io/library/postgres:"))}}'
+        > {{shellQuote .OUTPUT}}
+  export:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    cmds:
+      - task: export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: initialise-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - git -C {{shellQuote .CHECKOUT}} diff --stat
+      - git -C {{shellQuote .CHECKOUT}} status --short
+  export-inputs:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+    preconditions:
+      - sh: 'yq -e ''.path | test("^clusters/[a-z][a-z0-9-]*$")'' {{shellQuote .ENV_DIR}}/gitops.yaml'
+        msg: GitOps path must identify one cluster under clusters/
+      - sh: test "$(git -C {{shellQuote .CHECKOUT}} rev-parse --show-toplevel)" = "$(realpath {{shellQuote .CHECKOUT}})"
+        msg: CHECKOUT must be the root of the environment Git repository
+      - sh: test "$(git -C {{shellQuote .CHECKOUT}} remote get-url origin)" = "$(yq -r .url {{shellQuote .ENV_DIR}}/gitops.yaml)"
+        msg: Environment repository origin differs from the selected GitOps repository
+      - sh: test "$(git -C {{shellQuote .CHECKOUT}} symbolic-ref --short HEAD)" = "$(yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml)"
+        msg: Select the configured environment branch before exporting
+      - sh: test ! -L {{shellQuote .CHECKOUT}}/clusters && test ! -L {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}
+        msg: Refuse an export through a symlink
+      - sh: >-
+          test ! -e {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml ||
+          yq -e '.deploymentId == load("{{.ENV_DIR}}/identity.yaml").deploymentUID'
+          {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml > /dev/null
+        msg: Existing Git configuration belongs to a different deployment
+      - sh: >-
+          test ! -e {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml ||
+          (test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml &&
+          test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml &&
+          kubectl kustomize {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}} > /dev/null)
+        msg: Existing Git configuration is incomplete; restore it from Git before continuing
+  initialise-checkout:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      DESTINATION: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}'
+      CANDIDATE: '{{.ENV_DIR}}/gitops-export'
+      KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .ENV_DIR}}/tamoss-release.yaml'}
+      URL: {sh: 'yq -r .url {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
+    status: ['test -s {{shellQuote .DESTINATION}}/values.yaml']
+    preconditions:
+      - sh: test ! -e {{shellQuote .DESTINATION}} || test -s {{shellQuote .DESTINATION}}/values.yaml
+        msg: The destination already exists; review it rather than overwriting user files
+      - sh: 'yq -e ''.creationCompositeUID != null and .deploymentUID != null'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+        msg: Record the deployment and original composite identity before export
+    cmds:
+      - >-
+        yq -e '[length == 23, ([.[].resourceName] | unique | length == 23),
+        ([.[] | (.externalName | tag == "!!str" and length > 0)] | all)] | all'
+        '{{.ENV_DIR}}/resources-current.yaml' > /dev/null
+      - mkdir -p -m 700 '{{.CANDIDATE}}/infrastructure'
+      - task: pins
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml', OUTPUT: '{{.CANDIDATE}}/pins.yaml'}
+      - >-
+        yq -n 'load("{{.ENV_DIR}}/environment.yaml").spec as $e |
+        load("{{.ENV_DIR}}/outputs.json") as $o |
+        load("{{.ENV_DIR}}/settings.yaml") as $s |
+        load("{{.ENV_DIR}}/gitops.yaml") as $g |
+        {"deploymentId": load("{{.ENV_DIR}}/identity.yaml").deploymentUID,
+        "region": $e.region, "vaultId": load("{{.ENV_DIR}}/foundation-record.yaml").vaultId,
+        "databaseId": $o.databaseId, "databaseAdministrator": $e.database.administrator,
+        "release": {"bundleURL": $g.bundle.url, "digest": $g.bundle.digest},
+        "runtime": {"publicIp": $o.publicIp, "loadBalancerSubnetId": $o.loadBalancerSubnetId,
+        "bucket": $e.storage.bucket, "objectEndpoint": $o.objectEndpoint,
+        "acmeEmail": $s.acmeEmail, "adminEmail": $s.adminEmail}} * load("{{.CANDIDATE}}/pins.yaml")'
+        > '{{.CANDIDATE}}/values.yaml'
+      - helm lint '{{.ROOT_DIR}}/charts/gitops' -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml' -f '{{.CANDIDATE}}/values.yaml'
+      - >-
+        yq 'load("{{.ENV_DIR}}/identity.yaml") as $id |
+        {"apiVersion": .apiVersion, "kind": .kind,
+        "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
+        "annotations": {"tamoss.livewyer.io/deployment-id": $id.deploymentUID}}, "spec": (.spec | del(.crossplane))} |
+        .spec.managementPolicies = ["Observe"] |
+        .spec.adoption = {"deploymentId": $id.deploymentUID, "creationCompositeUID": $id.creationCompositeUID,
+        "externalNames": (load("{{.ENV_DIR}}/resources-current.yaml") | .[] as $r ireduce ({}; .[$r.resourceName] = $r.externalName))}'
+        '{{.ENV_DIR}}/environment.yaml' > '{{.CANDIDATE}}/infrastructure/environment.yaml'
+      - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml' '{{.CANDIDATE}}/infrastructure/environment.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
+      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/kustomization.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/sources.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/releases.yaml' '{{.CANDIDATE}}/'
+      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/namespaces.yaml' '{{.CANDIDATE}}/'
+      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/infrastructure.yaml' '{{.CANDIDATE}}/infrastructure/kustomization.yaml'
+      - >-
+        yq -i 'with(select(.metadata.name == "tamoss-upstream"); .spec.ref.commit = load("{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/release.json").sourceCommit) |
+        with(select(.metadata.name == "tamoss-product"); .spec.url = load("{{.ENV_DIR}}/gitops.yaml").product.url |
+        .spec.ref.commit = load("{{.ENV_DIR}}/gitops.yaml").product.commit)' '{{.CANDIDATE}}/sources.yaml'
+      - >-
+        yq -i 'with(select(.metadata.name == "infrastructure"); .spec.path = "./{{.PATH_IN_GIT}}/infrastructure" |
+        .spec.healthChecks[0].name = load("{{.ENV_DIR}}/environment.yaml").metadata.name) |
+        with(select(.kind == "HelmRelease"); .spec.commonMetadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId)'
+        '{{.CANDIDATE}}/releases.yaml'
+      - flux create source git environment --url={{shellQuote .URL}} --branch={{shellQuote .BRANCH}} --secret-ref=github-app --provider=github --export > '{{.CANDIDATE}}/sync.yaml'
+      - flux create kustomization environment --source=GitRepository/environment --path='./{{.PATH_IN_GIT}}' --prune=false --interval=1m --export >> '{{.CANDIDATE}}/sync.yaml'
+      - flux install --version='{{.FLUX_VERSION}}' --export | yq 'select(.kind != "Namespace")' > '{{.CANDIDATE}}/flux.yaml'
+      - 'yq -i ''.resources += ["sync.yaml", "flux.yaml"]'' {{.CANDIDATE}}/kustomization.yaml'
+      - 'yq -i ''.labels = [{"pairs": {"tamoss.livewyer.io/deployment-id": load("{{.CANDIDATE}}/values.yaml").deploymentId}}]'' {{.CANDIDATE}}/kustomization.yaml'
+      - kubectl kustomize '{{.CANDIDATE}}' > '{{.ENV_DIR}}/gitops-export.yaml'
+      - rm '{{.CANDIDATE}}/pins.yaml'
+      - mkdir -p {{shellQuote .CHECKOUT}}/clusters
+      - mv '{{.CANDIDATE}}' {{shellQuote .DESTINATION}}
+  current-checkout:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - task: export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - test -z "$(git -C {{shellQuote .CHECKOUT}} status --porcelain -- '{{.PATH_IN_GIT}}')"
+      - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' > /dev/null
+      - git -C {{shellQuote .CHECKOUT}} fetch origin {{shellQuote .BRANCH}}
+      - test "$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)" = "$(git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD)"

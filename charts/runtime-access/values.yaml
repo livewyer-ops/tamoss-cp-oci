@@ -1,0 +1,7 @@
+deploymentId: ''
+compartmentId: ''
+clusterId: ''
+vaultId: ''
+bucket: ''
+providerConfigName: oci
+providerWrites: false

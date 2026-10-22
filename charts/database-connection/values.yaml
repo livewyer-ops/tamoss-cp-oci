@@ -1,0 +1,7 @@
+databaseId: ''
+region: ''
+refreshRevision: '1'
+images:
+  oci: ''
+  yq: ''
+  kubectl: ''

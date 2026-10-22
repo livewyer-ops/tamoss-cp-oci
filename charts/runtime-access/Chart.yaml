@@ -1,0 +1,4 @@
+apiVersion: v2
+name: tamoss-runtime-access
+version: 0.1.0
+description: Kind-owned OCI policies for OKE controllers

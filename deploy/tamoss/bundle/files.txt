@@ -1,0 +1,7 @@
+catalogue.json
+compatibility.yaml
+dependencies.yaml
+install.yaml
+kustomization.yaml
+release.json
+release.yaml

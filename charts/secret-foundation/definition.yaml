@@ -1,0 +1,73 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: secretfoundations.tamoss.livewyer.io
+spec:
+  scope: Namespaced
+  group: tamoss.livewyer.io
+  names:
+    kind: SecretFoundation
+    plural: secretfoundations
+  defaultCompositionRef:
+    name: tamoss-secret-foundation
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [region, compartmentId, providerConfigName, owner]
+              x-kubernetes-validations:
+                - rule: '!has(oldSelf.adoption) || has(self.adoption)'
+                  message: Foundation adoption cannot be removed
+              properties:
+                adoption:
+                  type: object
+                  required: [vaultId, keyId, keyExternalName, managementEndpoint, creationCompositeUID]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Foundation bindings are immutable
+                  properties:
+                    vaultId: {type: string, maxLength: 255, pattern: '^ocid1\.vault\.'}
+                    keyId: {type: string, maxLength: 255, pattern: '^ocid1\.key\.'}
+                    keyExternalName: {type: string, minLength: 1, maxLength: 1024}
+                    managementEndpoint: {type: string, maxLength: 255, pattern: '^https://[a-z0-9.-]+$'}
+                    creationCompositeUID: {type: string, maxLength: 36, pattern: '^[a-f0-9-]{36}$'}
+                region:
+                  type: string
+                  maxLength: 64
+                  pattern: '^[a-z]+-[a-z]+-[0-9]+$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Foundation region is immutable
+                compartmentId:
+                  type: string
+                  maxLength: 255
+                  pattern: '^ocid1\.compartment\.'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Foundation compartment is immutable
+                providerConfigName:
+                  type: string
+                  minLength: 1
+                  maxLength: 63
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Foundation provider is immutable
+                owner:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Foundation owner is immutable
+            status:
+              type: object
+              properties:
+                vaultId: {type: string}
+                keyId: {type: string}
+                managementEndpoint: {type: string}

@@ -5,6 +5,11 @@ runs Crossplane, which provisions OKE with three workers, external OCI
 PostgreSQL and a private Object Storage bucket. Helmfile installs the platform;
 Kustomize installs the published TAMOSS operator and `multi-server` instance.
 
+[GitOps integration](deploy/gitops/README.md) adds a small environment repository,
+OCI Vault delivery and Flux ownership on OKE. Its components and transfer controls
+have local checks; complete OCI handover and upgrades still require live
+qualification. The public deployment commands retain the tested Kind-owned lifecycle.
+
 The selected TAMOSS release provides database TLS with certificate and hostname
 verification for workloads and generated Jobs. Local checks exercise rendering,
 SQL, TLS, configuration and operation contracts. Live infrastructure creation
@@ -25,6 +30,51 @@ Tool versions are in [aqua.yaml](aqua.yaml); infrastructure component selections
 and checksums are in [dependencies.yaml](dependencies.yaml).
 [deploy/tamoss/release.yaml](deploy/tamoss/release.yaml) selects TAMOSS.
 Use the original private environment directory for the lifetime of a deployment.
+
+## Infrastructure adoption controls
+
+The environment API supports `spec.managementPolicies` with full management
+(`['*']`), observation (`[Observe]`) or deletion without updates
+(`[Observe, Delete]`). Adoption requires the existing deployment ID, original
+composite UID and all 23 exact provider external names in `spec.adoption`.
+Bindings are immutable and adoption must start with observation. A bucket's
+external name uses `n/<namespace>/b/<bucket>`; it is not the bucket OCID.
+The composition retains original ownership tags when the Kubernetes UID changes.
+
+These controls have local render/admission coverage. Internal transfer tasks
+compare both inventories, stop the previous writer and return current Git
+configuration to the original Kind for deletion. Real OCI handover still requires
+qualification. Ordinary `up` and `down`
+reject an adopted or observe-only environment; they continue to operate the
+original Kind-owned lifecycle. Retain the original Kind and private records.
+
+For OKE, the provider package chart accepts `okeWorkloadIdentity.region`. It
+creates a distinct stable service account configuration for each OCI service
+provider and a namespace-scoped ProviderConfig using OKE workload identity.
+Its authentication Secret contains only the method and region. OCI policies must
+grant the required service access to those exact cluster, namespace and service
+account identities. Default Kind installation continues to use its scoped API key;
+runtime workload authentication remains a live qualification requirement.
+
+## Secret-store and connection components
+
+The following charts are connected through the GitOps integration and have local
+coverage. Ordinary `up` and `down` still use the original local secret and
+connection handoff.
+
+| Chart | Behaviour |
+| --- | --- |
+| [secret-foundation](charts/secret-foundation) | Separate retained OCI Vault and AES key, with immutable owner and provider identity; cloud deletion is excluded from its management policies |
+| [secrets](charts/secrets) | Kind-only initial credential persistence, separate readback and namespace-scoped OKE workload identity; runtime configuration emits no password generator or PushSecret |
+| [database-connection](charts/database-connection) | Bounded OCI CLI Job, validated hostname/CA response and a restricted ConfigMap patch that rejects stale database IDs and refresh revisions |
+| [runtime-access](charts/runtime-access) | Cluster, namespace and service-account scoped OCI grants; provider write access is enabled only after the Kind resources are quiescent |
+| [gitops](charts/gitops) | Flux sources, Helm releases and readiness dependencies for controllers, credentials, platform, network policy and TAMOSS |
+
+Record the foundation's owner and cloud IDs before removing its management
+cluster. Remove credential creation before starting consumers; established
+environments must recover missing persisted values. The database adapter requires
+scoped OCI access and consumer readiness checks; its configuration alone does not
+qualify OCI workload authentication or database TLS.
 
 ## TAMOSS assets and upgrades
 
@@ -75,6 +125,11 @@ application cleanup without marker files, including removal before cert-manager
 or the operator was installed. It also checks interrupted storage cleanup,
 ownership rejection and state retention when the OCI audit fails, using fixture
 credentials and a paused Bucket. It removes its cluster afterwards.
+
+The management check also exercises ESO against a local Kubernetes secret backend
+and runs the database connection Job with fixture retrieval. It checks persisted
+credential reuse, missing values, denied access and stale connection publication.
+These checks do not contact OCI Vault or the OCI PostgreSQL API.
 
 ```console
 task check:storage OCI_TEST_COMPARTMENT_ID=ocid1.compartment.REPLACE

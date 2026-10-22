@@ -1,0 +1,140 @@
+{{- $r := .Values.runtime -}}
+certManager:
+  enabled: true
+cert-manager:
+  replicaCount: 2
+  affinity: &certificateAffinity
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/instance: cert-manager
+          matchLabelKeys: [app.kubernetes.io/component]
+          topologyKey: kubernetes.io/hostname
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  webhook:
+    replicaCount: 2
+    affinity: *certificateAffinity
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+  cainjector:
+    replicaCount: 2
+    affinity: *certificateAffinity
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+cnpg:
+  enabled: false
+rustfsOperator:
+  enabled: false
+traefik:
+  enabled: true
+  deployment:
+    replicas: 2
+  ports:
+    web:
+      transport:
+        lifeCycle: &ingressLifecycle
+          # Allow OCI's three 10-second health checks to withdraw the node.
+          requestAcceptGraceTimeout: 35s
+          graceTimeOut: 10s
+    websecure:
+      transport:
+        lifeCycle: *ingressLifecycle
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+          topologyKey: kubernetes.io/hostname
+  service:
+    annotations:
+      oci.oraclecloud.com/load-balancer-type: lb
+      oci.oraclecloud.com/reserved-ips: {{ $r.publicIp | quote }}
+      service.beta.kubernetes.io/oci-load-balancer-subnet1: {{ $r.loadBalancerSubnetId | quote }}
+      service.beta.kubernetes.io/oci-load-balancer-shape: flexible
+      service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: '10'
+      service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: '100'
+      service.beta.kubernetes.io/oci-load-balancer-health-check-interval: '10000'
+      service.beta.kubernetes.io/oci-load-balancer-health-check-retries: '3'
+      service.beta.kubernetes.io/oci-load-balancer-health-check-timeout: '3000'
+      service.beta.kubernetes.io/oci-load-balancer-security-list-management-mode: None
+    spec:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+authentik:
+  enabled: true
+  bootstrap:
+    email: {{ $r.adminEmail | quote }}
+  ingress:
+    host: {{ $r.authHost | quote }}
+    tlsSecretName: authentik-public-tls
+authentikChart:
+  authentik:
+    postgresql:
+      host: {{ $r.databaseHost | quote }}
+      name: authentik
+      user: authentik
+  postgresql:
+    enabled: false
+  global:
+    env:
+      - name: AUTHENTIK_POSTGRESQL__SSLMODE
+        value: verify-full
+      - name: AUTHENTIK_POSTGRESQL__SSLROOTCERT
+        value: /etc/oci-postgresql/ca.pem
+    volumes:
+      - name: database-ca
+        configMap:
+          name: database-ca
+    volumeMounts:
+      - name: database-ca
+        mountPath: /etc/oci-postgresql
+        readOnly: true
+  server:
+    replicas: 2
+    lifecycle:
+      preStop:
+        sleep:
+          seconds: 5
+    pdb:
+      enabled: true
+      minAvailable: 1
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: authentik
+                app.kubernetes.io/component: server
+            topologyKey: kubernetes.io/hostname
+  worker:
+    replicas: 2
+    pdb:
+      enabled: true
+      minAvailable: 1
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: authentik
+                app.kubernetes.io/component: worker
+            topologyKey: kubernetes.io/hostname
+tls:
+  mode: public
+  issuerName: tamoss-public
+  acme:
+    email: {{ $r.acmeEmail | quote }}
+    http01:
+      ingressClassName: traefik
+clusterIssuer:
+  selfSigned:
+    enabled: false

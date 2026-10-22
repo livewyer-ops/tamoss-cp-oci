@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["databaseId", "region", "refreshRevision", "images"],
+  "additionalProperties": false,
+  "properties": {
+    "databaseId": {"type": "string", "pattern": "^ocid1\\.postgresqldbsystem\\.[a-z0-9.]+$"},
+    "region": {"type": "string", "pattern": "^[a-z]+-[a-z]+-[0-9]+$"},
+    "refreshRevision": {"type": "string", "minLength": 1, "maxLength": 64},
+    "images": {
+      "type": "object", "required": ["oci", "yq", "kubectl"], "additionalProperties": false,
+      "properties": {
+        "oci": {"$ref": "#/definitions/image"},
+        "yq": {"$ref": "#/definitions/image"},
+        "kubectl": {"$ref": "#/definitions/image"}
+      }
+    }
+  },
+  "definitions": {"image": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$"}}
+}

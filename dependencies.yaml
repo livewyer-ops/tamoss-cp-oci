@@ -2,7 +2,24 @@ qualification:
   hurlImage: ghcr.io/orange-opensource/hurl:8.0.1@sha256:49a02dc39d7084e5a6e8c57e2d4754ef102e4ee3761a02ef6dc0e305ab1a832d
 crossplane:
   version: 2.4.2
+externalSecrets:
+  version: 2.13.0
+connectionDetails:
+  kubectlImage: registry.k8s.io/kubectl:v1.37.1@sha256:b7cab618e281b1ee7484e7b706a96e2135fbb6e072c2a573a7dab4e87d7f2385
+  yqImage: docker.io/mikefarah/yq:4.54.1@sha256:4b3d9475d65571d28cbb19544d3820ec2945e4c8b2f18279394282b8dc3a592e
 artifacts:
+- path: schemas/identity.oci.m.upbound.io_policies.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/identity.oci.m.upbound.io_policies.yaml
+  sha256: 40f9eb34bf51a93327c0f705472960973480a75c261485c456422ebf99650a17
+- path: schemas/external-secrets.yaml
+  url: https://raw.githubusercontent.com/external-secrets/external-secrets/5151bd9b763d22a1f4bd6993d2c385fbc6470164/deploy/crds/bundle.yaml
+  sha256: d4da9492a6906a3834bb1f5b7367575a29b5c43411017babc7a30728f465d1ba
+- path: schemas/kms.oci.m.upbound.io_vaults.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/kms.oci.m.upbound.io_vaults.yaml
+  sha256: 4dee17c19df0cd053ed5b927fb880c2a511bd75fc2b4e99dd44e899e18683fac
+- path: schemas/kms.oci.m.upbound.io_keys.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/kms.oci.m.upbound.io_keys.yaml
+  sha256: c4ddb54f0d212d0911b3da168c21d66a8e9e46588172725aeee02efed2f42040
 - path: schemas/containerengine.oci.m.upbound.io_clusters.yaml
   url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/containerengine.oci.m.upbound.io_clusters.yaml
   sha256: 450085c8a3e80a11a62887b7ffad95d55ff20c0b6451ba1af4113227a16e8f0a

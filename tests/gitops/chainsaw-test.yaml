@@ -1,0 +1,74 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: gitops-contracts}
+spec:
+  steps:
+    - name: validate the rendered controller and credential contracts
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/gitops-list.yaml, -f, render.yaml, --timeout, 1s]
+    - name: export only the initial non-secret configuration
+      try:
+        - command: &fixture
+            entrypoint: task
+            env: &env
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: DIRECTORY, value: ($values.directory)}
+            args: [fixture]
+        - command: &export
+            entrypoint: task
+            env: *env
+            args: [export]
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-e, '.spec.managementPolicies | join(",") == "Observe"', '$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, '.runtime.adminEmail = "changed@example.invalid"', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+        - command: *export
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-e, '.runtime.adminEmail == "changed@example.invalid"', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, '.deploymentUID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"', '$DIRECTORY/inputs/identity.yaml']
+        - command:
+            <<: *export
+            check:
+              ($error != null): true
+              (contains($stderr, 'different deployment')): true
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, '.deploymentUID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', '$DIRECTORY/inputs/identity.yaml']
+        - command:
+            entrypoint: rm
+            env: *env
+            args: ['$DIRECTORY/checkout/clusters/oci-dev/sync.yaml']
+        - command:
+            <<: *export
+            check:
+              ($error != null): true
+              (contains($stderr, 'incomplete')): true
+    - name: reject missing provider bindings before writing the checkout
+      try:
+        - command:
+            entrypoint: rm
+            env: *env
+            args: [-rf, '$DIRECTORY/checkout/clusters/oci-dev']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, 'del(.[0])', '$DIRECTORY/inputs/resources-current.yaml']
+        - command:
+            <<: *export
+            check: {($error != null): true}
+        - command:
+            entrypoint: test
+            env: *env
+            args: ['!', -e, '$DIRECTORY/checkout/clusters/oci-dev']

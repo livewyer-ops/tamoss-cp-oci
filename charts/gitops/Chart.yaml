@@ -1,0 +1,4 @@
+apiVersion: v2
+name: tamoss-gitops
+version: 0.1.0
+description: Flux controllers, persisted credentials and TAMOSS deployment

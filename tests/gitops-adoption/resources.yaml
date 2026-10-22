@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: flux-check}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bootstrap-values
+  namespace: flux-check
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+    authentik:
+      enabled: true
+      secretKey: fixture-secret-key
+      bootstrap:
+        username: akadmin
+        email: admin@example.invalid
+        password: fixture-password
+        token: fixture-token
+      postgresql:
+        password: fixture-database-password
+        postgresPassword: fixture-database-password
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: authentik-bootstrap, namespace: flux-check}
+spec:
+  interval: 1m
+  timeout: 2m
+  releaseName: authentik-bootstrap
+  targetNamespace: flux-check
+  storageNamespace: flux-check
+  chart:
+    spec:
+      chart: ./deploy/platform/charts/authentik-bootstrap
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-upstream, namespace: flux-check}
+  valuesFrom:
+    - {kind: ConfigMap, name: bootstrap-values, valuesKey: values.yaml}

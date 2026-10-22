@@ -9,7 +9,7 @@ lists the public commands and named checks.
 | --- | --- |
 | TAMOSS release | Operator manifest, compatibility metadata, dependency manifest and runtime catalogue |
 | Matching TAMOSS source archive | Platform Helmfile and charts, multi-server instance base, browser tests and media fixture |
-| This directory | Operator/instance overlays, HA and OCI platform values, external database bootstrap chart, secret references, IngestRun and browser container configuration |
+| This directory and `charts/gitops` | Operator/instance overlays, shared HA and OCI platform values, external database bootstrap chart, secret references, IngestRun and browser container configuration |
 | Infrastructure configuration | Kind, Crossplane, OCI provisioning, observed runtime inputs, resource identities and cloud teardown |
 
 Verified upstream files stay under `.local/tmp/tamoss/<release-record-sha256>/`.
@@ -36,6 +36,23 @@ its schema migrations. The browser container runs unchanged upstream tests with
 the upstream dependency lock. Its test selection and container recipe are
 maintained here, and missing selected tests fail local checks.
 
-An environment's `tamoss-release.yaml` is retained evidence of its original
-selection. Preserve it through teardown. See the [operating guide](../../README.md)
+An environment's `tamoss-release.yaml` records its verified installed selection.
+Preserve it through teardown. The GitOps qualification path records a verified
+upgrade here and retains the initial lock as `tamoss-release.bootstrap.yaml`.
+See the [operating guide](../../README.md) and [GitOps guide](../gitops/README.md)
 for release selection, verification and lifecycle instructions.
+
+## Private release bundle
+
+`task check` also prepares an allowlisted OCI bundle under
+`.local/tmp/tamoss-bundle`. It contains the unchanged published installation,
+compatibility, catalogue and dependency assets, verified release metadata, the
+release lock and a static Kustomize entrypoint. Flux builds a reproducible archive;
+the source checkout and private working files are excluded.
+
+The manually dispatched [publishing workflow](../../.github/workflows/release-bundle.yaml)
+publishes from the default branch with `GITHUB_TOKEN`, checks private package
+visibility and repository association, and records the resulting digest. Deploy
+using that digest. Private runtime pulls require a separate read-only package
+credential supplied through Vault/ESO; GitHub App credentials are for Git access.
+Publication and private-cluster pulls have not yet been qualified.

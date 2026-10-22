@@ -4,8 +4,6 @@ tasks:
   run:
     requires: {vars: [ENV_DIR]}
     cmds:
-      - task: :identity:management
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - mkdir -p -m 700 '{{.ENV_DIR}}/reports'
@@ -13,6 +11,7 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get nodes -o json | yq -p=json -e '.items | length == 3'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' wait nodes --all --for=condition=Ready --timeout=300s
       - task: :tamoss:media
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml'}
       - cp '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256' '{{.ENV_DIR}}/qualification.sha256'
       - task: :runtime:render
         vars: {RUNTIME_DIR: '{{.ENV_DIR}}'}
@@ -177,6 +176,7 @@ tasks:
       LOCAL_GID: {sh: id -g}
     cmds:
       - task: :tamoss:browser-build
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml'}
       - task: browser-target
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - defer: rm -f '{{.ENV_DIR}}/browser.env' '{{.ENV_DIR}}/browser-secrets.json'

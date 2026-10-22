@@ -1,0 +1,10 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: SecretFoundation
+metadata:
+  name: tamoss-vault
+  namespace: tamoss-infra
+spec:
+  owner: operator@example.invalid
+  region: eu-frankfurt-1
+  compartmentId: ocid1.compartment.oc1..REPLACE
+  providerConfigName: oci
