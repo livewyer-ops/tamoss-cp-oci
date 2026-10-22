@@ -52,7 +52,11 @@ the source checkout and private working files are excluded.
 
 The manually dispatched [publishing workflow](../../.github/workflows/release-bundle.yaml)
 publishes from the default branch with `GITHUB_TOKEN`, checks private package
-visibility and repository association, and records the resulting digest. Deploy
+visibility and repository association, and records the resulting digest. Configure
+the repository's `GHCR_READ_TOKEN` Actions secret with a classic PAT limited to
+`read:packages`, owned by an account with access to the package. Only the metadata
+checks receive this token; Docker publishing uses `GITHUB_TOKEN`. A missing read
+token stops the workflow before release checks or publication. Deploy
 using that digest. Private runtime pulls require a separate read-only package
 credential supplied through Vault/ESO; GitHub App credentials are for Git access.
 Publication and private-cluster pulls have not yet been qualified.

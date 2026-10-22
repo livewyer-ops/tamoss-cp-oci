@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      GH_TOKEN: ${{ github.token }}
       PACKAGE_NAME: tamoss-release-assets
       PACKAGE_OWNER: ${{ github.repository_owner }}
       PRODUCT_REPOSITORY: ${{ github.repository }}
@@ -25,11 +24,14 @@ jobs:
         with:
           aqua_version: v2.65.2
       - name: Require private visibility for any existing package
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
+          test -n "$GH_TOKEN"
           mkdir -p -m 700 .local/tmp/check
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/package.json ||
             aqua exec -- yq -e '.status == "404"' .local/tmp/check/package.json
-          aqua exec -- yq -o=json '{"status": .status, "visibility": .visibility, "repository": .repository}' .local/tmp/check/package.json
+          aqua exec -- yq -o=json '{"status": .status, "visibility": .visibility, "repository": .repository.full_name}' .local/tmp/check/package.json
           aqua exec -- yq -e '(.status == "404") or ((.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
       - name: Verify the release and prepare the allowlisted bundle
         run: |
@@ -38,8 +40,9 @@ jobs:
       - name: Authenticate the publisher
         env:
           PUBLISHER: ${{ github.actor }}
-        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$PUBLISHER" --password-stdin
-      - name: Publish reproducibly and record the digest
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$PUBLISH_TOKEN" | docker login ghcr.io --username "$PUBLISHER" --password-stdin
+      - name: Publish reproducibly
         env:
           PRODUCT_COMMIT: ${{ github.sha }}
           PRODUCT_BRANCH: ${{ github.ref_name }}
@@ -47,6 +50,11 @@ jobs:
           export PATH="$(aqua root-dir)/bin:$PATH"
           bundle_tag="$(yq -r .tag deploy/tamoss/release.yaml)-$PRODUCT_COMMIT"
           flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path .local/tmp/tamoss-bundle --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
+      - name: Verify the published package and record the digest
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          export PATH="$(aqua root-dir)/bin:$PATH"
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/published-package.json
           yq -o=json '{"visibility": .visibility, "repository": .repository.full_name}' .local/tmp/check/published-package.json
           yq -e '(.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/check/published-package.json
