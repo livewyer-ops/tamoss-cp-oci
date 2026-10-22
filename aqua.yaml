@@ -1,0 +1,14 @@
+registries:
+  - type: standard
+    ref: v4.575.0
+packages:
+  - name: kubernetes-sigs/kind@v0.33.0
+  - name: kubernetes/kubectl@v1.37.1
+  - name: helm/helm@v4.3.1
+  - name: helmfile/helmfile@v1.8.2
+  - name: go-task/task@v3.54.0
+  - name: crossplane/cli@v2.5.0
+  - name: mikefarah/yq@v4.54.1
+  - name: kyverno/chainsaw@v0.2.15
+  - name: tsenart/vegeta@v12.13.0
+  - name: Orange-OpenSource/hurl@8.0.1

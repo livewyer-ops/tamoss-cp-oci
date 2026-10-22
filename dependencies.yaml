@@ -1,0 +1,47 @@
+qualification:
+  hurlImage: ghcr.io/orange-opensource/hurl:8.0.1@sha256:49a02dc39d7084e5a6e8c57e2d4754ef102e4ee3761a02ef6dc0e305ab1a832d
+crossplane:
+  version: 2.4.2
+artifacts:
+- path: schemas/containerengine.oci.m.upbound.io_clusters.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/containerengine.oci.m.upbound.io_clusters.yaml
+  sha256: 450085c8a3e80a11a62887b7ffad95d55ff20c0b6451ba1af4113227a16e8f0a
+- path: schemas/containerengine.oci.m.upbound.io_nodepools.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/containerengine.oci.m.upbound.io_nodepools.yaml
+  sha256: d3f4204245b85f3ac8158cabbb3943972b5f306a91c5633ce73948a331c2383e
+- path: schemas/networking.oci.m.upbound.io_internetgateways.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_internetgateways.yaml
+  sha256: d7ed7fbead1f97df7cc3b693a98a90f517389f58a6acfc3d707720629594006b
+- path: schemas/networking.oci.m.upbound.io_natgateways.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_natgateways.yaml
+  sha256: 3e9b362b539610ae85164baeb04add930118af5e5484454c1ca9830d69d997fe
+- path: schemas/networking.oci.m.upbound.io_publicips.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_publicips.yaml
+  sha256: 76088410f6addff78906369f2d428484a3c446d4841e87efac2e544319237c31
+- path: schemas/networking.oci.m.upbound.io_routetables.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_routetables.yaml
+  sha256: 129cabac315769b38c2e5cd7a29ea93230c8b6f07702e697dce2eeb0ca0e36c8
+- path: schemas/networking.oci.m.upbound.io_securitylists.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_securitylists.yaml
+  sha256: b78ed53aaafafe777be3e0f6b27bc3c51891e5486f0d81c2ffd4cca36be431ba
+- path: schemas/networking.oci.m.upbound.io_servicegateways.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_servicegateways.yaml
+  sha256: abe4f66b80162308d0db440c915fb38efe046da0ee749618d6cc7cd8e32dd654
+- path: schemas/networking.oci.m.upbound.io_subnets.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_subnets.yaml
+  sha256: c39fe7247be8e59a072a7f26a7aec8250911ff35d4080bd620f677f060ea5a1e
+- path: schemas/networking.oci.m.upbound.io_vcns.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/networking.oci.m.upbound.io_vcns.yaml
+  sha256: 11322e6cc7a0dd3a0a65363b72717a21f40f5861e509d352053215cc1aa770b6
+- path: schemas/objectstorage.oci.m.upbound.io_buckets.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/objectstorage.oci.m.upbound.io_buckets.yaml
+  sha256: 39594a5b8897b5eef64c4df040d2f69ddc48f07f733b0d555263b75d3eda36e5
+- path: schemas/oci.m.upbound.io_providerconfigs.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/oci.m.upbound.io_providerconfigs.yaml
+  sha256: ed1796ff7ae58640706c54d47e68c82efe85c101ec39ebc7a06b0568ca2ec7e7
+- path: schemas/psql.oci.m.upbound.io_psqldbsystems.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/psql.oci.m.upbound.io_psqldbsystems.yaml
+  sha256: 4857321b5cc166a64d356c3abdd325187ca0c099daace75cdcbfcb043dec236e
+- path: calico/calico-policy-only.yaml
+  url: https://raw.githubusercontent.com/projectcalico/calico/eb1cf57823a1dd8d25c48b82fd023ea9e3e17996/manifests/calico-policy-only.yaml
+  sha256: 0b09d96323cf250ad028450d2954fc0068ce4104545f1eab823f359a48eb69a3
