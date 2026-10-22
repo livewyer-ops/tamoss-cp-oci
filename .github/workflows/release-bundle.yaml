@@ -30,8 +30,9 @@ jobs:
           task check
       - name: Require private visibility for any existing package
         run: |
-          gh api --paginate --slurp "/users/$PACKAGE_OWNER/packages?package_type=container" > .local/tmp/check/packages.json
-          aqua exec -- yq -e '[.[][] | select(.name == strenv(PACKAGE_NAME)) | .visibility == "private" and .repository.full_name == strenv(PRODUCT_REPOSITORY)] | all' .local/tmp/check/packages.json
+          gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/package.json ||
+            aqua exec -- yq -e '.status == "404"' .local/tmp/check/package.json
+          aqua exec -- yq -e '(.status == "404") or ((.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
       - name: Authenticate the publisher
         env:
           PUBLISHER: ${{ github.actor }}
