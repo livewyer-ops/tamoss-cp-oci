@@ -1,0 +1,89 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: tamoss-release-selection
+spec:
+  timeouts:
+    exec: 2m
+  steps:
+    - name: record the release and accept an unchanged selection
+      try:
+        - command:
+            entrypoint: task
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: CHECK_DIRECTORY, value: "(join('/', [$values.root, '.local/tmp/release-test']))"}
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, prepare, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command: &match
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, match, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+    - name: reject a changed selection before deployment
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, match, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY', 'RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml']
+            check:
+              ($error != null): true
+              (contains($stderr, 'differs from the repository pin')): true
+    - name: reject a release record describing a different tag
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, metadata, 'PROJECT_ROOT=$PROJECT_ROOT', 'RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml']
+            check: {($error != null): true}
+    - name: reject damaged downloads without installing them
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, bad-download, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check: {($error != null): true}
+        - command:
+            entrypoint: test
+            env: *paths
+            args: ['!', -e, $CHECK_DIRECTORY/download/release.json]
+    - name: reject a source tree without required deployment entrypoints
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, entrypoints, 'PROJECT_ROOT=$PROJECT_ROOT', 'CHECK_ASSETS=$CHECK_DIRECTORY/absent']
+            check: {($error != null): true}
+    - name: prepare teardown from the recorded release despite a different current selection
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, prepare-removal-alternate, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command:
+            entrypoint: cmp
+            env: *paths
+            args: [$CHECK_DIRECTORY/operator-removal/rendered.yaml, $PROJECT_ROOT/.local/tmp/check/operator.yaml]
+    - name: refuse to invent a missing release record for existing state
+      try:
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.yaml]
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/tamoss-release.yaml, $CHECK_DIRECTORY/recorded.yaml]
+        - command:
+            <<: *match
+            check:
+              ($error != null): true
+              (contains($stderr, 'no TAMOSS release record')): true
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, record, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check: {($error != null): true}
+      finally:
+        - command:
+            entrypoint: rm
+            env: *paths
+            args: [-rf, $CHECK_DIRECTORY]

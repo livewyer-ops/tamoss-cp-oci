@@ -1,0 +1,251 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: lifecycle-identities
+spec:
+  steps:
+    - name: prepare private identities for this disposable cluster
+      try:
+        - command:
+            entrypoint: task
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: CHECK_DIRECTORY, value: ($values.directory)}
+              - {name: MANAGEMENT_KUBECONFIG, value: ($values.kubeconfig)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+              - {name: OCI_CLI_PROFILE, value: DEFAULT}
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY', 'MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG']
+        - command: &management
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, management, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command: &remote
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remote, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+    - name: repeat bootstrap without replacing identity or credentials
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, repeat-bootstrap, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+    - name: preserve credential bytes in generated Secrets
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, secrets, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: database-admin, namespace: auth}
+              data:
+                username: (base64_encode('bootstrap_admin'))
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: tams-s3, namespace: tams}
+              data:
+                accessKey: (base64_encode('fixture-credential'))
+                secretKey: (base64_encode('fixture-credential'))
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, reject-secret-newline, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check:
+              ($error != null): true
+              (contains($stderr, 'without line endings')): true
+    - name: wait for deletion only when the owned composite is deleting
+      try:
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$CHECK_DIRECTORY/composite.json]
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/management.kubeconfig, $CHECK_DIRECTORY/management.saved.kubeconfig]
+        - command: &waitDeletion
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, wait-deletion, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.metadata.deletionTimestamp = "2026-01-01T00:00:00Z"', $CHECK_DIRECTORY/composite.json]
+        - command:
+            <<: *waitDeletion
+            check:
+              ($error != null): true
+              (contains($stderr, 'management.kubeconfig')): true
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/management.saved.kubeconfig, $CHECK_DIRECTORY/management.kubeconfig]
+    - name: resume after the deleting composite has disappeared
+      try:
+        - command: *waitDeletion
+    - name: reject a missing identity record for existing state
+      try:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.yaml, $CHECK_DIRECTORY/identity.saved.yaml]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, initialise, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Existing state has no identity record')): true
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.saved.yaml, $CHECK_DIRECTORY/identity.yaml]
+    - name: reject a changed management cluster
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.managementUID = "different-cluster"', $CHECK_DIRECTORY/identity.yaml]
+        - command:
+            <<: *management
+            check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, create-management, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check:
+              ($error != null): true
+              (contains($stderr, 'restart the original Kind')): true
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity-valid.yaml, $CHECK_DIRECTORY/identity.yaml]
+    - name: reject a changed remote cluster
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.remoteUID = "different-cluster"', $CHECK_DIRECTORY/identity.yaml]
+        - command:
+            <<: *remote
+            check: {($error != null): true}
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity-valid.yaml, $CHECK_DIRECTORY/identity.yaml]
+    - name: refuse replacement after management state loss
+      try:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/management.kubeconfig, $CHECK_DIRECTORY/management.saved.kubeconfig]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, create-management, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check:
+              ($error != null): true
+              (contains($stderr, 'restart the original Kind')): true
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/management.saved.kubeconfig, $CHECK_DIRECTORY/management.kubeconfig]
+    - name: remove live objects without an application marker and repeat cleanup
+      try:
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [apply, --server-side, -f, $PROJECT_ROOT/.local/tmp/check/schemas/operator.yaml]
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: tamosses.tamoss.livewyer.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: ingestruns.tamoss.livewyer.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [apply, --server-side, -f, $PROJECT_ROOT/.local/tmp/check/tamoss.yaml]
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [apply, --server-side, -k, $PROJECT_ROOT/deploy/tamoss/ingest]
+        - command:
+            entrypoint: test
+            env: *paths
+            args: ['!', -e, $CHECK_DIRECTORY/application-started]
+        - command: &remove
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remove-instance, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: Tamoss
+              metadata: {name: tamoss, namespace: tams}
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: IngestRun
+              metadata: {name: qualification, namespace: tams}
+        - command: *remove
+    - name: remove an uninstalled operator without cert-manager and repeat cleanup
+      try:
+        - command: &removeOperator
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remove-operator, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            check:
+              ($error == null): true
+        - command: *removeOperator
+    - name: platform cleanup distinguishes installed releases from failed discovery
+      try:
+        - command:
+            entrypoint: helm
+            env: *paths
+            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, install, authentik, $PROJECT_ROOT/tests/lifecycle/platform-release, -n, auth]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: &platformStatusArgs [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/application.yaml, --status, remove-platform, 'ENV_DIR=$CHECK_DIRECTORY', 'ROOT_DIR=$PROJECT_ROOT']
+            check:
+              ($error != null): true
+        - command: &removePlatformFixture
+            entrypoint: helm
+            env: *paths
+            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, uninstall, authentik, -n, auth, --ignore-not-found]
+        - command: &platformStatus
+            entrypoint: task
+            env: *paths
+            args: *platformStatusArgs
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/remote.kubeconfig, $CHECK_DIRECTORY/remote.saved.kubeconfig]
+        - command:
+            <<: *platformStatus
+            check:
+              ($error != null): true
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [-f, $CHECK_DIRECTORY/remote.saved.kubeconfig, $CHECK_DIRECTORY/remote.kubeconfig]
+            check:
+              ($error == null || contains($stderr, 'No such file')): true
+        - command: *removePlatformFixture

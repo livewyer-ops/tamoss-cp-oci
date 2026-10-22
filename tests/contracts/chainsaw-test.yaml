@@ -1,0 +1,232 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: operation-contracts
+spec:
+  steps:
+  - name: valid-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - valid-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+  - name: wrong-compartment-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - wrong-compartment-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: wrong-tenancy-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - wrong-tenancy-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: wrong-provider-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - wrong-provider-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: valid-cost
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - valid-cost.yaml
+        - -f
+        - ../../deploy/contracts/cost.yaml
+        - --timeout
+        - 1ms
+  - name: over-budget-cost
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - over-budget-cost.yaml
+        - -f
+        - ../../deploy/contracts/cost.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: no-cleanup-cost
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - no-cleanup-cost.yaml
+        - -f
+        - ../../deploy/contracts/cost.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: missing-category-cost
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - missing-category-cost.yaml
+        - -f
+        - ../../deploy/contracts/cost.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: valid-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - valid-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+  - name: late-probe-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - late-probe-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: failed-request-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - failed-request-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: missing-endpoint-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - missing-endpoint-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: mandatory privacy before optional cloud or management work
+    try:
+    - command:
+        entrypoint: mkdir
+        args: [../../scripts]
+    - command:
+        entrypoint: task
+        workDir: ../..
+        args: [check]
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    - command:
+        entrypoint: task
+        workDir: ../..
+        args: [check:management]
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    - command:
+        entrypoint: task
+        workDir: ../..
+        args: [check:storage]
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    finally:
+    - command:
+        entrypoint: rmdir
+        args: [../../scripts]
+  - name: reject a public script before executing checks
+    try:
+    - command:
+        entrypoint: touch
+        args: [../../forbidden.py]
+    - command:
+        entrypoint: task
+        workDir: ../..
+        args: [check]
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    finally:
+    - command:
+        entrypoint: rm
+        args: [../../forbidden.py]
+  - name: reject placeholder environment inputs
+    try:
+    - command:
+        entrypoint: task
+        workDir: ../..
+        args: [-d, ., -t, tasks/lifecycle.yaml, preflight, ENV_DIR=environments/example]
+        check:
+          ($error != null): true
+          (contains($stderr, 'Replace example configuration before provisioning')): true

@@ -1,0 +1,12 @@
+helmDefaults:
+  wait: true
+  timeout: 300
+releases:
+  - name: storage-check
+    namespace: tamoss-infra
+    chart: ../../charts/storage-check
+    values:
+      - compartmentId: {{ .Values.compartmentId | quote }}
+        objectNamespace: {{ .Values.objectNamespace | quote }}
+        bucketName: {{ .Values.bucketName | quote }}
+        expiresAt: {{ .Values.expiresAt | quote }}

@@ -1,0 +1,41 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+tasks:
+  render:
+    requires: {vars: [RUNTIME_DIR]}
+    vars:
+      BASE_RELATIVE:
+        sh: realpath -m --relative-to='{{.RUNTIME_DIR}}/instance' '{{.RUNTIME_DIR}}/instance-base'
+    cmds:
+      - task: :tamoss:instance
+        vars: {RELEASE_LOCK: '{{.RUNTIME_DIR}}/tamoss-release.yaml', OUTPUT_DIR: '{{.RUNTIME_DIR}}/instance-base'}
+      - mkdir -p -m 700 '{{.RUNTIME_DIR}}/instance'
+      - TAMOSS_ENV_DIR='{{.RUNTIME_DIR}}' helmfile -f deploy/runtime/helmfile.yaml.gotmpl --state-values-file '{{.ROOT_DIR}}/deploy/runtime/values.yaml.gotmpl' template > '{{.RUNTIME_DIR}}/instance/runtime.yaml'
+      - cp deploy/runtime/kustomization.yaml '{{.RUNTIME_DIR}}/instance/'
+      - 'yq -i ''.resources[0] = "{{.BASE_RELATIVE}}"'' {{.RUNTIME_DIR}}/instance/kustomization.yaml'
+      - kubectl kustomize '{{.RUNTIME_DIR}}/instance' > '{{.RUNTIME_DIR}}/instance.yaml'
+  fixture:
+    run: once
+    vars:
+      RUNTIME_DIR: '{{.ROOT_DIR}}/.local/tmp/check/runtime'
+    cmds:
+      - mkdir -p -m 700 '{{.RUNTIME_DIR}}'
+      - cp tests/runtime/outputs.json tests/runtime/database-connection.json environments/example/environment.yaml environments/example/settings.yaml '{{.RUNTIME_DIR}}/'
+      - cp deploy/tamoss/release.yaml '{{.RUNTIME_DIR}}/tamoss-release.yaml'
+      - cp '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256' '{{.RUNTIME_DIR}}/qualification.sha256'
+  check:
+    vars:
+      RUNTIME_DIR: '{{.ROOT_DIR}}/.local/tmp/check/runtime'
+    cmds:
+      - task: fixture
+      - task: render
+        vars: {RUNTIME_DIR: '{{.RUNTIME_DIR}}'}
+      - crossplane resource validate '{{.ROOT_DIR}}/.local/tmp/check/schemas' '{{.RUNTIME_DIR}}/instance.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas --skip-success-results
+      - 'yq ''select(.kind == "Tamoss")'' {{.RUNTIME_DIR}}/instance.yaml > {{.RUNTIME_DIR}}/tamoss.yaml'
+      - 'yq -e ''.spec.version == load("{{.RUNTIME_DIR}}/tamoss-release.yaml").tag'' {{.RUNTIME_DIR}}/tamoss.yaml'
+      - chainsaw assert -r '{{.RUNTIME_DIR}}/tamoss.yaml' -f tests/runtime/tamoss.yaml --timeout 1s
+      - >-
+        yq -e 'select(.kind == "StorageBackend") | .spec as $s |
+        load("{{.RUNTIME_DIR}}/tamoss.yaml").spec.backends.s3.external as $e |
+        $s.bucketName == $e.bucket and $s.region == $e.region and $s.endpoint == $e.endpoint and $s.credentials == $e.auth'
+        '{{.RUNTIME_DIR}}/instance.yaml'

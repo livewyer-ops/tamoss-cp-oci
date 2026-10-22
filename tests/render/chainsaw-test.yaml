@@ -1,0 +1,28 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: rendered-contracts
+spec:
+  steps:
+    - name: composition
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/initial-list.yaml, -f, initial.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/partial-list.yaml, -f, partial.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/ready-list.yaml, -f, ready.yaml]
+    - name: application
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/platform-list.yaml, -f, platform.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/tamoss-list.yaml, -f, tamoss.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/operator-list.yaml, -f, operator.yaml]

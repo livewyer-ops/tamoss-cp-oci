@@ -1,0 +1,106 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  OCI_CONFIG: '{{env "OCI_CLI_CONFIG_FILE" | default (printf "%s/.oci/config" (env "HOME"))}}'
+  OCI_PROFILE: '{{env "OCI_CLI_PROFILE" | default "DEFAULT"}}'
+tasks:
+  observe-inputs:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    preconditions:
+      - sh: test "$(stat -c '%a:%u' '{{.ENV_DIR}}')" = "700:$(id -u)"
+        msg: The private environment directory must be owned by the current user with mode 700
+    env:
+      OCI_PROFILE: '{{.OCI_PROFILE}}'
+    cmds:
+      - install -m 600 /dev/null '{{.ENV_DIR}}/identity-inputs.yaml'
+      - >-
+        yq -n
+        '(load("{{.ENV_DIR}}/environment.yaml")) as $e |
+        {"environment": {"name": $e.metadata.name, "namespace": $e.metadata.namespace,
+        "region": $e.spec.region, "compartmentId": $e.spec.compartmentId,
+        "providerConfigName": $e.spec.providerConfigName, "storage": $e.spec.storage}}'
+        > '{{.ENV_DIR}}/identity-inputs.yaml'
+      - >-
+        yq -p=ini -oy
+        '(. * (.[strenv(OCI_PROFILE)] // {})) | {"oci": {"tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "region": .region}}'
+        {{shellQuote .OCI_CONFIG}} > '{{.ENV_DIR}}/identity-oci.yaml'
+      - 'yq -i ''. * load("{{.ENV_DIR}}/identity-oci.yaml")'' {{.ENV_DIR}}/identity-inputs.yaml'
+      - 'yq -e ''.oci.tenancy != null and .oci.user != null and .oci.fingerprint != null and .oci.region == .environment.region and (.environment.compartmentId | test("^ocid1\\.compartment\\."))'' {{.ENV_DIR}}/identity-inputs.yaml > /dev/null'
+  initialise:
+    requires: {vars: [ENV_DIR]}
+    status: ["test -s '{{.ENV_DIR}}/identity.yaml'"]
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/identity.yaml' || (test ! -e '{{.ENV_DIR}}/management.kubeconfig' && test ! -e '{{.ENV_DIR}}/inventory-before')
+        msg: Existing state has no identity record; resolve ownership before continuing
+    cmds:
+      - install -m 600 /dev/null '{{.ENV_DIR}}/identity.yaml.pending'
+      - cp '{{.ENV_DIR}}/identity-inputs.yaml' '{{.ENV_DIR}}/identity.yaml.pending'
+      - openssl rand -hex -out '{{.ENV_DIR}}/deployment-uid' 16
+      - 'yq -i ''.deploymentUID = (load_str("{{.ENV_DIR}}/deployment-uid") | trim)'' {{.ENV_DIR}}/identity.yaml.pending'
+      - mv '{{.ENV_DIR}}/identity.yaml.pending' '{{.ENV_DIR}}/identity.yaml'
+      - rm '{{.ENV_DIR}}/deployment-uid'
+  inputs:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: observe-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -n ''{"apiVersion": "qualification.livewyer.io/v1alpha1", "kind": "IdentityCheck", "recorded": load("{{.ENV_DIR}}/identity.yaml"), "observed": load("{{.ENV_DIR}}/identity-inputs.yaml")}'' > {{.ENV_DIR}}/identity-check.yaml'
+      - chainsaw assert -r '{{.ENV_DIR}}/identity-check.yaml' -f '{{.ROOT_DIR}}/deploy/contracts/identity.yaml' --timeout 1s
+  management:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").managementUID' > /dev/null
+  composite:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - task: management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get 'tamossenvironment/{{.NAME}}' --ignore-not-found -o json > '{{.ENV_DIR}}/composite.json'
+      - >-
+        yq -e 'length == 0 or
+        (.metadata.annotations."tamoss.livewyer.io/deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and
+        (.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").compositeUID or load("{{.ENV_DIR}}/identity.yaml").compositeUID == null) and
+        .spec.region == load("{{.ENV_DIR}}/identity.yaml").environment.region and
+        .spec.compartmentId == load("{{.ENV_DIR}}/identity.yaml").environment.compartmentId and
+        .spec.storage.namespace == load("{{.ENV_DIR}}/identity.yaml").environment.storage.namespace and
+        .spec.storage.bucket == load("{{.ENV_DIR}}/identity.yaml").environment.storage.bucket and
+        .spec.providerConfigName == load("{{.ENV_DIR}}/identity.yaml").environment.providerConfigName)'
+        '{{.ENV_DIR}}/composite.json' > /dev/null
+  record-composite:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -e ''.metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
+      - 'yq -i ''.compositeUID = load("{{.ENV_DIR}}/composite.json").metadata.uid'' {{.ENV_DIR}}/identity.yaml'
+  resources:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get managed -o json |
+        yq -p=json '[.items[] | select([.metadata.ownerReferences[].uid] | contains([load("{{.ENV_DIR}}/identity.yaml").compositeUID])) |
+        {"kind": .kind, "name": .metadata.name, "uid": .metadata.uid,
+        "id": .status.atProvider.id, "externalName": .metadata.annotations."crossplane.io/external-name"}]'
+        > '{{.ENV_DIR}}/resources-current.yaml'
+      - touch '{{.ENV_DIR}}/resources.yaml'
+      - 'yq eval-all ''. as $item ireduce ([]; . + ($item // [])) | unique_by(.uid + ":" + (.id // "pending"))'' {{.ENV_DIR}}/resources-current.yaml {{.ENV_DIR}}/resources.yaml > {{.ENV_DIR}}/resources.pending.yaml'
+      - mv '{{.ENV_DIR}}/resources.pending.yaml' '{{.ENV_DIR}}/resources.yaml'
+  remote:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' config view --minify -o json | yq -p=json -e '.clusters[0].cluster.server == load("{{.ENV_DIR}}/identity.yaml").remoteServer and ([.users[0].user.exec.args[]] | contains([load("{{.ENV_DIR}}/identity.yaml").clusterID]))' > /dev/null
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").remoteUID' > /dev/null

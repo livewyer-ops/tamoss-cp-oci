@@ -1,0 +1,8 @@
+apiVersion: containerengine.oci.m.upbound.io/v1alpha1
+kind: Cluster
+metadata:
+  name: qualification-cluster
+  namespace: tamoss-infra
+spec:
+  forProvider:
+    vcnId: ocid1.test.oc1..vcn

@@ -1,0 +1,127 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: interrupted-storage-cleanup
+spec:
+  steps:
+    - name: prepare a credential-free paused bucket
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: tamoss-infra}
+        - command:
+            entrypoint: task
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: STORAGE_DIRECTORY, value: ($values.directory)}
+              - {name: MANAGEMENT_KUBECONFIG, value: ($values.kubeconfig)}
+              - {name: CHECK_NAME, value: ($values.name)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+              - {name: OCI_CLI_PROFILE, value: DEFAULT}
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, prepare, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY, MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG, CHECK_NAME=$CHECK_NAME]
+        - apply:
+            resource:
+              apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
+              kind: Bucket
+              metadata:
+                name: storage-check
+                namespace: tamoss-infra
+                annotations: {crossplane.io/paused: 'true'}
+              spec:
+                managementPolicies: [Observe]
+                providerConfigRef: {kind: ProviderConfig, name: unused}
+                forProvider:
+                  compartmentId: ocid1.compartment.fixture
+                  namespace: fixture
+                  name: foreign-bucket
+                  freeformTags: {purpose: storage-lifecycle-check}
+    - name: refuse deletion when the live bucket differs
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, remove, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY]
+            check:
+              ($error != null): true
+              (contains($stderr, 'no matches found')): true
+        - assert:
+            resource:
+              apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
+              kind: Bucket
+              metadata: {name: storage-check, namespace: tamoss-infra}
+              spec:
+                forProvider: {name: foreign-bucket}
+        - patch:
+            resource:
+              apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
+              kind: Bucket
+              metadata: {name: storage-check, namespace: tamoss-infra}
+              spec:
+                forProvider: {name: ($values.name)}
+    - name: resume removal but retain management state when the OCI audit fails
+      try:
+        - command: &cleanup
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, cleanup, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY]
+            check:
+              ($error != null): true
+              (contains($stderr, 'false os bucket list')): true
+        - error:
+            resource:
+              apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
+              kind: Bucket
+              metadata: {name: storage-check, namespace: tamoss-infra}
+        - command: *cleanup
+        - command:
+            entrypoint: test
+            env: *paths
+            args: [-s, $STORAGE_DIRECTORY/management.kubeconfig]
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [--kubeconfig, $STORAGE_DIRECTORY/management.kubeconfig, get, namespace, kube-system]
+    - name: require direct cloud absence and preserve baseline buckets
+      try:
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$STORAGE_DIRECTORY/baseline.json, $STORAGE_DIRECTORY/after.json]
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.data = [{"name":strenv(CHECK_NAME),"id":"ocid1.bucket.fixture"}]', $STORAGE_DIRECTORY/after.json]
+        - command:
+            <<: &audit
+              entrypoint: task
+              env: *paths
+              args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, audit, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY]
+            check:
+              ($error != null): true
+              (contains($stderr, 'no matches found')): true
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.data = [{"name":"existing","id":"ocid1.bucket.original"}]', $STORAGE_DIRECTORY/baseline.json]
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$STORAGE_DIRECTORY/baseline.json, $STORAGE_DIRECTORY/after.json]
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.data[0].id = "ocid1.bucket.replacement"', $STORAGE_DIRECTORY/after.json]
+        - command:
+            <<: *audit
+            check:
+              ($error != null): true
+              (contains($stdout, 'ocid1.bucket.replacement')): true
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$STORAGE_DIRECTORY/baseline.json, $STORAGE_DIRECTORY/after.json]
+        - command:
+            <<: *audit
+            check: {($error == null): true}

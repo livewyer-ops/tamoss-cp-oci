@@ -1,0 +1,165 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+tasks:
+  preflight:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      RUN_SECONDS: {sh: 'yq -r ''(.runHours + .cleanupHours) * 3600'' {{.ENV_DIR}}/cost.yaml'}
+    preconditions:
+      - sh: test -f '{{.ENV_DIR}}/environment.yaml' && test -f '{{.ENV_DIR}}/settings.yaml'
+        msg: Provide private environment and application settings
+      - sh: 'yq eval-all -e ''[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0'' {{shellQuote .ENV_DIR}}/environment.yaml {{shellQuote .ENV_DIR}}/settings.yaml'
+        msg: Replace example configuration before provisioning
+      - sh: 'yq -e ''.spec.paused == false'' {{.ROOT_DIR}}/deploy/tamoss/instance/patch.yaml'
+        msg: Application configuration must be unpaused before deployment
+      - sh: test -s '{{.ENV_DIR}}/cost.yaml'
+        msg: Supply a dated cost estimate including teardown and contingency
+      - sh: test -s '{{.ENV_DIR}}/secrets/s3-access-key' && test -s '{{.ENV_DIR}}/secrets/s3-secret-key'
+        msg: Provide scoped S3 customer credentials through private files
+      - sh: >-
+          yq -n -e '[load_str("{{.ENV_DIR}}/secrets/s3-access-key"), load_str("{{.ENV_DIR}}/secrets/s3-secret-key")] |
+          [.[] | (contains("\n") or contains("\r")) | not] | all' > /dev/null
+        msg: S3 credential files must contain the exact credential bytes without line endings
+      - sh: 'yq -e ''.metadata.namespace == "tamoss-infra" and .spec.providerConfigName == "oci" and .spec.database.credentialsSecret == "database-admin"'' {{.ENV_DIR}}/environment.yaml'
+        msg: The environment must reference the installed namespace, provider and database Secret
+      - sh: test "$(date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s)" -gt "$(date +%s)"
+        msg: The qualification expiry must be in the future
+    cmds:
+      - chainsaw assert -r '{{.ENV_DIR}}/cost.yaml' -f deploy/contracts/cost.yaml --timeout 1s
+      - test "$(yq -r .date {{.ENV_DIR}}/cost.yaml)" = "$(date -u +%F)"
+      - 'yq -e ''.allowanceUSD <= load("{{.ENV_DIR}}/environment.yaml").spec.budget.amount and .currency == load("{{.ENV_DIR}}/environment.yaml").spec.budget.currency'' {{.ENV_DIR}}/cost.yaml'
+      - test "$(date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s)" -le "$(date -u -d 'tomorrow 00:00' +%s)"
+      - test "$(date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s)" -ge "$(date -u -d '+{{.RUN_SECONDS}} seconds' +%s)"
+      - task: :cloud:profile
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml' '{{.ENV_DIR}}/environment.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
+  create-management:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
+    status:
+      - test -s '{{.ENV_DIR}}/management.kubeconfig'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").managementUID'
+    preconditions:
+      - sh: >-
+          (test -s '{{.ENV_DIR}}/management.kubeconfig' &&
+          kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' get namespace kube-system -o json |
+          yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").managementUID' > /dev/null) ||
+          (test ! -e '{{.ENV_DIR}}/management.kubeconfig' &&
+          yq -e '.managementUID == null' '{{.ENV_DIR}}/identity.yaml' > /dev/null)
+        msg: Existing management state is unavailable or has a different identity; restart the original Kind or use the manual OCI cleanup procedure
+    cmds:
+      - kind create cluster --name 'tamoss-cp-{{.NAME}}' --config deploy/management/kind.yaml --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' --wait 120s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{.ENV_DIR}}/management-uid'
+      - 'yq -i ''.managementUID = load_str("{{.ENV_DIR}}/management-uid")'' {{.ENV_DIR}}/identity.yaml'
+  password:
+    requires: {vars: [DESTINATION, ENV_DIR]}
+    status: ["test -s '{{.DESTINATION}}'"]
+    preconditions:
+      - sh: test -s '{{.DESTINATION}}' || test ! -e '{{.ENV_DIR}}/inventory-before'
+        msg: A credential is missing from an existing environment; recover it rather than rotating it implicitly
+    cmds:
+      - install -m 600 /dev/null '{{.DESTINATION}}'
+      - openssl rand -base64 -out '{{.DESTINATION}}' 32
+  baseline:
+    requires: {vars: [ENV_DIR]}
+    status: ["test -f '{{.ENV_DIR}}/inventory-before/.complete'"]
+    preconditions:
+      - sh: test -f '{{.ENV_DIR}}/inventory-before/.complete' || test ! -d '{{.ENV_DIR}}/inventory-before'
+        msg: Incomplete baseline inventory must be recovered before provisioning
+    env:
+      ENVIRONMENT_NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
+      BUCKET_NAME: {sh: 'yq -r .spec.storage.bucket {{.ENV_DIR}}/environment.yaml'}
+    cmds:
+      - task: :cloud:inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', INVENTORY_DIR: '{{.ENV_DIR}}/inventory-pending'}
+      - 'yq eval-all -e ''[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED") | select(."freeform-tags"."tamoss-environment" == strenv(ENVIRONMENT_NAME) or .name == strenv(BUCKET_NAME))] | length == 0'' {{.ENV_DIR}}/inventory-pending/*.json'
+      - mv '{{.ENV_DIR}}/inventory-pending' '{{.ENV_DIR}}/inventory-before'
+  up:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - "echo 'Checking deployment inputs, cost allowance and environment identity'"
+      - task: preflight
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :tamoss:record
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:observe-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:initialise
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: create-management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - "echo 'Installing Crossplane and waiting for provider readiness'"
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :management:install
+        vars: {MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'}
+      - task: :cloud:credentials
+        vars: {CREDENTIAL_DIR: '{{.ENV_DIR}}/provider', MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'}
+      - for: [database-admin-password, tams-database-password]
+        task: password
+        vars: {ENV_DIR: '{{.ENV_DIR}}', DESTINATION: '{{.ENV_DIR}}/secrets/{{.ITEM}}'}
+      - task: :identity:composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -e ''load("{{.ENV_DIR}}/identity.yaml").compositeUID == null or .metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
+      - cp deploy/infrastructure/kustomization.yaml '{{.ENV_DIR}}/'
+      - 'yq -i ''.commonAnnotations."tamoss.livewyer.io/deployment-id" = load("{{.ENV_DIR}}/identity.yaml").deploymentUID'' {{.ENV_DIR}}/kustomization.yaml'
+      - task: baseline
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -k '{{.ENV_DIR}}'
+      - task: :identity:record-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - defer:
+          task: :identity:resources
+          vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - "echo 'Waiting for OCI infrastructure Ready and Synced; resource records are retained in {{.ENV_DIR}}'"
+      - task: :cloud:connection
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - cp '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256' '{{.ENV_DIR}}/qualification.sha256'
+      - task: :runtime:render
+        vars: {RUNTIME_DIR: '{{.ENV_DIR}}'}
+      - task: :application:up
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  down:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/tamoss-release.yaml'
+        msg: Recover the original TAMOSS release record before teardown
+      - sh: test -f '{{.ENV_DIR}}/inventory-before/.complete'
+        msg: Baseline inventory is missing; retain Kind and recover the environment records
+    cmds:
+      - "echo 'Checking ownership before teardown; retain {{.ENV_DIR}} until the cloud audit succeeds'"
+      - task: :identity:resources
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: wait-deletion
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:observe-owned
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :application:down
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:prepare-deletion
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete 'tamossenvironment/{{.NAME}}' --ignore-not-found --cascade=foreground --wait=true --timeout=1800s
+      - task: :cloud:delete-backups
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - "echo 'Auditing OCI resources before deleting the management cluster'"
+      - task: :cloud:audit
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kind delete cluster --name 'tamoss-cp-{{.NAME}}'
+      - rm -f '{{.ENV_DIR}}/management.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig'
+  wait-deletion:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    status:
+      - 'yq -e ''length == 0 or .metadata.deletionTimestamp == null'' {{.ENV_DIR}}/composite.json'
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait 'tamossenvironment/{{.NAME}}' --for=delete --timeout=1800s

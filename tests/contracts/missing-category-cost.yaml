@@ -1,0 +1,14 @@
+apiVersion: qualification.livewyer.io/v1alpha1
+kind: CostEstimate
+date: '2026-10-20'
+currency: USD
+allowanceUSD: 50
+spentUSD: 0
+runHours: 1
+cleanupHours: 1
+reserveUSD: 5
+hourlyUSD:
+  compute: 1
+transferUSD: 0
+priceReferences:
+- https://www.oracle.com/cloud/price-list/

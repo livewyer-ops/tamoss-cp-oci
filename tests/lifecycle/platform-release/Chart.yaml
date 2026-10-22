@@ -1,0 +1,4 @@
+apiVersion: v2
+name: platform-release
+version: 0.1.0
+description: Empty release for testing platform cleanup discovery.

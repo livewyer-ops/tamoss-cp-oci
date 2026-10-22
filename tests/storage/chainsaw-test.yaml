@@ -1,0 +1,76 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: private-bucket-lifecycle
+spec:
+  steps:
+    - name: create and repeat apply
+      try:
+        - command:
+            entrypoint: helmfile
+            env: &root
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: STORAGE_DIRECTORY, value: ($values.directory)}
+            args:
+              - -f
+              - $PROJECT_ROOT/deploy/storage-check/helmfile.yaml.gotmpl
+              - --state-values-file
+              - $STORAGE_DIRECTORY/values.yaml
+              - sync
+        - assert:
+            resource:
+              apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
+              kind: Bucket
+              metadata:
+                name: storage-check
+                namespace: tamoss-infra
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+                atProvider:
+                  name: ($values.bucketName)
+                  accessType: NoPublicAccess
+                  versioning: Disabled
+                  storageTier: Standard
+            timeout: 5m
+        - command:
+            entrypoint: docker
+            env: &bucket
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: OBJECT_NAMESPACE, value: ($values.objectNamespace)}
+              - {name: BUCKET_NAME, value: ($values.bucketName)}
+            args: [compose, -f, $PROJECT_ROOT/deploy/oci/compose.yaml, run, --rm, -T, oci, os, bucket, get, --namespace-name, $OBJECT_NAMESPACE, --name, $BUCKET_NAME]
+            check:
+              ($error == null): true
+              (json_parse($stdout).data."public-access-type"): NoPublicAccess
+              (json_parse($stdout).data.versioning): Disabled
+              (json_parse($stdout).data."storage-tier"): Standard
+            outputs:
+              - name: bucketID
+                value: (json_parse($stdout).data.id)
+        - command:
+            entrypoint: helmfile
+            env: *root
+            args:
+              - -f
+              - $PROJECT_ROOT/deploy/storage-check/helmfile.yaml.gotmpl
+              - --state-values-file
+              - $STORAGE_DIRECTORY/values.yaml
+              - sync
+        - command:
+            entrypoint: docker
+            env: *bucket
+            args: [compose, -f, $PROJECT_ROOT/deploy/oci/compose.yaml, run, --rm, -T, oci, os, bucket, get, --namespace-name, $OBJECT_NAMESPACE, --name, $BUCKET_NAME]
+            check:
+              ($error == null): true
+              (json_parse($stdout).data.id): ($bucketID)
+      finally:
+        - command:
+            entrypoint: task
+            env: *root
+            args:
+              - -d
+              - $PROJECT_ROOT
+              - -t
+              - $PROJECT_ROOT/tasks/cloud.yaml
+              - storage-remove-bucket
+              - STORAGE_DIR=$STORAGE_DIRECTORY

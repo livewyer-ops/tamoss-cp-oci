@@ -1,0 +1,21 @@
+apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
+kind: Bucket
+metadata:
+  name: storage-check
+  namespace: tamoss-infra
+spec:
+  managementPolicies: ["*"]
+  providerConfigRef:
+    kind: ProviderConfig
+    name: oci
+  forProvider:
+    compartmentId: {{ required "compartmentId is required" .Values.compartmentId | quote }}
+    namespace: {{ required "objectNamespace is required" .Values.objectNamespace | quote }}
+    name: {{ required "bucketName is required" .Values.bucketName | quote }}
+    accessType: NoPublicAccess
+    versioning: Disabled
+    storageTier: Standard
+    freeformTags:
+      project: tamoss-cp-oci
+      purpose: storage-lifecycle-check
+      expiresAt: {{ required "expiresAt is required" .Values.expiresAt | quote }}

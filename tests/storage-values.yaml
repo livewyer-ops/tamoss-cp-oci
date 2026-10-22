@@ -1,0 +1,4 @@
+compartmentId: ocid1.compartment.oc1..REPLACE
+objectNamespace: REPLACE
+bucketName: storage-check
+expiresAt: '2099-01-01T00:00:00Z'

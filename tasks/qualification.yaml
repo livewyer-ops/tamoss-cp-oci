@@ -1,0 +1,211 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+tasks:
+  run:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - mkdir -p -m 700 '{{.ENV_DIR}}/reports'
+      - "echo 'Qualifying ingest, browser access and worker disruption; reports: {{.ENV_DIR}}/reports'"
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get nodes -o json | yq -p=json -e '.items | length == 3'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' wait nodes --all --for=condition=Ready --timeout=300s
+      - task: :tamoss:media
+      - cp '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256' '{{.ENV_DIR}}/qualification.sha256'
+      - task: :runtime:render
+        vars: {RUNTIME_DIR: '{{.ENV_DIR}}'}
+      - defer: rm -f '{{.ENV_DIR}}/api-token' '{{.ENV_DIR}}/api.curl' '{{.ENV_DIR}}/targets.jsonl' '{{.ENV_DIR}}/http-secrets.env' '{{.ENV_DIR}}/browser.env' '{{.ENV_DIR}}/browser-secrets.json'
+      - task: credentials
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: prepare-ingest
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: ingest
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: media
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --test-dir tests/placement --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name placement
+      - task: browser
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --values dependencies.yaml --test-dir tests/network --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name network
+      - task: disruption
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: media
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  prepare-ingest:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    vars:
+      API_URL: {sh: 'yq -r .data.apiURL {{.ENV_DIR}}/instance/runtime.yaml'}
+      DEPLOYMENT: {sh: 'yq -r .deploymentUID {{.ENV_DIR}}/identity.yaml'}
+      BASE_RELATIVE:
+        sh: realpath -m --relative-to='{{.ENV_DIR}}/ingest' '{{.ROOT_DIR}}/deploy/tamoss/ingest'
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get ingestrun/qualification --ignore-not-found -o json > '{{.ENV_DIR}}/previous-ingest.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams delete ingestrun/qualification --ignore-not-found --cascade=foreground --wait=true --timeout=300s
+      - curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{.ENV_DIR}}/api.curl' --output '{{.ENV_DIR}}/previous-flows.json' '{{.API_URL}}/flows?tag.qualification_deployment={{.DEPLOYMENT}}&limit=100'
+      - 'yq -e ''length < 100 and ([.[] | select(.tags.qualification_deployment != "{{.DEPLOYMENT}}" or (.id | test("^[a-f0-9-]{36}$") | not))] | length == 0)'' {{.ENV_DIR}}/previous-flows.json > /dev/null'
+      - task: remove-flows
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{.ENV_DIR}}/api.curl' --output '{{.ENV_DIR}}/remaining-flows.json' '{{.API_URL}}/flows?limit=1'
+      - 'yq -e ''length == 0'' {{.ENV_DIR}}/remaining-flows.json > /dev/null'
+      - task: :cloud:fixture
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - mkdir -p -m 700 '{{.ENV_DIR}}/ingest'
+      - cp deploy/tamoss/ingest/runtime-kustomization.yaml '{{.ENV_DIR}}/ingest/kustomization.yaml'
+      - cp '{{.ENV_DIR}}/instance/runtime.yaml' '{{.ENV_DIR}}/ingest/runtime.yaml'
+      - 'yq -i ''.resources[0] = "{{.BASE_RELATIVE}}"'' {{.ENV_DIR}}/ingest/kustomization.yaml'
+      - kubectl kustomize '{{.ENV_DIR}}/ingest' | yq 'select(.kind == "IngestRun") | .spec.output.flowMetadata.tags.qualification_deployment = "{{.DEPLOYMENT}}"' > '{{.ENV_DIR}}/ingest.yaml'
+  remove-flows:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    vars:
+      API_URL: {sh: 'yq -r .data.apiURL {{.ENV_DIR}}/instance/runtime.yaml'}
+      FLOW_JSON: {sh: 'yq -o=json -I=0 ''[.[].id]'' {{.ENV_DIR}}/previous-flows.json'}
+      FLOWS: {ref: .FLOW_JSON | fromJson}
+    cmds:
+      - for: {var: FLOWS}
+        cmd: hurl --no-output --secrets-file '{{.ENV_DIR}}/http-secrets.env' --variable api='{{.API_URL}}' --variable flow='{{.ITEM}}' --max-time 10 --max-filesize 1048576 tests/http/delete-flow.hurl
+  ingest:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      PREVIOUS: {sh: 'yq -r ''.metadata.uid // "absent"'' {{.ENV_DIR}}/previous-ingest.json'}
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/ingest.yaml'
+      - KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --test-dir tests/qualification --set-string previousUID='{{.PREVIOUS}}' --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name ingest
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get ingestrun/qualification -o json > '{{.ENV_DIR}}/reports/ingest.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get jobs -l tamoss.livewyer.io/ingest-run=qualification -o json > '{{.ENV_DIR}}/reports/ingest-jobs.json'
+  credentials:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - for: [api-token, api.curl, targets.jsonl, http-secrets.env]
+        cmd: install -m 600 /dev/null '{{.ENV_DIR}}/{{.ITEM}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get secret "$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss tamoss -o jsonpath='{.status.resolved.generatedSecrets.apiToken}')" -o json | yq -p=json -e -r '.data.TAMOSS_API_TOKEN | @base64d | select(length > 0)' > '{{.ENV_DIR}}/api-token'
+      - test -s '{{.ENV_DIR}}/api-token'
+      - >-
+        yq -n -r '"header = " + (("Authorization: Bearer " + (load_str("{{.ENV_DIR}}/api-token") | trim)) | @json)' > '{{.ENV_DIR}}/api.curl'
+      - >-
+        yq -n -o=json -I=0
+        '(load("{{.ENV_DIR}}/instance/runtime.yaml").data) as $r |
+        [{"method": "GET", "url": ($r.apiURL + "/flows"), "header": {"Authorization": ["Bearer " + (load_str("{{.ENV_DIR}}/api-token") | trim)]}},
+        {"method": "GET", "url": ($r.uiURL + "/")}] | .[]' > '{{.ENV_DIR}}/targets.jsonl'
+      - 'yq -n -r ''"token=" + (load_str("{{.ENV_DIR}}/api-token") | trim)'' > {{.ENV_DIR}}/http-secrets.env'
+  media:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      API_URL: {sh: 'yq -r .data.apiURL {{.ENV_DIR}}/instance/runtime.yaml'}
+      FLOW: {sh: 'kubectl --kubeconfig {{.ENV_DIR}}/remote.kubeconfig -n tams get ingestrun qualification -o json | yq -p=json -e -r ''[.status.output.memberFlows[] | select(.format == "urn:x-nmos:format:video")][0].id'''}
+    cmds:
+      - defer: rm -f '{{.ENV_DIR}}/media.curl' '{{.ENV_DIR}}/segments.json'
+      - for: [segments.json, media.curl]
+        cmd: install -m 600 /dev/null '{{.ENV_DIR}}/{{.ITEM}}'
+      - curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{.ENV_DIR}}/api.curl' --output '{{.ENV_DIR}}/segments.json' '{{.API_URL}}/flows/{{.FLOW}}/segments?presigned=true'
+      - 'yq -e ''length > 0 and ((.[0].get_urls[0].url | split("/") | .[0:3] | join("/")) == load("{{.ENV_DIR}}/outputs.json").objectEndpoint)'' {{.ENV_DIR}}/segments.json'
+      - 'yq -r ''"url = " + (.[0].get_urls[0].url | @json)'' {{.ENV_DIR}}/segments.json > {{.ENV_DIR}}/media.curl'
+      - curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 8388608 --config '{{.ENV_DIR}}/media.curl' --output '{{.ENV_DIR}}/media.ts'
+      - test -s '{{.ENV_DIR}}/media.ts'
+      - curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1024 --range 0-1023 --config '{{.ENV_DIR}}/media.curl' --output '{{.ENV_DIR}}/media-range.bin'
+      - cmp --bytes=1024 '{{.ENV_DIR}}/media.ts' '{{.ENV_DIR}}/media-range.bin'
+      - curl --silent --show-error --max-time 20 --max-filesize 1048576 --output /dev/null --write-out '%{http_code}' '{{.API_URL}}/flows' > '{{.ENV_DIR}}/anonymous-status.txt'
+      - grep -Eq '^(401|403)$' '{{.ENV_DIR}}/anonymous-status.txt'
+  disruption:
+    requires: {vars: [ENV_DIR]}
+    deps:
+      - task: probe
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: drain
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+    cmds:
+      - task: availability-report
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  availability-report:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - >-
+        vegeta encode --to=json '{{.ENV_DIR}}/reports/availability.bin' | yq eval-all -p=json '. as $sample ireduce ([]; . + [{"timestamp": ($sample.timestamp | to_unix), "url": $sample.url, "code": $sample.code, "error": $sample.error}])' > '{{.ENV_DIR}}/reports/samples.yaml'
+      - >-
+        yq -n '(load_str("{{.ENV_DIR}}/reports/drain-start") | trim | tonumber) as $start |
+        (load_str("{{.ENV_DIR}}/reports/drain-end") | trim | tonumber) as $end |
+        {"apiVersion": "qualification.livewyer.io/v1alpha1", "kind": "AvailabilityCheck", "drainStart": $start, "drainEnd": $end,
+        "endpoints": [load("{{.ENV_DIR}}/reports/samples.yaml") | group_by(.url) | .[] |
+        {"url": .[0].url, "before": ([.[] | select(.timestamp < $start)] | length),
+        "during": ([.[] | select(.timestamp >= $start and .timestamp <= $end)] | length),
+        "after": ([.[] | select(.timestamp > $end)] | length),
+        "failed": ([.[] | select(.code != 200 or .error != "")] | length)}]}' > '{{.ENV_DIR}}/reports/availability-check.yaml'
+      - chainsaw assert -r '{{.ENV_DIR}}/reports/availability-check.yaml' -f deploy/contracts/availability.yaml --timeout 1s
+  probe:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - defer: vegeta report --type=json --output '{{.ENV_DIR}}/reports/availability.json' '{{.ENV_DIR}}/reports/availability.bin'
+      - vegeta attack -format=json -targets='{{.ENV_DIR}}/targets.jsonl' -rate=2/s -duration=270s -timeout=10s -workers=2 -max-workers=2 -max-body=0 -output='{{.ENV_DIR}}/reports/availability.bin'
+  drain:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NODE: {sh: 'kubectl --kubeconfig {{.ENV_DIR}}/remote.kubeconfig -n tams get pods -l tamoss.livewyer.io/replica-set=api -o json | yq -p=json -e -r ''[.items[] | select(.status.phase == "Running") | .spec.nodeName] | .[0]'''}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get node '{{.NODE}}' -o json > '{{.ENV_DIR}}/reports/node-before.json'
+      - 'yq -e ''.spec.unschedulable != true and ([.status.conditions[] | select(.type == "Ready" and .status == "True")] | length == 1)'' {{.ENV_DIR}}/reports/node-before.json'
+      - defer:
+          task: restore-node
+          vars: {ENV_DIR: '{{.ENV_DIR}}', NODE: '{{.NODE}}'}
+      - sleep 10
+      - date -u +%s > '{{.ENV_DIR}}/reports/drain-start'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' drain '{{.NODE}}' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+      - date -u +%s > '{{.ENV_DIR}}/reports/drain-end'
+      - for: [api, ui, worker, console]
+        cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams rollout status deployment/tams-{{.ITEM}} --timeout=60s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams wait tamoss/tamoss --for=condition=Ready --timeout=60s
+  restore-node:
+    requires: {vars: [ENV_DIR, NODE]}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get node '{{.NODE}}' -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/reports/node-before.json").metadata.uid'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' uncordon '{{.NODE}}'
+  browser:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    env:
+      TAMOSS_ENV_DIR: '{{.ENV_DIR}}'
+      LOCAL_UID: {sh: id -u}
+      LOCAL_GID: {sh: id -g}
+    cmds:
+      - task: :tamoss:browser-build
+      - task: browser-target
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - defer: rm -f '{{.ENV_DIR}}/browser.env' '{{.ENV_DIR}}/browser-secrets.json'
+      - BROWSER_IMAGE="$(cat '{{.ROOT_DIR}}/.local/tmp/browser-build/image-id')" docker compose -f deploy/tamoss/browser/compose.yaml run --rm --pull never -T browser > '{{.ENV_DIR}}/reports/browser.log' 2>&1
+      - 'yq -p=xml -oy -e ''.testsuites.testsuite | [(."+@tests" == "5"), (."+@failures" == "0"), (."+@errors" == "0"), (."+@skipped" == "0")] | all'' {{.ENV_DIR}}/reports/browser.xml > /dev/null'
+  browser-target:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss tamoss -o json | yq -p=json -e -r ' .status.auth.applicationSlug | select(length > 0)' > '{{.ENV_DIR}}/browser-slug'
+      - for: [browser.env, browser-secrets.json]
+        cmd: install -m 600 /dev/null '{{.ENV_DIR}}/{{.ITEM}}'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get secret authentik -o json |
+        yq -p=json -o=json '.data | {"TEST_TAMOSS_AUTH_USER": (.AUTHENTIK_BOOTSTRAP_USERNAME | @base64d), "TEST_TAMOSS_AUTH_PASSWORD": (.AUTHENTIK_BOOTSTRAP_PASSWORD | @base64d)}'
+        > '{{.ENV_DIR}}/browser-secrets.json'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get secret "$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss tamoss -o jsonpath='{.status.resolved.generatedSecrets.oauth2Credentials}')" -o json |
+        yq -p=json -r '.data |
+        {"TEST_TAMOSS_OAUTH_CLIENT_ID": (.TAMOSS_OAUTH_CLIENT_ID | @base64d),
+        "TEST_TAMOSS_OAUTH_CLIENT_SECRET": (.TAMOSS_OAUTH_CLIENT_SECRET | @base64d)} * load("{{.ENV_DIR}}/browser-secrets.json") |
+        to_entries | .[] | .key + "=" + (.value | @sh)' > '{{.ENV_DIR}}/browser.env'
+      - >-
+        yq -r '.data |
+        {"TEST_TARGET": "oci", "TEST_TAMOSS_API": .apiURL, "TEST_TAMOSS_UI": .uiURL,
+        "TEST_TAMOSS_AUTH": .issuerURL, "TEST_TAMOSS_S3": .objectEndpoint,
+        "TEST_TAMOSS_TOKEN": (load_str("{{.ENV_DIR}}/api-token") | trim),
+        "TEST_TAMOSS_UI_EXPECT_STATUS": "200,302", "TEST_TAMOSS_BROWSER_API_AVAILABLE": "true",
+        "TEST_INSECURE_SKIP_TLS_VERIFY": "false", "TEST_TAMOSS_OAUTH2_ENABLED": "true",
+        "TEST_TAMOSS_OAUTH_ISSUER": (.issuerURL + "/application/o/" + (load_str("{{.ENV_DIR}}/browser-slug") | trim) + "/")} |
+        to_entries | .[] | .key + "=" + (.value | @sh)'
+        '{{.ENV_DIR}}/instance/runtime.yaml' >> '{{.ENV_DIR}}/browser.env'

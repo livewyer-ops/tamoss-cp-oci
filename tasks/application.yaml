@@ -1,0 +1,122 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  VALUES: '{{.ROOT_DIR}}/deploy/runtime/values.yaml.gotmpl'
+tasks:
+  calico:
+    vars:
+      CACHE: '{{.ROOT_DIR}}/.local/tmp/check'
+      URL: {sh: 'yq -r ''.artifacts[] | select(.path == "calico/calico-policy-only.yaml") | .url'' dependencies.yaml'}
+      SHA: {sh: 'yq -r ''.artifacts[] | select(.path == "calico/calico-policy-only.yaml") | .sha256'' dependencies.yaml'}
+    cmds:
+      - task: :verify:artifact
+        vars: {CACHE: '{{.CACHE}}', TARGET: calico/calico-policy-only.yaml, URL: '{{.URL}}', SHA: '{{.SHA}}'}
+      - cp deploy/calico/kustomization.yaml deploy/calico/oci.yaml '{{.CACHE}}/calico/'
+      - mkdir -p '{{.CACHE}}/calico-chart/templates'
+      - cp charts/calico/Chart.yaml '{{.CACHE}}/calico-chart/'
+      - cp charts/calico/templates/policy.yaml '{{.CACHE}}/calico-chart/templates/'
+      - kubectl kustomize '{{.CACHE}}/calico' > '{{.CACHE}}/calico-chart/policy.yaml'
+  secrets:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    preconditions:
+      - sh: test -d '{{.ENV_DIR}}/secrets' && test -z "$(find '{{.ENV_DIR}}/secrets' -type f -perm /077 -print)"
+        msg: Application credential files must have owner-only permissions
+    cmds:
+      - mkdir -p -m 700 '{{.ENV_DIR}}/auth-secrets' '{{.ENV_DIR}}/tams-secrets'
+      - cp '{{.ROOT_DIR}}/deploy/tamoss/secrets/auth/kustomization.yaml' '{{.ROOT_DIR}}/deploy/tamoss/secrets/auth/namespace.yaml' '{{.ENV_DIR}}/auth-secrets/'
+      - cp '{{.ROOT_DIR}}/deploy/tamoss/secrets/tams/kustomization.yaml' '{{.ROOT_DIR}}/deploy/tamoss/secrets/tams/namespace.yaml' '{{.ENV_DIR}}/tams-secrets/'
+      - 'yq -i ''(.secretGenerator[] | select(.name == "database-admin")).literals = ["username=" + load("{{.ENV_DIR}}/environment.yaml").spec.database.administrator]'' {{.ENV_DIR}}/auth-secrets/kustomization.yaml'
+      - cp '{{.ENV_DIR}}/secrets/database-admin-password' '{{.ENV_DIR}}/auth-secrets/'
+      - cp '{{.ENV_DIR}}/secrets/tams-database-password' '{{.ENV_DIR}}/auth-secrets/'
+      - cp '{{.ENV_DIR}}/secrets/tams-database-password' '{{.ENV_DIR}}/secrets/s3-access-key' '{{.ENV_DIR}}/secrets/s3-secret-key' '{{.ENV_DIR}}/tams-secrets/'
+      - cp '{{.ENV_DIR}}/database-ca.pem' '{{.ENV_DIR}}/auth-secrets/'
+      - cp '{{.ENV_DIR}}/database-ca.pem' '{{.ENV_DIR}}/tams-secrets/'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/auth-secrets'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/tams-secrets'
+  up:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: secrets
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - "echo 'Installing network policy, external database bootstrap and platform releases'"
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/calico/helmfile.yaml sync
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/tamoss/platform/helmfile.yaml.gotmpl --state-values-file '{{.VALUES}}' -l component=authentik-bootstrap sync
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/tamoss/database/helmfile.yaml.gotmpl --state-values-file '{{.VALUES}}' sync
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/tamoss/platform/helmfile.yaml.gotmpl --state-values-file '{{.VALUES}}' sync
+      - "echo 'Installing the TAMOSS operator and waiting for application readiness'"
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.ROOT_DIR}}/.local/tmp/check/operator/rendered.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-system rollout status deployment/operator-controller-manager --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/instance'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams wait tamoss/tamoss --for=condition=Ready --timeout=900s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams wait storagebackends --all --for=condition=Ready --timeout=300s
+  down:
+    requires: {vars: [ENV_DIR]}
+    # Only a successful OCI inventory can establish that no remote cluster remains.
+    status:
+      - 'yq -e ''[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0'' {{.ENV_DIR}}/owned-current.yaml'
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: prepare-removal
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - "echo 'Removing TAMOSS while its operator is available, then removing platform releases'"
+      - task: remove-instance
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remove-operator
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - helm --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' uninstall tamoss-database-init -n auth --ignore-not-found --wait --timeout 300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tamoss-database-init --ignore-not-found --wait=true --timeout=300s
+      - task: remove-platform
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n traefik delete service/traefik --ignore-not-found --wait=true --timeout=600s
+      - helm --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' uninstall calico-oci-policy -n kube-system --ignore-not-found --wait --timeout 300s
+  remove-instance:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: remove-resource
+        vars: {ENV_DIR: '{{.ENV_DIR}}', RESOURCE_NAMESPACE: tams, CRD: ingestruns.tamoss.livewyer.io, RESOURCE: ingestrun/qualification}
+      - task: remove-resource
+        vars: {ENV_DIR: '{{.ENV_DIR}}', RESOURCE_NAMESPACE: tams, CRD: storagebackends.tamoss.livewyer.io, RESOURCE: storagebackend/tams-storage-default}
+      - task: remove-resource
+        vars: {ENV_DIR: '{{.ENV_DIR}}', RESOURCE_NAMESPACE: tams, CRD: tamosses.tamoss.livewyer.io, RESOURCE: tamoss/tamoss}
+  remove-resource:
+    requires: {vars: [ENV_DIR, RESOURCE_NAMESPACE, CRD, RESOURCE]}
+    status:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd '{{.CRD}}' --ignore-not-found -o json | yq -p=json -e 'length == 0'
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.RESOURCE_NAMESPACE}}' annotate '{{.CRD}}' --field-selector 'metadata.name={{splitList "/" .RESOURCE | last}}' confirmation.tamoss.livewyer.io/deletion=true --overwrite
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.RESOURCE_NAMESPACE}}' delete '{{.RESOURCE}}' --ignore-not-found --wait=true --timeout=900s
+  remove-operator:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remove-resource
+        vars: {ENV_DIR: '{{.ENV_DIR}}', RESOURCE_NAMESPACE: tamoss-system, CRD: certificates.cert-manager.io, RESOURCE: certificate/operator-serving-cert}
+      - task: remove-resource
+        vars: {ENV_DIR: '{{.ENV_DIR}}', RESOURCE_NAMESPACE: tamoss-system, CRD: issuers.cert-manager.io, RESOURCE: issuer/operator-selfsigned-issuer}
+      - 'yq ''select(.apiVersion != "cert-manager.io/v1")'' {{.ENV_DIR}}/operator-removal/rendered.yaml > {{.ENV_DIR}}/operator-removal/core.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' delete -f '{{.ENV_DIR}}/operator-removal/core.yaml' --ignore-not-found --wait=true --timeout=300s
+  prepare-removal:
+    requires: {vars: [ENV_DIR]}
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/tamoss-release.yaml'
+        msg: Recover the original TAMOSS release record before teardown
+    cmds:
+      - task: :tamoss:fetch
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml'}
+      - task: :tamoss:operator
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml', OUTPUT_DIR: '{{.ENV_DIR}}/operator-removal'}
+  remove-platform:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - helm --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' list --all-namespaces -o json | yq -p=json -e '[(tag == "!!seq"), ([.[] | select((.namespace == "auth" and (.name == "authentik" or .name == "authentik-bootstrap")) or (.namespace == "tamoss-platform" and .name == "tamoss-platform-config") or (.namespace == "traefik" and .name == "traefik") or (.namespace == "cert-manager" and .name == "cert-manager"))] | length == 0)] | all'
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/tamoss/platform/helmfile.yaml.gotmpl --state-values-file '{{.VALUES}}' destroy

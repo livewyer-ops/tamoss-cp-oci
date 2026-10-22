@@ -1,0 +1,33 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+tasks:
+  check:
+    vars:
+      CHECK_NAME: 'tamoss-cp-check-{{now | unixEpoch}}'
+    cmds:
+      - defer: kind delete cluster --name '{{.CHECK_NAME}}'
+      - defer: rm -f '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig'
+      - kind create cluster --name '{{.CHECK_NAME}}' --config deploy/management/kind.yaml --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --wait 120s
+      - defer: rm -rf '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-identity'
+      - task: install
+        vars:
+          MANAGEMENT_KUBECONFIG: '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig'
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --exec-timeout 180s --test-dir tests/lifecycle --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-identity' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name lifecycle
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/management --report-format JUNIT-TEST --report-path .local/reports --report-name management
+      - defer: rm -rf '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-storage'
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/storage-cleanup --set-string root='{{.ROOT_DIR}}' --set-string name='{{.CHECK_NAME}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-storage' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name storage-cleanup
+  install:
+    requires:
+      vars: [MANAGEMENT_KUBECONFIG]
+    cmds:
+      - helmfile --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' -f deploy/management/helmfile.yaml.gotmpl -l stage=crossplane sync
+      - helmfile --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' -f deploy/management/helmfile.yaml.gotmpl -l stage=family sync
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait provider.pkg.crossplane.io/oracle-provider-family-oci --for=condition=Healthy --timeout=300s
+      - helmfile --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' -f deploy/management/helmfile.yaml.gotmpl -l stage=services sync
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait providers.pkg.crossplane.io --all --for=condition=Healthy --timeout=600s
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait functions.pkg.crossplane.io --all --for=condition=Healthy --timeout=300s
+      - helmfile --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' -f deploy/management/helmfile.yaml.gotmpl -l stage=api sync
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait compositeresourcedefinition/tamossenvironments.tamoss.livewyer.io --for='jsonpath={.status.conditions}' --timeout=120s
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait compositeresourcedefinition/tamossenvironments.tamoss.livewyer.io --for=condition=Established --timeout=120s
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait crd/tamossenvironments.tamoss.livewyer.io --for='jsonpath={.status.conditions}' --timeout=120s
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' wait crd/tamossenvironments.tamoss.livewyer.io --for=condition=Established --timeout=120s

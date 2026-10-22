@@ -1,0 +1,108 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  CACHE: '{{.ROOT_DIR}}/.local/tmp/check'
+  ARTIFACT_JSON:
+    sh: 'yq -o=json -I=0 ".artifacts" {{.ROOT_DIR}}/dependencies.yaml'
+  ARTIFACTS:
+    ref: .ARTIFACT_JSON | fromJson
+tasks:
+  tools:
+    preconditions:
+      - sh: test "$(command -v task)" = '{{.TOOL_ROOT}}/bin/task'
+        msg: 'Add Aqua shims to PATH: export PATH="$(aqua root-dir)/bin:$PATH"'
+    cmds:
+      - for: [kind, kubectl, helm, helmfile, crossplane, yq, chainsaw, vegeta, hurl]
+        cmd: 'test "$(command -v {{.ITEM}})" = "{{.TOOL_ROOT}}/bin/{{.ITEM}}"'
+  privacy:
+    cmds:
+      - test ! -d scripts
+      - git ls-files --cached --others --exclude-standard -z -- '*.py' '*.sh' | wc -c | xargs test 0 -eq
+      - git ls-files -z -- AGENTS.md CLAUDE.md .local | wc -c | xargs test 0 -eq
+      - git check-ignore -q AGENTS.md
+      - git check-ignore -q .local/AGENTS.md
+  artifacts:
+    cmds:
+      - mkdir -p -m 700 '{{.CACHE}}'
+      # Regenerate the schema set so an earlier release cannot override its CRDs.
+      - rm -rf '{{.CACHE}}/schemas'
+      - for: {var: ARTIFACTS}
+        task: artifact
+        vars: {URL: '{{.ITEM.url}}', TARGET: '{{.ITEM.path}}', SHA: '{{.ITEM.sha256}}'}
+  artifact:
+    status:
+      - echo '{{.SHA}}  {{.CACHE}}/{{.TARGET}}' | sha256sum --check --status
+    cmds:
+      - curl --fail --location --silent --show-error --max-time 60 --max-filesize 16777216 --create-dirs --output '{{.CACHE}}/{{.TARGET}}.download' '{{.URL}}'
+      - echo '{{.SHA}}  {{.CACHE}}/{{.TARGET}}.download' | sha256sum --check --status
+      - mv '{{.CACHE}}/{{.TARGET}}.download' '{{.CACHE}}/{{.TARGET}}'
+  render:
+    cmds:
+      - task: :tamoss:media
+      - task: :runtime:fixture
+      - helm lint charts/packages charts/environment deploy/tamoss/database/chart charts/storage-check
+      - helm template environment charts/environment > '{{.CACHE}}/environment-api.yaml'
+      - 'yq ''select(.kind == "Composition")'' {{.CACHE}}/environment-api.yaml > {{.CACHE}}/composition.yaml'
+      - helm template packages charts/packages --set services=true | yq 'select(.kind == "Function")' > '{{.CACHE}}/functions.yaml'
+      - task: :application:calico
+      - helm template calico-oci-policy '{{.CACHE}}/calico-chart' > '{{.CACHE}}/calico.yaml'
+      - task: :tamoss:operator
+      - cp '{{.CACHE}}/operator/rendered.yaml' '{{.CACHE}}/operator.yaml'
+      - task: :tamoss:instance
+        vars: {OUTPUT_DIR: '{{.CACHE}}/instance-base'}
+      - cp '{{.CACHE}}/instance-base/rendered.yaml' '{{.CACHE}}/tamoss.yaml'
+      - >-
+        yq 'select(.kind == "Tamoss") | .spec as $s |
+        {"apiVersion": "v1", "kind": "List", "items": ["api", "worker", "ui", "console"] | map(
+        {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": ("ha-admission-" + .), "namespace": "tams",
+        "labels": ({"app.kubernetes.io/instance": "tamoss"} * $s[.].podLabels)},
+        "spec": {"affinity": $s[.].affinity, "containers": [{"name": "check",
+        "image": load("{{.ROOT_DIR}}/deploy/tamoss/database/chart/values.yaml").image}]}})}'
+        '{{.CACHE}}/tamoss.yaml' > '{{.CACHE}}/ha-pods.yaml'
+      - kubectl kustomize deploy/tamoss/ingest > '{{.CACHE}}/ingest.yaml'
+      - TAMOSS_ENV_DIR='{{.ROOT_DIR}}/.local/tmp/check/runtime' helmfile -f deploy/tamoss/platform/helmfile.yaml.gotmpl --state-values-file '{{.ROOT_DIR}}/deploy/runtime/values.yaml.gotmpl' template > '{{.CACHE}}/platform.yaml'
+      - TAMOSS_ENV_DIR='{{.ROOT_DIR}}/.local/tmp/check/runtime' helmfile -f deploy/tamoss/database/helmfile.yaml.gotmpl --state-values-file '{{.ROOT_DIR}}/deploy/runtime/values.yaml.gotmpl' template > '{{.CACHE}}/database.yaml'
+      - TAMOSS_ENV_DIR='{{.ROOT_DIR}}/.local/tmp/check/runtime' helmfile -f deploy/storage-check/helmfile.yaml.gotmpl --state-values-file '{{.ROOT_DIR}}/tests/storage-values.yaml' template > '{{.CACHE}}/storage-check.yaml'
+      - >-
+        yq eval-all -e '[.. | select(tag == "!!map") | select(has("image")) | .image |
+        select(tag == "!!str") | select(test("^[^/]*[.:][^/]*/") | not)] | length == 0'
+        '{{.CACHE}}/calico.yaml' '{{.CACHE}}/platform.yaml' '{{.CACHE}}/operator.yaml' '{{.CACHE}}/database.yaml'
+      - for: [calico, platform, operator]
+        cmd: 'yq ''select(.kind == "CustomResourceDefinition")'' {{.CACHE}}/{{.ITEM}}.yaml > {{.CACHE}}/schemas/{{.ITEM}}.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --crossplane-image={{.CORE}} > {{.CACHE}}/initial.yaml'
+      - 'yq ''select(.metadata.annotations."crossplane.io/composition-resource-name" != null) | .status = {"conditions": [{"type": "Ready", "status": "True"}], "atProvider": {"id": ("ocid1.test.oc1.." + .metadata.annotations."crossplane.io/composition-resource-name")}}'' {{.CACHE}}/initial.yaml > {{.CACHE}}/observed.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/partial.yaml'
+      - 'yq ''select(.kind == "Cluster") | del(.metadata.ownerReferences) | .metadata.annotations."crossplane.io/paused" = "true"'' {{.CACHE}}/partial.yaml > {{.CACHE}}/cluster-reference.yaml'
+      - 'yq ''select(.metadata.annotations."crossplane.io/composition-resource-name" != null) | .status.conditions = [{"type": "Ready", "status": "True"}]'' {{.CACHE}}/partial.yaml > {{.CACHE}}/observed.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/ready.yaml'
+      - 'yq ''del(.status)'' {{.CACHE}}/observed.yaml > {{.CACHE}}/recovering-observed.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/recovering-observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/recovering.yaml'
+      - for: [calico, platform, operator, database, tamoss, ingest, storage-check, initial, partial, ready, recovering]
+        cmd: 'crossplane resource validate {{.CACHE}}/schemas,charts/environment/definition.yaml {{.CACHE}}/{{.ITEM}}.yaml --crossplane-image={{.CORE}} --cache-dir={{.CACHE}}/crossplane --error-on-missing-schemas --skip-success-results'
+      - for: [initial, partial, ready, platform, operator, tamoss]
+        cmd: 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/{{.ITEM}}.yaml > {{.CACHE}}/{{.ITEM}}-list.yaml'
+      - 'yq -r ''select(.kind == "Usage") | [.spec.of.resourceRef.name, .spec.by.resourceRef.name] | @tsv'' {{.CACHE}}/partial.yaml | tsort > {{.CACHE}}/deletion-order.txt'
+      - 'yq ''select(.kind != "TamossEnvironment") | del(.status)'' {{.CACHE}}/partial.yaml > {{.CACHE}}/expected-recovery.yaml'
+      - 'yq ''select(.kind != "TamossEnvironment") | del(.status)'' {{.CACHE}}/recovering.yaml > {{.CACHE}}/actual-recovery.yaml'
+      - diff -u '{{.CACHE}}/expected-recovery.yaml' '{{.CACHE}}/actual-recovery.yaml'
+      - 'yq ''with(select(.metadata.annotations."crossplane.io/composition-resource-name" == "service"); del(.status))'' {{.CACHE}}/observed.yaml > {{.CACHE}}/service-recovering-observed.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/service-recovering-observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/service-recovering.yaml'
+      - 'yq ''select(.kind != "TamossEnvironment") | del(.status)'' {{.CACHE}}/service-recovering.yaml > {{.CACHE}}/service-recovering-resources.yaml'
+      - diff -u '{{.CACHE}}/expected-recovery.yaml' '{{.CACHE}}/service-recovering-resources.yaml'
+      - chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render
+      - for: [open-api, overlap, outside-vcn, service-overlap, zero-budget, catalogue-shape, unsupported-oke, duplicate-placement, name-length]
+        cmd: kubectl kustomize tests/invalid/{{.ITEM}} > '{{.CACHE}}/rejected-{{.ITEM}}.yaml'
+      - chainsaw test --no-cluster --set-string crossplaneImage={{.CORE}} --test-dir tests/invalid --report-format JUNIT-TEST --report-path .local/reports --report-name invalid-inputs
+  database:
+    env:
+      TEST_DB_IMAGE:
+        sh: 'yq -r .image deploy/tamoss/database/chart/values.yaml'
+    cmds:
+      - defer: docker compose --project-name tamoss-cp-sql-check -f tests/database/compose.yaml down --volumes
+      - docker compose --project-name tamoss-cp-sql-check -f tests/database/compose.yaml up --wait --wait-timeout 45 database
+      - docker compose --project-name tamoss-cp-sql-check -f tests/database/compose.yaml run --rm initialise
+      - docker compose --project-name tamoss-cp-sql-check -f tests/database/compose.yaml run --rm initialise
+      - docker compose --project-name tamoss-cp-sql-check -f tests/database/compose.yaml run --rm verify
+  contracts:
+    cmds:
+      - chainsaw test --no-cluster --test-dir tests/contracts --report-format JUNIT-TEST --report-path .local/reports --report-name contracts
