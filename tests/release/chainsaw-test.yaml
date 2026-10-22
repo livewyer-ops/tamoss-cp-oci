@@ -62,6 +62,51 @@ spec:
             entrypoint: cmp
             env: *paths
             args: [$CHECK_DIRECTORY/operator-removal/rendered.yaml, $PROJECT_ROOT/.local/tmp/check/operator.yaml]
+    - name: accept source contents despite different archive ownership and permissions
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, source-fixture, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command: &compareSource
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, compare-source, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+    - name: reject changed source bytes
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.tag = "changed"', $CHECK_DIRECTORY/source-fixture/source/release.yaml]
+        - command:
+            <<: *compareSource
+            check: {($error != null): true}
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$PROJECT_ROOT/deploy/tamoss/release.yaml, $CHECK_DIRECTORY/source-fixture/source/release.yaml]
+    - name: reject added source files
+      try:
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$CHECK_DIRECTORY/source-fixture/source/extra.yaml]
+        - command:
+            <<: *compareSource
+            check: {($error != null): true}
+        - command:
+            entrypoint: rm
+            env: *paths
+            args: [$CHECK_DIRECTORY/source-fixture/source/extra.yaml]
+    - name: reject changed source link targets
+      try:
+        - command:
+            entrypoint: ln
+            env: *paths
+            args: [-sfn, absent.yaml, $CHECK_DIRECTORY/source-fixture/source/current.yaml]
+        - command:
+            <<: *compareSource
+            check: {($error != null): true}
     - name: refuse to invent a missing release record for existing state
       try:
         - command:

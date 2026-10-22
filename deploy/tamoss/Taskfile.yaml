@@ -106,9 +106,6 @@ tasks:
         vars: {ASSETS: '{{.ASSETS}}'}
   extract:
     requires: {vars: [ASSETS]}
-    status:
-      - test -d '{{.ASSETS}}/source'
-      - tar --compare --gzip --file '{{.ASSETS}}/source.tar.gz' --strip-components=1 --directory '{{.ASSETS}}/source' --wildcards 'tamoss-*/?*'
     cmds:
       - rm -rf '{{.ASSETS}}/source'
       - mkdir -p -m 700 '{{.ASSETS}}/source'
@@ -226,7 +223,17 @@ tasks:
       KEY: *releaseKey
       ASSETS: *releaseAssets
     cmds:
-      - tar --compare --gzip --file '{{.ASSETS}}/source.tar.gz' --strip-components=1 --directory '{{.ASSETS}}/source' --wildcards 'tamoss-*/?*'
+      - task: compare-source
+        vars: {ASSETS: '{{.ASSETS}}'}
+  compare-source:
+    requires: {vars: [ASSETS]}
+    cmds:
+      - defer: rm -rf '{{.ASSETS}}/source-reference'
+      - rm -rf '{{.ASSETS}}/source-reference'
+      - mkdir -p -m 700 '{{.ASSETS}}/source-reference'
+      - tar --extract --gzip --file '{{.ASSETS}}/source.tar.gz' --strip-components=1 --no-same-owner --directory '{{.ASSETS}}/source-reference'
+      # Archive ownership and extraction umasks vary between workstations and CI.
+      - diff --brief --recursive --no-dereference '{{.ASSETS}}/source-reference' '{{.ASSETS}}/source'
   tls:
     vars:
       LOCK: *releaseLock

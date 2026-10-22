@@ -30,6 +30,19 @@ tasks:
   metadata:
     cmds:
       - task: tamoss:metadata
+  source-fixture:
+    cmds:
+      - mkdir -p '{{.ENV_DIR}}/source-fixture/tamoss-fixture'
+      - cp '{{.ROOT_DIR}}/deploy/tamoss/release.yaml' '{{.ENV_DIR}}/source-fixture/tamoss-fixture/release.yaml'
+      - ln -sfn release.yaml '{{.ENV_DIR}}/source-fixture/tamoss-fixture/current.yaml'
+      - tar --create --gzip --owner=12345 --group=12345 --mode=0777 --file '{{.ENV_DIR}}/source-fixture/source.tar.gz' --directory '{{.ENV_DIR}}/source-fixture' tamoss-fixture
+      - task: tamoss:extract
+        vars: {ASSETS: '{{.ENV_DIR}}/source-fixture'}
+      - chmod 600 '{{.ENV_DIR}}/source-fixture/source/release.yaml'
+  compare-source:
+    cmds:
+      - task: tamoss:compare-source
+        vars: {ASSETS: '{{.ENV_DIR}}/source-fixture'}
   entrypoints:
     cmds:
       - task: tamoss:entrypoints
