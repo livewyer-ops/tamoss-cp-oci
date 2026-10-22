@@ -46,7 +46,7 @@ jobs:
           bundle_tag="$(yq -r .tag deploy/tamoss/release.yaml)-$PRODUCT_COMMIT"
           flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path .local/tmp/tamoss-bundle --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/published-package.json
-          yq -e '.visibility == "private" and .repository.full_name == strenv(PRODUCT_REPOSITORY)' .local/tmp/check/published-package.json
+          yq -e '(.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/check/published-package.json
           yq -r '"OCI digest: `" + .digest + "`"' .local/tmp/check/published-bundle.json >> "$GITHUB_STEP_SUMMARY"
       - name: Remove publisher credentials
         if: always()
