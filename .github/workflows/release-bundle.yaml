@@ -29,7 +29,7 @@ jobs:
           mkdir -p -m 700 .local/tmp/check
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/package.json ||
             aqua exec -- yq -e '.status == "404"' .local/tmp/check/package.json
-          aqua exec -- yq -o=json '{"status": .status, "visibility": .visibility, "repository": .repository.full_name}' .local/tmp/check/package.json
+          aqua exec -- yq -o=json '{"status": .status, "visibility": .visibility, "repository": .repository}' .local/tmp/check/package.json
           aqua exec -- yq -e '(.status == "404") or ((.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
       - name: Verify the release and prepare the allowlisted bundle
         run: |
