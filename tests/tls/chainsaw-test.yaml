@@ -1,0 +1,68 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: released-database-tls
+spec:
+  timeouts:
+    exec: 1m
+  steps:
+    - name: accept the trusted certificate and hostname
+      try:
+        - command:
+            entrypoint: docker
+            args: &psql [compose, --project-name, tamoss-cp-tls-check, -f, compose.yaml, run, --rm, psql]
+            env: &trusted
+              - {name: TLS_HOST, value: database}
+              - {name: TLS_CA, value: server.crt}
+        - command:
+            entrypoint: docker
+            args: &migration [compose, --project-name, tamoss-cp-tls-check, -f, compose.yaml, run, --rm, migration]
+            env: *trusted
+    - name: reject an untrusted certificate
+      try:
+        - command:
+            entrypoint: docker
+            args: *psql
+            env: &untrusted
+              - {name: TLS_HOST, value: database}
+              - {name: TLS_CA, value: untrusted.crt}
+            check: &untrustedCheck
+              ($error != null): true
+              (contains($stderr, 'certificate verify failed')): true
+        - command:
+            entrypoint: docker
+            args: *migration
+            env: *untrusted
+            check: *untrustedCheck
+    - name: reject a hostname mismatch
+      try:
+        - command:
+            entrypoint: docker
+            args: *psql
+            env: &mismatched
+              - {name: TLS_HOST, value: mismatched}
+              - {name: TLS_CA, value: server.crt}
+            check: &mismatchCheck
+              ($error != null): true
+              (contains($stderr, 'does not match host name')): true
+        - command:
+            entrypoint: docker
+            args: *migration
+            env: *mismatched
+            check: *mismatchCheck
+    - name: reject a server without TLS
+      try:
+        - command:
+            entrypoint: docker
+            args: *psql
+            env: &plaintext
+              - {name: TLS_HOST, value: plaintext}
+              - {name: TLS_CA, value: server.crt}
+            check: &plaintextCheck
+              ($error != null): true
+              (contains($stderr, 'server does not support SSL')): true
+        - command:
+            entrypoint: docker
+            args: *migration
+            env: *plaintext
+            check: *plaintextCheck

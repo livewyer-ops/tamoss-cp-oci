@@ -1,0 +1,1 @@
+{{ required "Verified Calico policy asset is missing" (.Files.Get "policy.yaml") }}

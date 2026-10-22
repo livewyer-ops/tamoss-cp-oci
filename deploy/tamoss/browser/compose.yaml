@@ -1,0 +1,21 @@
+services:
+  browser:
+    image: ${BROWSER_IMAGE:?}
+    user: '${LOCAL_UID:?}:${LOCAL_GID:?}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    shm_size: 256m
+    tmpfs: [/tmp]
+    volumes:
+      - ${TAMOSS_ENV_DIR:?}/browser.env:/run/target.env:ro
+      - ${TAMOSS_ENV_DIR:?}/reports:/reports
+    command:
+      - --target-env=/run/target.env
+      - --junitxml=/reports/browser.xml
+      - -q
+      - tests/e2e/test_deployed_webhooks_and_ui.py::test_deployed_ui_ingress_authenticates_and_proxies_api
+      - tests/e2e/test_deployed_webhooks_and_ui.py::test_deployed_browser_session_cannot_mutate_same_origin_paths
+      - tests/e2e/test_deployed_webhooks_and_ui.py::test_deployed_ui_playback_preview_buffers_demo_media
+      - tests/e2e/test_deployed_webhooks_and_ui.py::test_deployed_oauth2_client_credentials_token_grants_api_access
+      - tests/e2e/test_deployed_webhooks_and_ui.py::test_deployed_oidc_metadata_and_jwks_are_ready

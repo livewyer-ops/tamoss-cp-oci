@@ -1,0 +1,6 @@
+helmfiles:
+  - path: ../../../.local/tmp/tamoss/{{ .Values.tamoss.releaseKey }}/source/deploy/platform/helmfile.yaml.gotmpl
+    selectorsInherited: true
+    values:
+      - ../../../.local/tmp/tamoss/{{ .Values.tamoss.releaseKey }}/source/deploy/platform/values/defaults.yaml
+      - {{ tpl (readFile "values.yaml.gotmpl") . | nindent 8 }}

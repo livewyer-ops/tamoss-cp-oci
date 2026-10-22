@@ -1,0 +1,42 @@
+services:
+  database:
+    image: ${TEST_DB_IMAGE:?Set TEST_DB_IMAGE from deploy/tamoss/database/chart/values.yaml}
+    network_mode: none
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - socket:/var/run/postgresql
+      - ./bootstrap.sql:/docker-entrypoint-initdb.d/bootstrap.sql:ro
+    healthcheck:
+      test: [CMD, pg_isready, -U, bootstrap_admin, -d, postgres]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+  initialise:
+    image: ${TEST_DB_IMAGE}
+    network_mode: none
+    user: postgres
+    entrypoint: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/sql/init.sql]
+    environment:
+      PGHOST: /var/run/postgresql
+      PGDATABASE: postgres
+      PGUSER: bootstrap_admin
+      TAMS_PASSWORD: "quoted'password"
+      AUTHENTIK_PASSWORD: "other'password"
+    volumes:
+      - socket:/var/run/postgresql
+      - ../../deploy/tamoss/database/chart/files/init.sql:/sql/init.sql:ro
+  verify:
+    image: ${TEST_DB_IMAGE}
+    network_mode: none
+    user: postgres
+    entrypoint: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/sql/assert.sql]
+    environment:
+      PGHOST: /var/run/postgresql
+      PGDATABASE: postgres
+      PGUSER: bootstrap_admin
+    volumes:
+      - socket:/var/run/postgresql
+      - ./assert.sql:/sql/assert.sql:ro
+volumes:
+  socket: {}

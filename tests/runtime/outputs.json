@@ -1,0 +1,1 @@
+{"publicIp":"198.51.100.25","loadBalancerSubnetId":"ocid1.subnet.oc1..fixture","clusterId":"ocid1.cluster.oc1..fixture","databaseId":"ocid1.postgresqldbsystem.oc1..fixture","objectEndpoint":"https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com"}

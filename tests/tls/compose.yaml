@@ -1,0 +1,69 @@
+services:
+  certificates:
+    image: ${TEST_DB_IMAGE:?}
+    network_mode: none
+    entrypoint: [install, -o, postgres, -g, postgres, -m, '600', /input/server.key, /certs/server.key]
+    volumes:
+      - ${TEST_TLS_DIRECTORY:?}/server.key:/input/server.key:ro
+      - keys:/certs
+  database:
+    image: ${TEST_DB_IMAGE}
+    environment: &database
+      POSTGRES_USER: tams
+      POSTGRES_PASSWORD: local-test-only
+      POSTGRES_DB: tams
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/server.crt, -c, ssl_key_file=/certs/server.key]
+    volumes:
+      - keys:/certs:ro
+      - ${TEST_TLS_DIRECTORY}/server.crt:/server.crt:ro
+    networks:
+      default:
+        aliases: [mismatched]
+    healthcheck: &health
+      test: [CMD, pg_isready, -U, tams, -d, tams]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+  plaintext:
+    image: ${TEST_DB_IMAGE}
+    environment: *database
+    healthcheck: *health
+  psql:
+    image: ${TEST_DB_IMAGE}
+    entrypoint: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --command=SELECT 1]
+    environment:
+      PGHOST: ${TLS_HOST:-database}
+      PGDATABASE: tams
+      PGUSER: tams
+      PGPASSWORD: local-test-only
+      PGCONNECT_TIMEOUT: '5'
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /ca/${TLS_CA:-server.crt}
+    volumes: &ca
+      - ${TEST_TLS_DIRECTORY}/server.crt:/ca/server.crt:ro
+      - ${TEST_TLS_DIRECTORY}/untrusted.crt:/ca/untrusted.crt:ro
+  migration:
+    image: ${TEST_API_IMAGE:?}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    entrypoint: [uv, run, --no-sync, tamoss-db, migrate]
+    command: [--revision, '${TEST_DB_REVISION:?}']
+    environment:
+      POSTGRES_HOST: ${TLS_HOST:-database}
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: tams
+      POSTGRES_USER: tams
+      POSTGRES_PASSWORD: local-test-only
+      PGCONNECT_TIMEOUT: '5'
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /ca/${TLS_CA:-server.crt}
+      UV_CACHE_DIR: /tmp/uv
+      PYTHONDONTWRITEBYTECODE: '1'
+    volumes: *ca
+networks:
+  default:
+    internal: true
+volumes:
+  keys: {}

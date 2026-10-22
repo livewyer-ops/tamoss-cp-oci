@@ -1,0 +1,7 @@
+helmDefaults:
+  wait: true
+  timeout: 600
+releases:
+  - name: calico-oci-policy
+    namespace: kube-system
+    chart: ../../.local/tmp/check/calico-chart

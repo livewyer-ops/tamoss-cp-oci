@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'Deployment'])): 6
+(length(resources[?kind == 'Deployment' && to_string(spec.replicas) == '2'])): 6
+(length(resources[?kind == 'Deployment' && length(spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution) > `0`])): 6
+(length(resources[?kind == 'StatefulSet' || kind == 'Cluster' || kind == 'Tenant'])): 0
+(resources[?kind == 'Service' && metadata.name == 'traefik'] | [0]):
+  metadata:
+    annotations:
+      oci.oraclecloud.com/reserved-ips: 198.51.100.25
+      service.beta.kubernetes.io/oci-load-balancer-health-check-interval: '10000'
+      service.beta.kubernetes.io/oci-load-balancer-health-check-retries: '3'
+      service.beta.kubernetes.io/oci-load-balancer-health-check-timeout: '3000'
+  spec:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+(resources[?kind == 'ClusterIssuer'] | [0]):
+  metadata:
+    name: tamoss-public
+  spec:
+    (acme != null): true
+    (selfSigned == null): true
+(resources[?kind == 'Deployment' && metadata.name == 'traefik'] | [0]):
+  spec:
+    template:
+      spec:
+        terminationGracePeriodSeconds: 60
+        (contains(containers[0].args, '--entryPoints.web.transport.lifeCycle.requestAcceptGraceTimeout=35s')): true
+        (contains(containers[0].args, '--entryPoints.websecure.transport.lifeCycle.requestAcceptGraceTimeout=35s')): true
+        (contains(containers[0].args, '--entryPoints.web.transport.lifeCycle.graceTimeOut=10s')): true
+        (contains(containers[0].args, '--entryPoints.websecure.transport.lifeCycle.graceTimeOut=10s')): true
+(resources[?kind == 'Deployment' && metadata.name == 'authentik-server'] | [0]):
+  spec:
+    template:
+      spec:
+        (containers[0].lifecycle.preStop.sleep.seconds): 5
+        (containers[0].env[?name == 'AUTHENTIK_POSTGRESQL__SSLMODE'].value | [0]): verify-full
+        (containers[0].env[?name == 'AUTHENTIK_POSTGRESQL__SSLROOTCERT'].value | [0]): /etc/oci-postgresql/ca.pem

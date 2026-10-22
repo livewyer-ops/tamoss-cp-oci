@@ -1,0 +1,38 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: Tamoss
+spec:
+  paused: false
+  publicEndpoint:
+    baseDomain: 198-51-100-25.sslip.io
+    uiURL: https://app.198-51-100-25.sslip.io
+    tlsSecretName: tams-public-tls
+  backends:
+    db:
+      external:
+        host: db.example.invalid
+        tls:
+          caConfigMap: {name: database-ca, key: ca.pem}
+    s3:
+      external:
+        endpoint:
+          default: {url: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com}
+          public: {url: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com}
+        region: eu-frankfurt-1
+        bucket: qualification-media
+  auth:
+    authentikBlueprints:
+      issuerURL: https://auth.198-51-100-25.sslip.io
+  ingress:
+    api: {host: api.198-51-100-25.sslip.io}
+    ui:
+      web: {host: app.198-51-100-25.sslip.io}
+  api:
+    cors:
+      allowedOrigins: [https://app.198-51-100-25.sslip.io]
+  (version != ''): true
+  (api.image.repository): docker.io/livewyer/tamoss-api
+  (ui.image.repository): docker.io/livewyer/tamoss-ui
+  (console.image.repository): docker.io/livewyer/tamoss-console-api
+  (api.image.tag == null && worker.image == null && ui.image.tag == null && console.image.tag == null): true
+  (starts_with(images.schemaMigrationPostgresClient, 'docker.io/library/postgres:')): true
+  (advanced.resourcePatches == null): true

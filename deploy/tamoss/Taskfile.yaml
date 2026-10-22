@@ -1,0 +1,259 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  CACHE: '{{.ROOT_DIR}}/.local/tmp/check'
+tasks:
+  validate-lock:
+    vars:
+      LOCK: &releaseLock '{{.RELEASE_LOCK | default (printf "%s/deploy/tamoss/release.yaml" .ROOT_DIR)}}'
+    cmds:
+      - >-
+        yq -e '(length == 3) and
+        (.tag | test("^v?[0-9]+[.][0-9]+[.][0-9]+[a-zA-Z0-9.-]*$")) and
+        (.releaseSha256 | test("^[a-f0-9]{64}$")) and
+        (.sourceSha256 | test("^[a-f0-9]{64}$"))' {{shellQuote .LOCK}} > /dev/null
+  fetch:
+    vars:
+      LOCK: *releaseLock
+      KEY: &releaseKey
+        sh: 'yq -e -r ''.releaseSha256 | select(test("^[a-f0-9]{64}$"))'' {{shellQuote .LOCK}}'
+      ASSETS: &releaseAssets '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}'
+    cmds:
+      - task: validate-lock
+        vars: {RELEASE_LOCK: '{{.LOCK}}'}
+      - task: record-download
+        vars: {RELEASE_LOCK: '{{.LOCK}}'}
+      - task: metadata
+        vars: {RELEASE_LOCK: '{{.LOCK}}'}
+      - for: [install.yaml, compatibility.yaml]
+        task: release-asset
+        vars: {NAME: '{{.ITEM}}', RELEASE_LOCK: '{{.LOCK}}'}
+      - task: additional-assets
+        vars: {RELEASE_LOCK: '{{.LOCK}}'}
+      - task: source
+        vars: {RELEASE_LOCK: '{{.LOCK}}'}
+      - task: entrypoints
+        vars: {ASSETS: '{{.ASSETS}}'}
+  record-download:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      TAG: {sh: 'yq -r .tag {{shellQuote .LOCK}}'}
+    cmds:
+      - task: :verify:artifact
+        vars:
+          CACHE: '{{.ASSETS}}'
+          URL: 'https://github.com/livewyer-ops/tamoss/releases/download/{{.TAG}}/release.json'
+          TARGET: release.json
+          SHA: '{{.KEY}}'
+  metadata:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+    cmds:
+      - echo '{{.KEY}}  {{.ASSETS}}/release.json' | sha256sum --check --status
+      - >-
+        yq -e '.recordVersion == 1 and .tag == load("{{.LOCK}}").tag and
+        (.sourceCommit | test("^[a-f0-9]{40}$")) and
+        (.artifacts."install.yaml".sha256 | test("^[a-f0-9]{64}$")) and
+        (.artifacts."compatibility.yaml".sha256 | test("^[a-f0-9]{64}$")) and
+        ([.images.api, .images.ui, .images.console_api, .images.operator] |
+        map(test("^livewyer/tamoss-[a-z-]+@sha256:[a-f0-9]{64}$")) | all)'
+        '{{.ASSETS}}/release.json' > /dev/null
+  release-asset:
+    requires: {vars: [NAME]}
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      TAG: {sh: 'yq -r .tag {{shellQuote .LOCK}}'}
+      SHA: {sh: 'yq -r ''.artifacts."{{.NAME}}".sha256'' {{.ASSETS}}/release.json'}
+    cmds:
+      - task: :verify:artifact
+        vars:
+          CACHE: '{{.ASSETS}}'
+          URL: 'https://github.com/livewyer-ops/tamoss/releases/download/{{.TAG}}/{{.NAME}}'
+          TARGET: '{{.NAME}}'
+          SHA: '{{.SHA}}'
+  additional-assets:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      NAMES:
+        sh: 'yq -r ''.artifacts | keys | .[] | select(. == "catalogue.json" or . == "dependencies.yaml")'' {{.ASSETS}}/release.json'
+    cmds:
+      - for: {var: NAMES}
+        task: release-asset
+        vars: {NAME: '{{.ITEM}}', RELEASE_LOCK: '{{.LOCK}}'}
+  source:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      COMMIT: {sh: 'yq -r .sourceCommit {{.ASSETS}}/release.json'}
+      SHA: {sh: 'yq -r .sourceSha256 {{shellQuote .LOCK}}'}
+    cmds:
+      - task: :verify:artifact
+        vars:
+          CACHE: '{{.ASSETS}}'
+          URL: 'https://codeload.github.com/livewyer-ops/tamoss/tar.gz/{{.COMMIT}}'
+          TARGET: source.tar.gz
+          SHA: '{{.SHA}}'
+      - task: extract
+        vars: {ASSETS: '{{.ASSETS}}'}
+  extract:
+    requires: {vars: [ASSETS]}
+    status:
+      - test -d '{{.ASSETS}}/source'
+      - tar --compare --gzip --file '{{.ASSETS}}/source.tar.gz' --strip-components=1 --directory '{{.ASSETS}}/source' --wildcards 'tamoss-*/?*'
+    cmds:
+      - rm -rf '{{.ASSETS}}/source'
+      - mkdir -p -m 700 '{{.ASSETS}}/source'
+      - tar --extract --gzip --file '{{.ASSETS}}/source.tar.gz' --strip-components=1 --no-same-owner --directory '{{.ASSETS}}/source'
+  entrypoints:
+    requires: {vars: [ASSETS]}
+    cmds:
+      - for:
+          - deploy/platform/helmfile.yaml.gotmpl
+          - deploy/platform/values/defaults.yaml
+          - deploy/instances/multi-server/kustomization.yaml
+          - tests/fixtures/e2e/tiny-ingest.mp4
+          - tests/e2e/test_deployed_webhooks_and_ui.py
+          - src/pyproject.toml
+          - src/uv.lock
+        cmd: test -s '{{.ASSETS}}/source/{{.ITEM}}'
+      - kubectl kustomize '{{.ASSETS}}/source/deploy/instances/multi-server' | yq -e 'select(.kind == "Tamoss") | .spec.profile == "multi-server" and .metadata.namespace == "tams" and .spec.fullnameOverride == "tams"' > /dev/null
+  assert-current:
+    vars:
+      LOCK: *releaseLock
+    requires: {vars: [ENV_DIR]}
+    preconditions:
+      - sh: test ! -e '{{.ENV_DIR}}/identity.yaml' || test -s '{{.ENV_DIR}}/tamoss-release.yaml'
+        msg: Existing environment has no TAMOSS release record; recover its original selection before continuing
+      - sh: test ! -e '{{.ENV_DIR}}/tamoss-release.yaml' || yq -n -e '(load("{{.ENV_DIR}}/tamoss-release.yaml") | sort_keys(.) | to_json) == (load("{{.LOCK}}") | sort_keys(.) | to_json)' > /dev/null
+        msg: Environment TAMOSS release differs from the repository pin; use its original selection or tear down before changing releases
+  record:
+    vars:
+      LOCK: *releaseLock
+    requires: {vars: [ENV_DIR]}
+    status: ["test -s '{{.ENV_DIR}}/tamoss-release.yaml'"]
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/tamoss-release.yaml' || (test ! -e '{{.ENV_DIR}}/tamoss-release.yaml' && test ! -e '{{.ENV_DIR}}/identity.yaml' && test ! -e '{{.ENV_DIR}}/management.kubeconfig' && test ! -e '{{.ENV_DIR}}/inventory-before')
+        msg: Recover the missing release record for this existing environment
+    cmds:
+      - install -m 600 '{{.LOCK}}' '{{.ENV_DIR}}/tamoss-release.yaml'
+  instance:
+    requires: {vars: [OUTPUT_DIR]}
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      BASE:
+        sh: realpath --relative-to='{{.OUTPUT_DIR}}' '{{.ASSETS}}/source/deploy/instances/multi-server'
+    cmds:
+      - mkdir -p -m 700 '{{.OUTPUT_DIR}}'
+      - cp deploy/tamoss/instance/kustomization.yaml deploy/tamoss/instance/patch.yaml deploy/tamoss/instance/storage.yaml '{{.OUTPUT_DIR}}/'
+      - 'yq -i ''.spec.version = load("{{.LOCK}}").tag'' {{.OUTPUT_DIR}}/patch.yaml'
+      - >-
+        yq -i '.spec.images.schemaMigrationPostgresClient =
+        (load("{{.ASSETS}}/release.json").runtime.images.postgresClient | sub("^postgres:"; "docker.io/library/postgres:"))'
+        '{{.OUTPUT_DIR}}/patch.yaml'
+      - 'yq -i ''.resources[0] = "{{.BASE}}"'' {{.OUTPUT_DIR}}/kustomization.yaml'
+      - kubectl kustomize '{{.OUTPUT_DIR}}' > '{{.OUTPUT_DIR}}/rendered.yaml'
+  release:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+    preconditions:
+      - sh: 'yq -e ''select(.kind == "CustomResourceDefinition" and .metadata.name == "tamosses.tamoss.livewyer.io") | .spec.versions[] | select(.served == true) | .schema.openAPIV3Schema.properties.spec.properties.backends.properties.db.properties.external.properties.tls.properties.caConfigMap != null'' {{.ASSETS}}/install.yaml'
+        msg: Published TAMOSS release lacks verified TLS/CA configuration for every database consumer; deployment remains blocked
+    cmds:
+      - >-
+        yq -n -e 'load("{{.ASSETS}}/release.json") as $release |
+        [($release.runtime.version == load("{{.LOCK}}").tag),
+        ($release.runtime.sourceCommit == $release.sourceCommit),
+        ($release.runtime.images.tamsin | test("@sha256:[a-f0-9]{64}$")),
+        (([load("{{.ASSETS}}/catalogue.json")[] | select(.version == $release.tag)] | sort_keys(..) | to_json) ==
+        ([$release.runtime] | sort_keys(..) | to_json))] | all'
+      - >-
+        yq -e 'select(.kind == "ConfigMap" and .data."catalogue.json" != null) |
+        ((.data."catalogue.json" | from_json | sort_keys(..) | to_json) ==
+        (load("{{.ASSETS}}/catalogue.json") | sort_keys(..) | to_json))'
+        '{{.ASSETS}}/install.yaml'
+      - cmp '{{.ASSETS}}/dependencies.yaml' '{{.ASSETS}}/source/deploy/platform/dependencies.yaml'
+  operator:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      OUTPUT: '{{.OUTPUT_DIR | default (printf "%s/operator" .CACHE)}}'
+    cmds:
+      - mkdir -p '{{.OUTPUT}}'
+      - cp deploy/tamoss/operator/kustomization.yaml deploy/tamoss/operator/pdb.yaml '{{.OUTPUT}}/'
+      - cp '{{.ASSETS}}/install.yaml' '{{.OUTPUT}}/'
+      - kubectl kustomize '{{.OUTPUT}}' > '{{.OUTPUT}}/rendered.yaml'
+  source-check:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+    cmds:
+      - tar --compare --gzip --file '{{.ASSETS}}/source.tar.gz' --strip-components=1 --directory '{{.ASSETS}}/source' --wildcards 'tamoss-*/?*'
+  tls:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+    env:
+      TEST_TLS_DIRECTORY: '{{.ROOT_DIR}}/.local/tmp/tls-check'
+      TEST_DB_IMAGE: {sh: 'yq -r .image deploy/tamoss/database/chart/values.yaml'}
+      TEST_API_IMAGE: {sh: 'yq -r .runtime.images.api {{.ASSETS}}/release.json'}
+      TEST_DB_REVISION: {sh: 'yq -r .runtime.schema.databaseRevision {{.ASSETS}}/release.json'}
+    cmds:
+      - mkdir -p -m 700 '{{.ROOT_DIR}}/.local/tmp/tls-check' '{{.ROOT_DIR}}/.local/reports'
+      - install -m 600 /dev/null '{{.ROOT_DIR}}/.local/reports/database-tls-containers.log'
+      - defer: rm -r '{{.ROOT_DIR}}/.local/tmp/tls-check'
+      - defer: docker compose --project-name tamoss-cp-tls-check -f tests/tls/compose.yaml down --volumes
+      - defer: docker compose --project-name tamoss-cp-tls-check -f tests/tls/compose.yaml logs --no-color database plaintext > '{{.ROOT_DIR}}/.local/reports/database-tls-containers.log'
+      - docker compose --project-name tamoss-cp-tls-check -f tests/tls/compose.yaml pull --quiet migration
+      - openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=database -addext subjectAltName=DNS:database -keyout '{{.ROOT_DIR}}/.local/tmp/tls-check/server.key' -out '{{.ROOT_DIR}}/.local/tmp/tls-check/server.crt' 2>/dev/null
+      - openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=untrusted -keyout '{{.ROOT_DIR}}/.local/tmp/tls-check/untrusted.key' -out '{{.ROOT_DIR}}/.local/tmp/tls-check/untrusted.crt' 2>/dev/null
+      - chmod 644 '{{.ROOT_DIR}}/.local/tmp/tls-check/server.crt' '{{.ROOT_DIR}}/.local/tmp/tls-check/untrusted.crt'
+      - docker compose --project-name tamoss-cp-tls-check -f tests/tls/compose.yaml run --rm certificates
+      - docker compose --project-name tamoss-cp-tls-check -f tests/tls/compose.yaml up --wait --wait-timeout 45 database plaintext
+      - chainsaw test --no-cluster --test-dir tests/tls --report-format JUNIT-TEST --report-path .local/reports --report-name database-tls
+  media:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+      TAMSIN:
+        sh: 'yq -e -r ''.runtime.images.tamsin | select(test("@sha256:[a-f0-9]{64}$"))'' {{.ASSETS}}/release.json'
+    cmds:
+      - mkdir -p '{{.CACHE}}/media'
+      - cp '{{.ASSETS}}/source/tests/fixtures/e2e/tiny-ingest.mp4' '{{.CACHE}}/media/fixture.mp4'
+      - docker run --rm --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp -v '{{.CACHE}}/media:/media' --entrypoint ffmpeg '{{.TAMSIN}}' -hide_banner -loglevel error -i /media/fixture.mp4 -f lavfi -i sine=frequency=1000:sample_rate=48000 -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -t 1 -map_metadata -1 -fflags +bitexact -flags +bitexact -movflags +faststart -y /media/qualification.mp4
+      - docker run --rm --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges -v '{{.CACHE}}/media:/media:ro' --entrypoint ffprobe '{{.TAMSIN}}' -v error -show_streams -show_format -of json /media/qualification.mp4 > '{{.CACHE}}/media/probe.json'
+      - 'yq -p=json -e ''(.streams | length) == 2 and .streams[0].codec_name == "h264" and .streams[1].codec_name == "aac" and (.format.duration | tonumber) <= 1.1 and (.format.size | tonumber) < 65536'' {{.CACHE}}/media/probe.json'
+      - sha256sum '{{.CACHE}}/media/qualification.mp4' > '{{.CACHE}}/media/qualification.sha256'
+  browser-build:
+    vars:
+      LOCK: *releaseLock
+      KEY: *releaseKey
+      ASSETS: *releaseAssets
+    cmds:
+      - rm -rf '{{.ROOT_DIR}}/.local/tmp/browser-build/source'
+      - mkdir -p -m 700 '{{.ROOT_DIR}}/.local/tmp/browser-build/source' '{{.ROOT_DIR}}/.local/reports'
+      - cp -a '{{.ASSETS}}/source/.' '{{.ROOT_DIR}}/.local/tmp/browser-build/source/'
+      - cp deploy/tamoss/browser/Dockerfile deploy/tamoss/browser/.dockerignore '{{.ROOT_DIR}}/.local/tmp/browser-build/'
+      - "echo 'Building upstream browser tests; log: .local/reports/browser-build.log'"
+      - docker build --tag tamoss-qualification-browser:local '{{.ROOT_DIR}}/.local/tmp/browser-build' > '{{.ROOT_DIR}}/.local/reports/browser-build.log' 2>&1
+      - docker image inspect tamoss-qualification-browser:local --format '{{`{{.Id}}`}}' > '{{.ROOT_DIR}}/.local/tmp/browser-build/image-id'
+      - >-
+        yq -e -r '.services.browser.command[] | select(test("^tests/"))' deploy/tamoss/browser/compose.yaml |
+        xargs -d '\n' docker run --rm --network none --read-only --tmpfs /tmp tamoss-qualification-browser:local --collect-only -q
+        > '{{.ROOT_DIR}}/.local/reports/browser-selection.log'

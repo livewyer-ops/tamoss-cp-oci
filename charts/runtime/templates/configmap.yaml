@@ -1,0 +1,19 @@
+{{- $r := .Values.runtime -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-runtime
+  namespace: tams
+data:
+  ingestURI: {{ $r.ingestURI | quote }}
+  postgresImage: {{ $r.postgresImage | quote }}
+  databaseHost: {{ required "databaseHost is required" $r.databaseHost | quote }}
+  baseDomain: {{ $r.baseDomain | quote }}
+  apiHost: {{ $r.apiHost | quote }}
+  uiHost: {{ $r.uiHost | quote }}
+  apiURL: {{ $r.apiURL | quote }}
+  uiURL: {{ $r.uiURL | quote }}
+  issuerURL: {{ $r.issuerURL | quote }}
+  objectEndpoint: {{ required "objectEndpoint is required" $r.objectEndpoint | quote }}
+  region: {{ required "region is required" $r.region | quote }}
+  bucket: {{ required "bucket is required" $r.bucket | quote }}

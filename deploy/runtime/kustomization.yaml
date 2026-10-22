@@ -1,0 +1,53 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../deploy/tamoss
+  - runtime.yaml
+replacements:
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.databaseHost}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.backends.db.external.host]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.baseDomain}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.publicEndpoint.baseDomain]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.apiHost}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.ingress.api.host]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.uiHost}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.ingress.ui.web.host]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.uiURL}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.publicEndpoint.uiURL, spec.api.cors.allowedOrigins.0]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.issuerURL}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.auth.authentikBlueprints.issuerURL]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.objectEndpoint}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.backends.s3.external.endpoint.default.url, spec.backends.s3.external.endpoint.public.url, spec.ingest.sources.0.s3.endpoint]
+      - select: {kind: StorageBackend}
+        fieldPaths: [spec.endpoint.default.url, spec.endpoint.public.url]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.region}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.backends.s3.external.region, spec.ingest.sources.0.s3.region]
+      - select: {kind: StorageBackend}
+        fieldPaths: [spec.region]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.bucket}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.backends.s3.external.bucket, spec.ingest.sources.0.s3.bucket]
+      - select: {kind: StorageBackend}
+        fieldPaths: [spec.bucketName]
+  - source: {kind: ConfigMap, name: tamoss-runtime, fieldPath: data.postgresImage}
+    targets:
+      - select: {kind: Tamoss}
+        fieldPaths: [spec.images.schemaMigrationPostgresClient]
+        options: {create: true}
