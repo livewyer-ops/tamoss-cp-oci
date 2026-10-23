@@ -220,7 +220,7 @@ tasks:
       NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
     status:
       - >-
-        (yq -e '.returnComplete == true' '{{.ENV_DIR}}/identity.yaml > /dev/null &&
+        (yq -e '.returnComplete == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null &&
         kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} --ignore-not-found -o json |
         yq -p=json -e 'length == 0 or (.spec.managementPolicies | join(",") == "Observe,Delete")' > /dev/null) ||
         (kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} -o json |
