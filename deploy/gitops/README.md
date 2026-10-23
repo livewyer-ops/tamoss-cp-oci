@@ -62,6 +62,11 @@ key, persist/read/retire its secrets, and manage the runtime IAM policies in the
 dedicated compartment. The original infrastructure grants alone are insufficient.
 Keep these grants and the foundation owner available through retirement; a
 retained vault/key prevents treating the compartment as empty after teardown.
+Foundation inputs are immutable. Crossplane creates, observes and retains the
+vault/key without updating them; later maintenance belongs to their recorded
+owner. Bootstrap requires both resources to be Ready and Synced before secret
+delivery. This also avoids the pinned OCI provider's replacement difference on
+unused external-key fields.
 
 Bootstrap reads these owner-only files under the private environment's `secrets/`:
 

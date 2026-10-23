@@ -115,6 +115,7 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io --for=condition=Established --timeout=120s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/foundation.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait secretfoundation/{{.NAME}} --for=condition=Ready --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait vault.kms.oci.m.upbound.io/{{.NAME}} key.kms.oci.m.upbound.io/{{.NAME}} --for=condition=Synced --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secretfoundation/{{.NAME}} -o json > '{{.ENV_DIR}}/foundation-observed.json'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get key.kms.oci.m.upbound.io/{{.NAME}} -o json > '{{.ENV_DIR}}/foundation-key.json'
       - >-

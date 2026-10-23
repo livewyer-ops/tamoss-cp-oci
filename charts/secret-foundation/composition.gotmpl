@@ -7,7 +7,7 @@
 {{- $adoption := $p.adoption | default dict -}}
 {{- $endpoint = $endpoint | default ($adoption.managementEndpoint | default "") -}}
 {{- $creator := $adoption.creationCompositeUID | default $xr.metadata.uid -}}
-{{- $policies := list "Observe" "Create" "LateInitialize" "Update" -}}
+{{- $policies := list "Observe" "Create" "LateInitialize" -}}
 {{- if $adoption }}
 {{- $policies = list "Observe" -}}
 {{- range $name, $resource := dict "vault" $vault "key" $key }}
