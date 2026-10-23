@@ -213,6 +213,8 @@ tasks:
         vars: {RELEASE_LOCK: '{{.ROOT_DIR}}/deploy/tamoss/release.yaml', OUTPUT: '{{.CACHE}}/gitops-pins.yaml'}
       - helm lint '{{.CHART}}' -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml'
       - helm template tamoss-gitops '{{.CHART}}' -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' > '{{.CACHE}}/gitops-render.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-platform-config") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/gitops-platform-config-values.yaml'
+      - helm template tamoss-platform-config '{{.ASSETS}}/source/deploy/platform/charts/config' -n tamoss-platform -f '{{.CACHE}}/gitops-platform-config-values.yaml' > '{{.CACHE}}/gitops-platform-config.yaml'
       - mkdir -p '{{.CACHE}}/gitops-defaults/upstream'
       - cp deploy/gitops/platform-defaults/kustomization.yaml '{{.CACHE}}/gitops-defaults/'
       - cp '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' '{{.CACHE}}/gitops-defaults/upstream/'

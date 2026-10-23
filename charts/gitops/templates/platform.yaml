@@ -5,8 +5,6 @@
 {{- $_ := required "Supply the pinned upstream platform defaults through valuesFrom" .Values.authentikChart -}}
 {{- $context := dict "Values" (dict "runtime" $r) -}}
 {{- $platform := mergeOverwrite (deepCopy .Values) (tpl (.Files.Get "files/platform-values.yaml.gotmpl") $context | fromYaml) -}}
-{{- $_ := set $platform.tls "mode" "acme" -}}
-{{- $_ := set $platform.tls.acme "email" $r.acmeEmail -}}
 {{- $bom := .Values.dependencies.platform -}}
 {{- $releases := list
   (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))
