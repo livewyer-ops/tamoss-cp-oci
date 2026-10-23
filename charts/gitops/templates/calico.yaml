@@ -3,8 +3,10 @@ kind: GitRepository
 metadata: {name: calico, namespace: flux-system}
 spec:
   interval: 1h
+  timeout: 5m
   url: https://github.com/projectcalico/calico
   ref: {commit: {{ .Values.dependencies.calicoCommit | quote }}}
+  sparseCheckout: [manifests]
   ignore: |
     /*
     !/manifests
