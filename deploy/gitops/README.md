@@ -98,8 +98,11 @@ ConfigMap. Flux waits for the current Job and matching connection data before
 delivering the CA to consumers. PostgreSQL connections retain `verify-full` TLS.
 The database's initial administrator credentials use Crossplane `initProvider`;
 late initialisation is disabled for that resource so adoption cannot turn them
-into enforced updates. Ownership comparison verifies the observed administrator
-and initial credential references without comparing OCI's creation-only state.
+into enforced updates. The composition retains the database's external name from
+its existing annotation or observed ID because the pinned provider otherwise
+does not persist that annotation without late initialisation. Ownership comparison
+verifies the observed administrator and initial credential references without
+comparing OCI's creation-only state.
 
 The pinned OCI provider applied a backup-retention change but then reported an
 empty `PatchDbSystem` request. Observation recovered automatically after the

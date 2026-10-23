@@ -174,6 +174,12 @@ metadata:
     {{ setResourceNameAnnotation $key }}
 {{- if $adoption }}
     crossplane.io/external-name: {{ index $bindings $key | quote }}
+{{- else if eq $key "database" }}
+{{/* Retain the provider's observed ID when late initialisation cannot persist its annotation. */}}
+{{- $databaseName := dig $key "resource" "metadata" "annotations" "crossplane.io/external-name" "" $observed | default (dig $key "resource" "status" "atProvider" "id" "" $observed) }}
+{{- if $databaseName }}
+    crossplane.io/external-name: {{ $databaseName | quote }}
+{{- end }}
 {{- end }}
   labels:
     tamoss.livewyer.io/environment: {{ $n }}

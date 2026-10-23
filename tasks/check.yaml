@@ -89,6 +89,12 @@ tasks:
       - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/service-recovering-observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/service-recovering.yaml'
       - 'yq ''select(.kind != "TamossEnvironment") | del(.status)'' {{.CACHE}}/service-recovering.yaml > {{.CACHE}}/service-recovering-resources.yaml'
       - diff -u '{{.CACHE}}/expected-recovery.yaml' '{{.CACHE}}/service-recovering-resources.yaml'
+      - 'yq ''with(select(.kind == "PsqlDbSystem"); .status.atProvider.id = "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.fixture")'' {{.CACHE}}/observed.yaml > {{.CACHE}}/database-created-observed.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/database-created-observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/database-created.yaml'
+      - 'yq ''with(select(.kind == "PsqlDbSystem"); .metadata.annotations."crossplane.io/external-name" = .status.atProvider.id | del(.status))'' {{.CACHE}}/database-created-observed.yaml > {{.CACHE}}/database-binding-recovering-observed.yaml'
+      - 'crossplane composition render environments/example/environment.yaml {{.CACHE}}/composition.yaml {{.CACHE}}/functions.yaml --include-full-xr --observed-resources={{.CACHE}}/database-binding-recovering-observed.yaml --crossplane-image={{.CORE}} > {{.CACHE}}/database-binding-recovering.yaml'
+      - for: [database-created, database-binding-recovering]
+        cmd: 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/{{.ITEM}}.yaml > {{.CACHE}}/{{.ITEM}}-list.yaml'
       - chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render
       - task: handover
       - task: secrets

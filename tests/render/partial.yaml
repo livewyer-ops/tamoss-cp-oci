@@ -11,6 +11,7 @@ kind: Render
 (resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.credentials): null
 (resources[?kind == 'PsqlDbSystem'] | [0].spec.initProvider.credentials[0].username): bootstrap_admin
 (resources[?kind == 'PsqlDbSystem'] | [0].spec.managementPolicies): [Observe, Create, Update, Delete]
+(resources[?kind == 'PsqlDbSystem'] | [0].metadata.annotations."crossplane.io/external-name"): null
 (length(resources[?kind == 'PsqlDbSystem'].spec.forProvider.instancesDetails[])): 2
 (resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[0].displayName == join('-', [metadata.name, '1'])): true
 (resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[1].displayName == join('-', [metadata.name, '2'])): true
