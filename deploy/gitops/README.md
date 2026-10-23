@@ -12,8 +12,10 @@ passed ingest, verified database TLS, external storage, browser playback, networ
 policy and worker drain, with 540/540 successful availability samples.
 Interrupted and resumed teardown passed, including direct OCI inventory,
 runtime IAM removal and retained-foundation accounting before Kind removal.
-A supported TAMOSS upgrade, package-read credential rotation and a fresh
-bootstrap/repeat of the final integration still need qualification.
+Fresh bootstrap and repeat export passed, preserving resource identities,
+persisted credentials and user edits in Git. Interrupted runtime bootstrap also
+resumed successfully after Flux adoption. A supported TAMOSS upgrade and
+package-read credential rotation still need qualification.
 The internal `bootstrap`, `gitops` and `transfer` Task namespaces are not public
 entry points. The root `up`, `qualify` and `down` commands retain the previously
 tested Kind-owned lifecycle until the replacement is qualified.
