@@ -5,9 +5,15 @@ and External Secrets on OKE then take responsibility for ongoing operations.
 The original Kind is stopped after ownership transfer and retained for teardown.
 TAMOSS source, charts, profiles and release assets remain read-only.
 
-The integration has local rendering, admission, secret persistence, database
-adapter and Flux adoption checks. Real OCI workload authentication, private GHCR
-pulls, complete ownership transfer and a TAMOSS upgrade still need qualification.
+Live OCI checks passed workload authentication, persisted secret delivery,
+private Git/GHCR pulls, ownership transfer in both directions and a Git-driven
+database configuration change with Kind stopped. Kind-off application checks
+passed ingest, verified database TLS, external storage, browser playback, network
+policy and worker drain, with 540/540 successful availability samples.
+Interrupted and resumed teardown passed, including direct OCI inventory,
+runtime IAM removal and retained-foundation accounting before Kind removal.
+A supported TAMOSS upgrade, package-read credential rotation and a fresh
+bootstrap/repeat of the final integration still need qualification.
 The internal `bootstrap`, `gitops` and `transfer` Task namespaces are not public
 entry points. The root `up`, `qualify` and `down` commands retain the previously
 tested Kind-owned lifecycle until the replacement is qualified.
@@ -95,6 +101,11 @@ late initialisation is disabled for that resource so adoption cannot turn them
 into enforced updates. Ownership comparison verifies the observed administrator
 and initial credential references without comparing OCI's creation-only state.
 
+The pinned OCI provider applied a backup-retention change but then reported an
+empty `PatchDbSystem` request. Observation recovered automatically after the
+five-minute check timed out. Treat this as a transient provider limitation:
+verify the actual OCI setting and require `Synced=True` before ownership changes.
+
 ## Lifecycle stages
 
 1. Validate bounded inputs; create original Kind, retained foundation and persisted
@@ -118,6 +129,10 @@ and initial credential references without comparing OCI's creation-only state.
    the load balancer, then delete infrastructure. Confirm direct OCI inventory,
    remove runtime IAM grants and schedule environment-secret deletion before
    removing Kind. Record the retained vault/key, owner and pending secret deletions.
+
+Secret deletion scheduling is asynchronous. If OCI still reports
+`SCHEDULING_DELETION`, retain Kind and rerun teardown after scheduling completes.
+Removal requires `PENDING_DELETION` or `DELETED` for every environment secret.
 
 The transfer uses the same deployment ID and original cloud ownership tags, with
 separate Kubernetes composite UIDs for Kind and OKE. It requires the original
