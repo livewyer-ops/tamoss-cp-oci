@@ -180,8 +180,9 @@ tasks:
         vars:
           MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'
           GITOPS_VALUES: '{{.ENV_DIR}}/gitops-current-values.yaml'
-      - 'yq ''.spec.managementPolicies = ["Observe"] | .metadata.annotations."crossplane.io/paused" = "false"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > {{.ENV_DIR}}/environment.yaml'
+      - 'yq ''.spec.managementPolicies = ["Observe"] | del(.metadata.annotations."crossplane.io/paused")'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > {{.ENV_DIR}}/environment.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{.NAME}} crossplane.io/paused- --overwrite
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{.NAME}}' crossplane.io/paused- --overwrite
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
       - task: inspect
@@ -196,7 +197,7 @@ tasks:
       - task: assert-quiesced
         vars: {FILE: '{{.ENV_DIR}}/remote-resources.json'}
       - 'yq -i ''.spec.managementPolicies = ["Observe", "Delete"]'' {{.ENV_DIR}}/environment.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch tamossenvironment/{{.NAME}} --type=merge -p '{"spec":{"managementPolicies":["Observe","Delete"]}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.spec.managementPolicies[1]}=Delete' --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
   start-kind:
