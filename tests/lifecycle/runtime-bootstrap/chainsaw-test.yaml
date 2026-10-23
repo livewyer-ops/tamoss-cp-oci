@@ -1,0 +1,144 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: interrupted-runtime-bootstrap
+spec:
+  steps:
+    - name: relinquish Helmfile once Flux can reconcile releases
+      try:
+        - command:
+            entrypoint: mkdir
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: CHECK_DIRECTORY, value: "(join('', [$values.directory, '-runtime']))"}
+              - {name: MANAGEMENT_KUBECONFIG, value: ($values.kubeconfig)}
+            args: [-p, -m, '700', $CHECK_DIRECTORY]
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$MANAGEMENT_KUBECONFIG, $CHECK_DIRECTORY/remote.kubeconfig]
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$PROJECT_ROOT/deploy/tamoss/release.yaml, $CHECK_DIRECTORY/tamoss-release.yaml]
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.yaml, $CHECK_DIRECTORY/gitops.yaml]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: &bootstrapArgs [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, runtime-secrets, 'ENV_DIR=$CHECK_DIRECTORY', 'GITOPS_VALUES=$CHECK_DIRECTORY/unused.yaml']
+            check:
+              ($error != null): true
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: flux-system}
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: helm-controller, namespace: flux-system}
+              spec:
+                replicas: 0
+                selector:
+                  matchLabels: {app: helm-controller-fixture}
+                template:
+                  metadata:
+                    labels: {app: helm-controller-fixture}
+                  spec:
+                    containers:
+                      - {name: fixture, image: fixture.invalid/not-started:fixture}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: *bootstrapArgs
+            check:
+              ($error == null): true
+        - delete:
+            ref:
+              apiVersion: apps/v1
+              kind: Deployment
+              name: helm-controller
+              namespace: flux-system
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.gitopsEstablished = true', $CHECK_DIRECTORY/identity.yaml]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: *bootstrapArgs
+            check:
+              ($error == null): true
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.path = "unused"', $CHECK_DIRECTORY/gitops.yaml]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: &fluxArgs [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, runtime-flux, 'ENV_DIR=$CHECK_DIRECTORY', 'CHECKOUT=$CHECK_DIRECTORY']
+            check:
+              ($error != null): true
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: kustomize-controller, namespace: flux-system}
+              spec:
+                replicas: 0
+                selector:
+                  matchLabels: {app: kustomize-controller-fixture}
+                template:
+                  metadata:
+                    labels: {app: kustomize-controller-fixture}
+                  spec:
+                    containers:
+                      - {name: fixture, image: fixture.invalid/not-started:fixture}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: *fluxArgs
+            check:
+              ($error != null): true
+        - patch:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: kustomize-controller
+                namespace: flux-system
+                labels:
+                  kustomize.toolkit.fluxcd.io/name: environment
+        - command:
+            entrypoint: task
+            env: *paths
+            args: *fluxArgs
+            check:
+              ($error == null): true
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/remote.kubeconfig, $CHECK_DIRECTORY/remote.saved.kubeconfig]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: *bootstrapArgs
+            check:
+              ($error != null): true
+              (contains($stderr, 'remote.kubeconfig')): true
+        - command:
+            entrypoint: task
+            env: *paths
+            args: *fluxArgs
+            check:
+              ($error != null): true
+              (contains($stderr, 'remote.kubeconfig')): true
+      finally:
+        - command:
+            entrypoint: rm
+            env: *paths
+            args: [-rf, $CHECK_DIRECTORY]

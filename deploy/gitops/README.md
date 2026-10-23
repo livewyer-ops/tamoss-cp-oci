@@ -133,6 +133,13 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
    remove runtime IAM grants and schedule environment-secret deletion before
    removing Kind. Record the retained vault/key, owner and pending secret deletions.
 
+Runtime bootstrap can resume after an interrupted readiness check. Once Flux's
+Helm controller is installed, retries leave secret-delivery releases to Flux;
+Helmfile no longer upgrades them. Once the environment Kustomization owns Flux's
+controller installation, retries also leave those manifests to Flux.
+Bootstrap refreshes Kubernetes API discovery after the infrastructure controllers
+are ready before checking their resources.
+
 Secret deletion scheduling is asynchronous. If OCI still reports
 `SCHEDULING_DELETION`, retain Kind and rerun teardown after scheduling completes.
 Removal requires `PENDING_DELETION` or `DELETED` for every environment secret.

@@ -67,18 +67,29 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: runtime-secrets
         vars: {ENV_DIR: '{{.ENV_DIR}}', GITOPS_VALUES: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'}
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/flux.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait deployment --all --for=condition=Available --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml'
+      - task: runtime-flux
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=15m
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=condition=Ready --timeout=900s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait kustomization/infrastructure --for=condition=Ready --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
       - for: [flux-system, tamoss-infra, auth, tams]
         cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.ITEM}}' wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=300s
       - task: :identity:runtime-composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+  runtime-flux:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      FLUX_OWNER: {sh: 'kubectl --kubeconfig {{shellQuote .ENV_DIR}}/remote.kubeconfig -n flux-system get deployment/kustomize-controller --ignore-not-found -o ''jsonpath={.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}'''}
+    status:
+      - test '{{.FLUX_OWNER}}' = environment
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/flux.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait deployment --all --for=condition=Available --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml'
   runtime-access:
     requires: {vars: [ENV_DIR]}
     cmds:
@@ -195,8 +206,9 @@ tasks:
   runtime-secrets:
     requires: {vars: [ENV_DIR, GITOPS_VALUES]}
     status:
-      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+      - 'test "{{.FLUX_HELM}}" = deployment.apps/helm-controller || yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     vars:
+      FLUX_HELM: {sh: "kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get deployment/helm-controller --ignore-not-found -o name"}
       KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .ENV_DIR}}/tamoss-release.yaml'}
     cmds:
       - task: :identity:remote
