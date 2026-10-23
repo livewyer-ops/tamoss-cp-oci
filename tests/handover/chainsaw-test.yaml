@@ -110,6 +110,24 @@ spec:
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/transfer.yaml, compare, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer']
         - command:
             entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .status.atProvider.adminUsername = "bootstrap_admin" | .status.atProvider.credentials = [{"username": "bootstrap_admin"}])', ../../.local/tmp/check/transfer/management-resources.json]
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .status.atProvider.adminUsername = "bootstrap_admin" | .status.atProvider.credentials = [{"username": ""}])', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command: *compare
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .status.atProvider.adminUsername = "wrong-admin")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            <<: *compare
+            check:
+              ($error != null): true
+              (contains($stderr, 'adminUsername')): true
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .status.atProvider.adminUsername = "bootstrap_admin")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            entrypoint: yq
             args: [-i, '.resources[0].spec.forProvider.displayName = "unexpected-change"', ../../.local/tmp/check/transfer/remote-resources.json]
         - command:
             <<: *compare
@@ -159,4 +177,32 @@ spec:
             args: [-i, '.spec.storage.bucket = load("../../.local/tmp/check/adoption.yaml").spec.storage.bucket | .metadata.uid = "33333333-3333-4333-8333-333333333333"', ../../.local/tmp/check/transfer/runtime-composite.json]
         - command:
             <<: *runtimeIdentity
+            check: {($error != null): true}
+    - name: validate every resource identity in a complete inventory
+      try:
+        - command:
+            entrypoint: cp
+            args: [../../.local/tmp/check/transfer/management-resources.json, ../../.local/tmp/check/transfer/identity-inventory.json]
+        - command:
+            entrypoint: yq
+            args: [-i, '.resources[].metadata.ownerReferences[0].uid = "22222222-2222-4222-8222-222222222222"', ../../.local/tmp/check/transfer/identity-inventory.json]
+        - command:
+            entrypoint: yq
+            args: [-i, '.metadata.uid = "22222222-2222-4222-8222-222222222222"', ../../.local/tmp/check/transfer/runtime-composite.json]
+        - command: &inventoryIdentity
+            entrypoint: task
+            env:
+              - {name: PROJECT_ROOT, value: ($values.root)}
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/transfer.yaml, assert-inventory, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer', 'COMPOSITE=$PROJECT_ROOT/.local/tmp/check/transfer/runtime-composite.json', 'OUTPUT=$PROJECT_ROOT/.local/tmp/check/transfer/identity-inventory.json']
+        - command:
+            entrypoint: yq
+            args: [-i, '.resources[0].status.atProvider.freeformTags."tamoss-deployment-id" = "wrong-deployment"', ../../.local/tmp/check/transfer/identity-inventory.json]
+        - command:
+            <<: *inventoryIdentity
+            check: {($error != null): true}
+        - command:
+            entrypoint: yq
+            args: [-i, '.resources[0].status.atProvider.freeformTags."tamoss-deployment-id" = load("../../.local/tmp/check/transfer/identity.yaml").deploymentUID | .resources[22].metadata.ownerReferences[0].uid = "wrong-owner"', ../../.local/tmp/check/transfer/identity-inventory.json]
+        - command:
+            <<: *inventoryIdentity
             check: {($error != null): true}

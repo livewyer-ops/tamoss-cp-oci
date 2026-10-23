@@ -9,23 +9,30 @@ tasks:
       - >-
         kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n tamoss-infra get managed -l 'tamoss.livewyer.io/environment={{.NAME}}' -o json |
         yq -p=json -o=json '{"apiVersion": "v1", "kind": "TransferInventory", "resources": .items}' > {{shellQuote .OUTPUT}}
+      - task: assert-inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', COMPOSITE: '{{.COMPOSITE}}', OUTPUT: '{{.OUTPUT}}'}
+  assert-inventory:
+    requires: {vars: [ENV_DIR, COMPOSITE, OUTPUT]}
+    cmds:
       - >-
         yq -e 'load("{{.ENV_DIR}}/identity.yaml") as $i | load("{{.COMPOSITE}}") as $xr |
         [(.resources | length == 23),
         ([.resources[].metadata.annotations."crossplane.io/composition-resource-name"] | unique | length == 23),
-        ([.resources[] | .metadata.deletionTimestamp == null and
-        (.metadata.ownerReferences | map(.uid) | contains([$xr.metadata.uid])) and
-        .spec.forProvider.compartmentId == $i.environment.compartmentId and
-        .spec.providerConfigRef.name == $i.environment.providerConfigName and
-        .status.atProvider.freeformTags."tamoss-deployment-id" == $i.deploymentUID and
-        .status.atProvider.freeformTags."tamoss-composite-uid" == $i.creationCompositeUID and
-        (.status.atProvider.id | tag == "!!str" and length > 0)] | all)] | all'
+        ([.resources[] | [.metadata.deletionTimestamp == null,
+        (.metadata.ownerReferences | map(.uid) | contains([$xr.metadata.uid])),
+        .spec.forProvider.compartmentId == $i.environment.compartmentId,
+        .spec.providerConfigRef.name == $i.environment.providerConfigName,
+        .status.atProvider.freeformTags."tamoss-deployment-id" == $i.deploymentUID,
+        .status.atProvider.freeformTags."tamoss-composite-uid" == $i.creationCompositeUID,
+        (.status.atProvider.id | tag == "!!str" and length > 0)] | all] | all)] | all'
         {{shellQuote .OUTPUT}} > /dev/null
   compare:
     requires: {vars: [ENV_DIR]}
     cmds:
+      # OCI returns adminUsername; credentials retains creation-only provider state.
       - >-
-        yq '.resources | map({"apiVersion": .apiVersion, "kind": .kind,
+        yq '.resources | map(with(select(.kind == "PsqlDbSystem"); del(.status.atProvider.credentials)) |
+        {"apiVersion": .apiVersion, "kind": .kind,
         "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
         "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}},
         "spec": {"forProvider": .spec.forProvider, "providerConfigRef": .spec.providerConfigRef},
