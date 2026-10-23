@@ -29,6 +29,10 @@ spec:
   releaseName: {{ .name }}
   targetNamespace: {{ .namespace }}
   storageNamespace: {{ .namespace }}
+{{ if eq .name "tamoss-database-connection" }}
+  upgrade:
+    force: true
+{{ end }}
 {{ with .needs }}
   dependsOn:
 {{ . | toYaml | indent 4 }}
