@@ -151,7 +151,7 @@ tasks:
       - defer: rm -f '{{.ENV_DIR}}/secrets/oci-private-key' '{{.ENV_DIR}}/secrets/oci-fingerprint'
       - install -m 600 /dev/null '{{.ENV_DIR}}/secrets/oci-fingerprint'
       - yq -p=ini -r '(. * (.[strenv(OCI_PROFILE)] // {})).fingerprint' {{shellQuote .OCI_CONFIG}} | tr -d '\n' > '{{.ENV_DIR}}/secrets/oci-fingerprint'
-      - cp deploy/secrets/bootstrap/kustomization.yaml '{{.ENV_DIR}}/secrets/'
+      - install -m 600 deploy/secrets/bootstrap/kustomization.yaml '{{.ENV_DIR}}/secrets/kustomization.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/secrets'
       - task: imports
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -161,7 +161,7 @@ tasks:
     status:
       - 'yq -e ''.credentialsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     cmds:
-      - cp deploy/secrets/imports/kustomization.yaml '{{.ENV_DIR}}/secrets/'
+      - install -m 600 deploy/secrets/imports/kustomization.yaml '{{.ENV_DIR}}/secrets/kustomization.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/secrets'
   secret-store:
     requires: {vars: [ENV_DIR]}
