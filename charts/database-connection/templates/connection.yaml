@@ -98,8 +98,7 @@ spec:
               {"op": "test", "path": "/metadata/annotations/tamoss.livewyer.io~1connection-revision", "value": strenv(CONNECTION_REVISION)},
               {"op": "add", "path": "/data", "value": {
               "DATABASE_ID": strenv(DATABASE_ID), "DATABASE_HOST": ."primary-db-endpoint".fqdn,
-              "DATABASE_CA_BASE64": (."ca-certificate" | @base64),
-              "values.yaml": ({"host": ."primary-db-endpoint".fqdn, "databaseCa": ."ca-certificate"} | to_json)}}] | select(length == 3)
+              "DATABASE_CA_BASE64": (."ca-certificate" | @base64)}}] | select(length == 3)
             - /work/connection.json
           env:
             - {name: DATABASE_ID, value: {{ .Values.databaseId | quote }}}

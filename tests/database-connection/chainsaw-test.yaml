@@ -26,6 +26,7 @@ spec:
               kind: ConfigMap
               metadata: {name: database-connection, namespace: database-connection-check}
               data:
+                (sort(keys(@))): [DATABASE_CA_BASE64, DATABASE_HOST, DATABASE_ID]
                 DATABASE_ID: ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example
                 DATABASE_HOST: db.example.invalid
                 (base64_decode(DATABASE_CA_BASE64)): "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
