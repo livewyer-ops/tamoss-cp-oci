@@ -90,6 +90,10 @@ namespace and service account. The database adapter can only read connection
 details in the dedicated compartment; Kubernetes limits it to patching its named
 ConfigMap. Flux waits for the current Job and matching connection data before
 delivering the CA to consumers. PostgreSQL connections retain `verify-full` TLS.
+The database's initial administrator credentials use Crossplane `initProvider`;
+late initialisation is disabled for that resource so adoption cannot turn them
+into enforced updates. Ownership comparison verifies the observed administrator
+and initial credential references without comparing OCI's creation-only state.
 
 ## Lifecycle stages
 

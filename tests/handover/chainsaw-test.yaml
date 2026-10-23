@@ -110,6 +110,21 @@ spec:
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/transfer.yaml, compare, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer']
         - command:
             entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .spec.forProvider.credentials = .spec.initProvider.credentials | del(.spec.initProvider.credentials))', ../../.local/tmp/check/transfer/management-resources.json]
+        - command: *compare
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .spec.initProvider.credentials[0].passwordDetails[0].passwordSecretRef.name = "wrong-secret")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            <<: *compare
+            check:
+              ($error != null): true
+              (contains($stderr, 'passwordSecretRef.name')): true
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .spec.initProvider.credentials[0].passwordDetails[0].passwordSecretRef.name = load("../../.local/tmp/check/adoption.yaml").spec.database.credentialsSecret)', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            entrypoint: yq
             args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .status.atProvider.adminUsername = "bootstrap_admin" | .status.atProvider.credentials = [{"username": "bootstrap_admin"}])', ../../.local/tmp/check/transfer/management-resources.json]
         - command:
             entrypoint: yq

@@ -138,10 +138,10 @@
   {{- $databaseSubnetId = (index $oldNetwork 0).subnetId | default "" -}}
 {{- end -}}
 {{/* Non-empty instance details survive provider serialisation and retain immutable creation state. */}}
+{{- $databaseCredentials := list (dict "username" $p.database.administrator "passwordDetails" (list (dict "passwordSecretRef" (dict "name" $p.database.credentialsSecret "key" "password") "passwordTypeSecretRef" (dict "name" $p.database.credentialsSecret "key" "passwordType")))) -}}
 {{- $_ := set $resources "database" (dict "apiVersion" "psql.oci.m.upbound.io/v1alpha1" "kind" "PsqlDbSystem" "emit" $databaseSubnetId "parameters" (dict
   "dbVersion" $p.database.version "shape" $p.database.shape "instanceCount" 2 "instanceOcpuCount" $p.database.ocpus "instanceMemorySizeInGbs" $p.database.memoryGiB
   "instancesDetails" (list (dict "displayName" (printf "%s-database-1" $n)) (dict "displayName" (printf "%s-database-2" $n)))
-  "credentials" (list (dict "username" $p.database.administrator "passwordDetails" (list (dict "passwordSecretRef" (dict "name" $p.database.credentialsSecret "key" "password") "passwordTypeSecretRef" (dict "name" $p.database.credentialsSecret "key" "passwordType")))))
   "storageDetails" (list $storage) "networkDetails" (list (dict "subnetId" $databaseSubnetId))
   "managementPolicy" (list (dict "backupPolicy" (list (dict "kind" "DAILY" "backupStart" "02:00" "retentionDays" $p.database.backupRetentionDays)))))) -}}
 {{- $edges = append $edges (list "database-subnet" "database") -}}
@@ -178,7 +178,14 @@ metadata:
   labels:
     tamoss.livewyer.io/environment: {{ $n }}
 spec:
+{{- if eq $key "database" }}
+  managementPolicies: {{ toJson (without (ternary (list "Observe" "Create" "Update" "Delete") $policies (has "*" $policies)) "LateInitialize") }}
+  initProvider:
+    credentials:
+{{ toYaml $databaseCredentials | indent 6 }}
+{{- else }}
   managementPolicies: {{ toJson $policies }}
+{{- end }}
   providerConfigRef:
     kind: ProviderConfig
     name: {{ $p.providerConfigName }}

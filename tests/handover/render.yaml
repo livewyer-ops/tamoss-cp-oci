@@ -8,5 +8,7 @@ kind: Render
 (resources[?kind == 'Bucket'] | [0].metadata.annotations."crossplane.io/external-name"): n/REPLACE/b/qualification-media
 (resources[?kind == 'Cluster'] | [0].spec.forProvider.endpointConfig[0].subnetId): ocid1.test.oc1..api-subnet
 (resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.networkDetails[0].subnetId): ocid1.test.oc1..database-subnet
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.credentials): null
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.initProvider.credentials[0].username): bootstrap_admin
 (length(resources[?kind == 'NodePool' && spec.forProvider.nodeConfigDetails[0].placementConfigs[0].subnetId == 'ocid1.test.oc1..workers-subnet'])): 3
 (length(resources[?kind == 'TamossEnvironment'].status.conditions[] | [?type == 'Ready' && status == 'True'])): 0

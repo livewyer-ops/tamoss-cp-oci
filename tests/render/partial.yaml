@@ -8,6 +8,9 @@ kind: Render
 (resources[?kind == 'RouteTable' && ends_with(metadata.name, 'private-routes')] | [0].spec.forProvider.routeRules[0].networkEntityId): ocid1.test.oc1..nat
 (length(resources[?kind == 'NodePool' && to_string(spec.forProvider.nodeConfigDetails[0].size) == '1'])): 3
 (length(resources[?kind == 'PsqlDbSystem' && to_string(spec.forProvider.instanceCount) == '2'])): 1
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.credentials): null
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.initProvider.credentials[0].username): bootstrap_admin
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.managementPolicies): [Observe, Create, Update, Delete]
 (length(resources[?kind == 'PsqlDbSystem'].spec.forProvider.instancesDetails[])): 2
 (resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[0].displayName == join('-', [metadata.name, '1'])): true
 (resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[1].displayName == join('-', [metadata.name, '2'])): true

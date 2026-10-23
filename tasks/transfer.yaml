@@ -30,16 +30,19 @@ tasks:
     requires: {vars: [ENV_DIR]}
     cmds:
       # OCI returns adminUsername; credentials retains creation-only provider state.
-      - >-
-        yq '.resources | map(with(select(.kind == "PsqlDbSystem"); del(.status.atProvider.credentials)) |
-        {"apiVersion": .apiVersion, "kind": .kind,
-        "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
-        "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}},
-        "spec": {"forProvider": .spec.forProvider, "providerConfigRef": .spec.providerConfigRef},
-        "status": {"atProvider": .status.atProvider}}) |
-        {"apiVersion": "v1", "kind": "TransferInventory", "resources": .}' '{{.ENV_DIR}}/remote-resources.json'
-        > '{{.ENV_DIR}}/transfer-expected.yaml'
-      - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f '{{.ENV_DIR}}/transfer-expected.yaml'
+      - for: [management, remote]
+        cmd: >-
+          yq '.resources | map(with(select(.kind == "PsqlDbSystem");
+          .spec.initProvider.credentials = (.spec.initProvider.credentials // .spec.forProvider.credentials) |
+          del(.spec.forProvider.credentials, .status.atProvider.credentials)) |
+          {"apiVersion": .apiVersion, "kind": .kind,
+          "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
+          "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}},
+          "spec": {"forProvider": .spec.forProvider, "initProvider": .spec.initProvider, "providerConfigRef": .spec.providerConfigRef},
+          "status": {"atProvider": .status.atProvider}}) |
+          {"apiVersion": "v1", "kind": "TransferInventory", "resources": .}' '{{.ENV_DIR}}/{{.ITEM}}-resources.json'
+          > '{{.ENV_DIR}}/{{.ITEM}}-comparison.yaml'
+      - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-comparison.yaml' -f '{{.ENV_DIR}}/remote-comparison.yaml'
   inspect:
     requires: {vars: [ENV_DIR]}
     cmds:
