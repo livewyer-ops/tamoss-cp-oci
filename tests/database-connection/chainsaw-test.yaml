@@ -26,7 +26,7 @@ spec:
               kind: ConfigMap
               metadata: {name: database-connection, namespace: database-connection-check}
               data:
-                DATABASE_ID: ocid1.postgresqldbsystem.oc1..example
+                DATABASE_ID: ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example
                 DATABASE_HOST: db.example.invalid
                 (base64_decode(DATABASE_CA_BASE64)): "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"
         - command:
@@ -61,7 +61,7 @@ spec:
               kind: ConfigMap
               metadata: {name: database-connection, namespace: database-connection-check}
               data:
-                DATABASE_ID: ocid1.postgresqldbsystem.oc1..example
+                DATABASE_ID: ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example
                 DATABASE_HOST: db.example.invalid
     - name: retrieval failure cannot publish an empty result
       try:
@@ -91,7 +91,7 @@ spec:
                 name: database-connection
                 namespace: database-connection-check
                 annotations:
-                  tamoss.livewyer.io/database-id: ocid1.postgresqldbsystem.oc1..example
+                  tamoss.livewyer.io/database-id: ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example
         - patch:
             resource:
               apiVersion: v1

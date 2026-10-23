@@ -1,13 +1,13 @@
 deploymentId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 region: eu-frankfurt-1
-vaultId: ocid1.vault.oc1..example
-databaseId: ocid1.postgresqldbsystem.oc1..example
+vaultId: ocid1.vault.oc1.eu-frankfurt-1.example
+databaseId: ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example
 release:
   bundleURL: oci://ghcr.io/example/tamoss-release-assets
   digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 runtime:
   publicIp: 203.0.113.10
-  loadBalancerSubnetId: ocid1.subnet.oc1..example
+  loadBalancerSubnetId: ocid1.subnet.oc1.eu-frankfurt-1.example
   bucket: qualification-media
   objectEndpoint: https://example.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
   acmeEmail: operator@example.invalid

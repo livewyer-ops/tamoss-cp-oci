@@ -172,7 +172,7 @@ tasks:
   connection-details:
     cmds:
       - >-
-        yq -n '{"databaseId": "ocid1.postgresqldbsystem.oc1..example", "region": "eu-frankfurt-1",
+        yq -n '{"databaseId": "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example", "region": "eu-frankfurt-1",
         "images": {"oci": load("deploy/oci/compose.yaml").services.oci.image,
         "yq": load("dependencies.yaml").connectionDetails.yqImage,
         "kubectl": load("dependencies.yaml").connectionDetails.kubectlImage}}'

@@ -4,7 +4,7 @@
   "required": ["databaseId", "region", "refreshRevision", "images"],
   "additionalProperties": false,
   "properties": {
-    "databaseId": {"type": "string", "pattern": "^ocid1\\.postgresqldbsystem\\.[a-z0-9.]+$"},
+    "databaseId": {"type": "string", "pattern": "^ocid1\\.postgresqldbsystem\\.[a-z0-9.-]+$"},
     "region": {"type": "string", "pattern": "^[a-z]+-[a-z]+-[0-9]+$"},
     "refreshRevision": {"type": "string", "minLength": 1, "maxLength": 64},
     "images": {
