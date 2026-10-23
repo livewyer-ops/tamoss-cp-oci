@@ -292,7 +292,7 @@ tasks:
   remove-access:
     requires: {vars: [ENV_DIR]}
     status:
-      - helm --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' list -n tamoss-infra --all -o json | yq -p=json -e '[.[] | select(.name == "runtime-access")] | length == 0'
+      - helm --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' list -n tamoss-infra -o json | yq -p=json -e '[(tag == "!!seq"), ([.[] | select(.name == "runtime-access")] | length == 0)] | all'
     cmds:
       - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl destroy
   qualify:

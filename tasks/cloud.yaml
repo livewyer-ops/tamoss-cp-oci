@@ -473,7 +473,7 @@ tasks:
         cmd: '{{.OCI}} vault secret schedule-secret-deletion --secret-id {{shellQuote .ITEM}} --time-of-deletion {{shellQuote .DELETION_TIME}} > /dev/null'
       - task: secret-inventory
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - 'yq -e ''[.[] | ."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED"] | all'' {{.ENV_DIR}}/environment-secrets.json > /dev/null'
+      - 'yq -e ''[.[] | (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all'' {{.ENV_DIR}}/environment-secrets.json > /dev/null'
   retained-foundation:
     requires: {vars: [ENV_DIR]}
     vars:
