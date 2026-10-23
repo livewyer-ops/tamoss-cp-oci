@@ -3,8 +3,6 @@ set: [errexit, nounset, pipefail]
 tasks:
   preflight:
     requires: {vars: [ENV_DIR]}
-    vars:
-      RUN_SECONDS: {sh: 'yq -r ''(.runHours + .cleanupHours) * 3600'' {{.ENV_DIR}}/cost.yaml'}
     preconditions:
       - sh: test -f '{{.ENV_DIR}}/environment.yaml' && test -f '{{.ENV_DIR}}/settings.yaml'
         msg: Provide private environment and application settings
@@ -22,17 +20,32 @@ tasks:
         msg: S3 credential files must contain the exact credential bytes without line endings
       - sh: 'yq -e ''.metadata.namespace == "tamoss-infra" and .spec.providerConfigName == "oci" and .spec.database.credentialsSecret == "database-admin"'' {{.ENV_DIR}}/environment.yaml'
         msg: The environment must reference the installed namespace, provider and database Secret
-      - sh: test "$(date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s)" -gt "$(date +%s)"
-        msg: The qualification expiry must be in the future
     cmds:
       - chainsaw assert -r '{{.ENV_DIR}}/cost.yaml' -f deploy/contracts/cost.yaml --timeout 1s
       - test "$(yq -r .date {{.ENV_DIR}}/cost.yaml)" = "$(date -u +%F)"
       - 'yq -e ''.allowanceUSD <= load("{{.ENV_DIR}}/environment.yaml").spec.budget.amount and .currency == load("{{.ENV_DIR}}/environment.yaml").spec.budget.currency'' {{.ENV_DIR}}/cost.yaml'
-      - test "$(date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s)" -le "$(date -u -d 'tomorrow 00:00' +%s)"
-      - test "$(date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s)" -ge "$(date -u -d '+{{.RUN_SECONDS}} seconds' +%s)"
+      - task: time-window
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:profile
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml' '{{.ENV_DIR}}/environment.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
+  time-window:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NOW: {sh: date -u +%s}
+      DAY_END: {sh: "date -u -d 'tomorrow 00:00' +%s"}
+      EXPIRY: {sh: 'date -d "$(yq -r .spec.expiresAt {{.ENV_DIR}}/environment.yaml)" +%s'}
+      RUN_SECONDS: {sh: 'yq -r ''(.runHours + .cleanupHours) * 3600'' {{.ENV_DIR}}/cost.yaml'}
+      CLEANUP_SECONDS: {sh: 'yq -r ''.cleanupHours * 3600'' {{.ENV_DIR}}/cost.yaml'}
+    preconditions:
+      - sh: test '{{.EXPIRY}}' -ge "$(({{.NOW}} + {{.CLEANUP_SECONDS}}))"
+        msg: Insufficient time remains before expiry for cleanup; proceed with teardown
+      - sh: test '{{.EXPIRY}}' -le '{{.DAY_END}}'
+        msg: The qualification expiry must be no later than the next UTC midnight
+      - sh: >-
+          (test -s '{{.ENV_DIR}}/identity.yaml' && yq -e '.managementUID != null' '{{.ENV_DIR}}/identity.yaml' > /dev/null) ||
+          test '{{.EXPIRY}}' -ge "$(({{.NOW}} + {{.RUN_SECONDS}}))"
+        msg: A new environment needs the complete test and cleanup window before expiry
   create-management:
     requires: {vars: [ENV_DIR]}
     vars:

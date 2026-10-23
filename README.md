@@ -193,9 +193,11 @@ Complete `cost.yaml` using current regional prices. Include all workers, the
 managed Kubernetes tier, PostgreSQL, storage, load balancing, networking and
 transfer. Record money already spent, bounded run/cleanup hours and contingency.
 The date must match the current UTC date, and the projected total must fit the
-recorded allowance and environment budget. Expiry must cover the run and cleanup
-within that UTC day. These checks validate an estimate; expiry tags do not stop
-spending. The operator must monitor the run and begin teardown in time.
+recorded allowance and environment budget. A new deployment's expiry must cover
+the run and cleanup within that UTC day. Repeating a deployment with its recorded
+management identity preserves that deadline and requires the full cleanup reserve
+to remain. These checks validate an estimate; expiry tags do not stop spending.
+The operator must monitor the run and begin teardown in time.
 
 ## Deployment and qualification
 
