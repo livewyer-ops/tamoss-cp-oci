@@ -1,7 +1,6 @@
 apiVersion: v1
 kind: Render
 (length(resources[?kind == 'Secret'])): 0
-(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-database-connection'] | [0].spec.upgrade.force): true
 (resources[?kind == 'GitRepository' && metadata.name == 'calico'] | [0].spec.sparseCheckout): [manifests]
 (resources[?kind == 'GitRepository' && metadata.name == 'calico'] | [0].spec.timeout): 5m
 (length(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-secrets'])): 4
