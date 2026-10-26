@@ -79,9 +79,15 @@ tasks:
       - task: proof-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}', DOMAIN: '{{.DOMAIN}}', DEPLOYMENT: '{{.DEPLOYMENT}}', SCHEMA_ID: '{{.SCHEMA_ID}}', TRACK_ID: '{{.TRACK_ID}}'}
       - hurl --test --no-output --secrets-file '{{.ENV_DIR}}/tadoss-http-secrets.env' --variables-file '{{.ENV_DIR}}/reports/tadoss-variables.env' --max-time 20 --max-filesize 1048576 tests/http/tadoss.hurl
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads rollout restart deployment/tadoss-api deployment/tadoss-worker
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads rollout status deployment/tadoss-api --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads rollout status deployment/tadoss-worker --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads get pods -l 'app.kubernetes.io/instance=tadoss,app.kubernetes.io/component in (api,worker)' -o json > '{{.ENV_DIR}}/reports/tadoss-pods-before.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads delete pods -l 'app.kubernetes.io/instance=tadoss,app.kubernetes.io/component in (api,worker)' --wait=true --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads wait pods -l 'app.kubernetes.io/instance=tadoss,app.kubernetes.io/component in (api,worker)' --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads get pods -l 'app.kubernetes.io/instance=tadoss,app.kubernetes.io/component in (api,worker)' -o json > '{{.ENV_DIR}}/reports/tadoss-pods-after.json'
+      - for: [before, after]
+        cmd: yq -e '.items | length == 4' '{{.ENV_DIR}}/reports/tadoss-pods-{{.ITEM}}.json' > /dev/null
+      - for: [before, after]
+        cmd: yq -r '.items[].metadata.uid' '{{.ENV_DIR}}/reports/tadoss-pods-{{.ITEM}}.json' | sort > '{{.ENV_DIR}}/reports/tadoss-pods-{{.ITEM}}.uids'
+      - test -z "$(comm -12 '{{.ENV_DIR}}/reports/tadoss-pods-before.uids' '{{.ENV_DIR}}/reports/tadoss-pods-after.uids')"
       - hurl --test --no-output --secrets-file '{{.ENV_DIR}}/tadoss-http-secrets.env' --variables-file '{{.ENV_DIR}}/reports/tadoss-variables.env' --max-time 20 --max-filesize 1048576 tests/http/tadoss-persistence.hurl
       - task: :qualification:media
         vars: {ENV_DIR: '{{.ENV_DIR}}'}

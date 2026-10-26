@@ -67,7 +67,7 @@ Authorization: Bearer {{read_token}}
 timeline_reference.entity_id: {{entity}}
 HTTP 200
 [Asserts]
-jsonpath "$[*].id" includes "{{track_id}}"
+jsonpath "$[?(@.id == '{{track_id}}')].id" == "{{track_id}}"
 
 GET {{tads}}/tracks/{{track_id}}/events
 Authorization: Bearer {{read_token}}
@@ -75,7 +75,8 @@ Authorization: Bearer {{read_token}}
 timerange: {{timerange}}
 HTTP 200
 [Asserts]
-jsonpath "$[*].payload.text" includes "Metadata for the ingested media segment"
+jsonpath "$" count == 1
+jsonpath "$[0].payload.text" == "Metadata for the ingested media segment"
 
 GET {{tams}}/flows/{{flow_id}}/segments
 Authorization: Bearer {{token}}

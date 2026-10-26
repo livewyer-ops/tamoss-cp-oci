@@ -20,4 +20,5 @@ Authorization: Bearer {{read_token}}
 timerange: {{timerange}}
 HTTP 200
 [Asserts]
-jsonpath "$[*].payload.text" includes "Metadata for the ingested media segment"
+jsonpath "$" count == 1
+jsonpath "$[0].payload.text" == "Metadata for the ingested media segment"
