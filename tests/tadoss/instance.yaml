@@ -22,7 +22,7 @@ kind: Render
         providedBy: external
         external:
           existingSecret: tadoss-database
-          caConfigMap: {name: database-ca, key: ca.pem}
+          caConfigMap: {name: tadoss-database-ca, key: ca.pem}
     networkPolicy:
       enabled: true
       api:

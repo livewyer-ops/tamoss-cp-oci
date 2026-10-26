@@ -11,7 +11,7 @@ spec:
       providedBy: external
       external:
         existingSecret: tadoss-database
-        caConfigMap: {name: database-ca, key: ca.pem}
+        caConfigMap: {name: tadoss-database-ca, key: ca.pem}
   auth:
     oauth2:
       issuer: https://auth.${DOMAIN}/application/o/tadoss/

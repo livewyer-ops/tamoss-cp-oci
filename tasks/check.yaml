@@ -276,7 +276,7 @@ tasks:
         task: tadoss-build
         vars: {COMPONENT: '{{.ITEM}}'}
       - 'yq ''with(select(.kind == "Deployment"); .spec.replicas = 1 | del(.spec.template.spec.affinity))'' {{.CACHE}}/tadoss-operator-render.yaml > {{.CACHE}}/tadoss-operator-management.yaml'
-      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tadoss-config") | .spec.values | .host = "fixture.postgresql.oci.oraclecloud.com"'' {{.CACHE}}/tadoss-gitops.yaml > {{.CACHE}}/tadoss-config-values.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tadoss-config") | .spec.values | .host = "fixture.postgresql.oci.oraclecloud.com" | .caBase64 = "Zml4dHVyZQ=="'' {{.CACHE}}/tadoss-gitops.yaml > {{.CACHE}}/tadoss-config-values.yaml'
       - helm lint deploy/tadoss/config -f '{{.CACHE}}/tadoss-config-values.yaml'
       - helm template tadoss-config deploy/tadoss/config -n auth -f '{{.CACHE}}/tadoss-config-values.yaml' > '{{.CACHE}}/tadoss-config.yaml'
       - 'yq ''select(.kind == "HelmRelease") | .spec.values'' {{.CACHE}}/tadoss-credentials-render.yaml > {{.CACHE}}/tadoss-secrets-values.yaml'
@@ -292,8 +292,7 @@ tasks:
     cmds:
       - >-
         yq 'select(.kind == "Kustomization" and .metadata.name == "{{.NAME}}") |
-        .spec.postBuild.substitute.DATABASE_HOST = "fixture.postgresql.oci.oraclecloud.com" |
-        .spec.postBuild.substitute.DATABASE_CA_BASE64 = "Zml4dHVyZQ=="'
+        .spec.postBuild.substitute.DATABASE_HOST = "fixture.postgresql.oci.oraclecloud.com"'
         '{{.CACHE}}/tadoss-gitops.yaml' > '{{.CACHE}}/tadoss-{{.COMPONENT}}-flux.yaml'
       - flux build kustomization '{{.NAME}}' -n auth --dry-run --in-memory-build --strict-substitute --path '{{.BUILD_PATH}}' --kustomization-file '{{.CACHE}}/tadoss-{{.COMPONENT}}-flux.yaml' > '{{.CACHE}}/tadoss-{{.COMPONENT}}-render.yaml'
       - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/tadoss-{{.COMPONENT}}-render.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results

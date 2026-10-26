@@ -9,6 +9,10 @@ kind: Render
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.blueprints.configMaps): [tadoss-authentik-blueprint]
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.dependsOn[?name == 'tadoss-config'] | length(@)): 1
 (resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[0].name): database-connection
+(resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[?targetPath == 'caBase64'] | [0]):
+  kind: ConfigMap
+  name: database-connection
+  valuesKey: DATABASE_CA_BASE64
 (resources[?kind == 'OCIRepository' && metadata.name == 'tadoss-release'] | [0].spec.secretRef.name): ghcr
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.deletionPolicy): Orphan
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.prune): false
