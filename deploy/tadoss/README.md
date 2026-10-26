@@ -87,11 +87,14 @@ and repeated cleanup in disposable Kind.
 The internal GitOps qualification uses Hurl to create a schema, track and timed
 events linked to the actual TAMOSS ingest source and segment time range. It
 checks anonymous and insufficient-scope rejection, retained events after pod
-replacement and continued media access. Kind must exist and remain stopped.
+replacement and continued media access. Replacement is verified by comparing
+pod UIDs before and after deletion. Kind must exist and remain stopped.
 Capture its infrastructure baseline before the enablement commit; qualification
 compares the OCI resource IDs afterwards and records the applied Git revision.
-These checks require an authorised live environment; local passes do not establish
-OCI qualification or compatibility of the combined services.
+These checks passed on OCI with unchanged infrastructure IDs and Kind stopped.
+The build required integration corrections and a restart of the observe-only
+PostgreSQL provider, so an unattended cold build remains unqualified. These checks
+require an authorised live environment; local passes alone do not establish them.
 
 Use the [GitOps teardown](../gitops/README.md) to return ownership to the original
 Kind. It finalises TADOSS while its operator remains available, then removes

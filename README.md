@@ -30,8 +30,11 @@ have passed. Release upgrades and package-credential rotation remain unqualified
 so the public commands below retain the Kind-owned lifecycle.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
-through the environment Git repository, using the same platform services. Its
-combined OCI qualification is pending.
+through the environment Git repository, using the same platform services. Live
+checks passed with Kind stopped: authenticated metadata linked to ingested media,
+persistence after pod replacement and unchanged OCI infrastructure. The build
+required integration corrections and a database-provider restart; an unattended
+cold build remains unqualified.
 
 ## Quickstart
 

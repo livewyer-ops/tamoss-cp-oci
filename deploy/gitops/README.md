@@ -2,7 +2,9 @@
 
 [TADOSS](../tadoss/README.md) can be enabled in the environment repository after
 bootstrap. Its credentials and permissions are prepared before Kind stops; it
-then uses the existing platform services. Combined live qualification is pending.
+then uses the existing platform services. Linked-media and persistence checks
+passed with Kind stopped and unchanged OCI resource IDs; see the
+[qualification limits](../../docs/testing.md#verified-coverage-and-limits).
 
 [Overview](../../README.md) | [Architecture](../../docs/architecture.md) | [Operations](../../docs/operations.md) | [Testing](../../docs/testing.md)
 

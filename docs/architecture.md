@@ -50,7 +50,9 @@ PostgreSQL, authentication, ingress and secret services. Git enables its release
 operator and API/worker replicas, a separate database/role and an OAuth client.
 TADOSS owns its schema migrations and stores timed metadata referencing TAMS
 media. This repository owns the platform configuration; both upstream products
-are consumed read-only. Combined OCI qualification remains pending.
+are consumed read-only. Git enablement, authenticated linked-media checks and
+persistence after pod replacement passed with Kind stopped. OCI resource IDs
+remained unchanged across enablement. See the [qualification limits](testing.md#verified-coverage-and-limits).
 
 ## Configuration flow
 
