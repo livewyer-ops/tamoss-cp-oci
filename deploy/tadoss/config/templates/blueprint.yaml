@@ -25,6 +25,7 @@ data:
           client_id: {{ required "clientId is required" .Values.clientId | quote }}
           client_secret: !Env TADOSS_CLIENT_SECRET
           client_type: confidential
+          redirect_uris: []
           authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
           invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
           signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
