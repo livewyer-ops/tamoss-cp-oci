@@ -1,21 +1,21 @@
 # GitOps integration
 
+[TADOSS](../tadoss/README.md) can be enabled in the environment repository after
+bootstrap. Its credentials and permissions are prepared before Kind stops; it
+then uses the existing platform services. Combined live qualification is pending.
+
+[Overview](../../README.md) | [Architecture](../../docs/architecture.md) | [Operations](../../docs/operations.md) | [Testing](../../docs/testing.md)
+
 Kind creates the environment and its retained OCI Vault/key. Flux, Crossplane
 and External Secrets on OKE then take responsibility for ongoing operations.
 The original Kind is stopped after ownership transfer and retained for teardown.
 TAMOSS source, charts, profiles and release assets remain read-only.
 
-Live OCI checks passed workload authentication, persisted secret delivery,
-private Git/GHCR pulls, ownership transfer in both directions and a Git-driven
-database configuration change with Kind stopped. Kind-off application checks
-passed ingest, verified database TLS, external storage, browser playback, network
-policy and worker drain, with 540/540 successful availability samples.
-Interrupted and resumed teardown passed, including direct OCI inventory,
-runtime IAM removal and retained-foundation accounting before Kind removal.
-Fresh bootstrap and repeat export passed, preserving resource identities,
-persisted credentials and user edits in Git. Interrupted runtime bootstrap also
-resumed successfully after Flux adoption. A supported TAMOSS upgrade and
-package-read credential rotation still need qualification.
+Live OCI checks passed bootstrap/repeat, workload authentication, persisted secret
+delivery, private Git/GHCR pulls, ownership transfer in both directions, Kind-off
+application operation and interrupted/resumed teardown. A supported TAMOSS upgrade
+and package-read credential rotation/revocation remain unqualified. See
+[verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
 The internal `bootstrap`, `gitops` and `transfer` Task namespaces are not public
 entry points. The root `up`, `qualify` and `down` commands retain the previously
 tested Kind-owned lifecycle until the replacement is qualified.
@@ -58,7 +58,7 @@ overlay excludes its bundled Namespace to avoid a second owner.
 
 ## Inputs and secret delivery
 
-Start with the existing environment, settings and bounded cost inputs, plus
+Start with the [private environment, settings and bounded cost inputs](../../docs/getting-started.md#environment-inputs), plus
 [`foundation.yaml`](../../environments/example/foundation.yaml) and
 [`gitops.yaml`](../../environments/example/gitops.yaml). Select an existing
 environment checkout, published product commit and private bundle digest.
@@ -151,6 +151,26 @@ separate Kubernetes composite UIDs for Kind and OKE. It requires the original
 Kind state; it does not restore a lost management cluster. A failed gate retains
 state for diagnosis and retry.
 
+### Adoption controls
+
+The [environment API](../../charts/environment/definition.yaml) permits full
+management (`['*']`), observation (`[Observe]`) or deletion without updates
+(`[Observe, Delete]`) through `spec.managementPolicies`. Adoption starts in
+observation and requires the existing deployment ID, original composite UID and
+all 23 exact provider external names in `spec.adoption`. Bindings are immutable.
+A bucket external name is `n/<namespace>/b/<bucket>`, not its OCID. The composition
+preserves original cloud ownership tags when the Kubernetes composite UID changes.
+
+Transfer gates compare both inventories, provider configuration, cloud status and
+tags before changing the writer. Ordinary `up` and `down` reject an adopted or
+observe-only environment.
+
+The [provider package chart](../../charts/packages/) accepts
+`okeWorkloadIdentity.region`. It gives each OCI service provider a distinct stable
+service account and namespace-scoped ProviderConfig. Its authentication Secret
+contains only the method and region. IAM grants name the exact OKE cluster,
+namespace and service account; the Kind API signing key is not copied to OKE.
+
 ## Release changes
 
 Prepare and verify the next published TAMOSS release, publish its allowlisted
@@ -164,3 +184,37 @@ Successful reconciliation and a supported upgrade must be observed before a
 release is qualified. Schema or chart incompatibilities may require an integration
 change. Teardown uses current Git/live inventory and the recorded installed
 release, while preserving the initial release record for audit.
+
+Before an upgrade, record the current Git revision and verify that existing
+ingested media can be read. Review the target release's migration and recovery
+requirements. After reconciliation, repeat those reads and ingest a new asset
+with Kind stopped. A changed source commit, successful render or same-version
+reconcile alone does not qualify an upgrade. If rollout fails, preserve the
+failure and installed-release evidence; reverting Git requires confirmation that
+the target's database migrations permit returning to the previous release.
+Check retained media before running qualification again: qualification replaces
+its existing test flows before submitting fresh ingest.
+
+## Package-read credential rotation
+
+The foundation owner rotates the existing `<deploymentId>-ghcr` secret in OCI
+Vault. Its JSON payload contains a `dockerconfigjson` string holding Docker's
+credential document. Use the native OCI CLI with an owner-only JSON input file;
+keep credential values out of command arguments and logs. Bootstrap's
+`IfNotExists` imports deliberately preserve established values, so changing a
+local bootstrap file does not rotate the persisted credential.
+
+ESO periodically updates `flux-system/ghcr`. Its
+[manual refresh annotation](https://external-secrets.io/latest/introduction/faq/#can-i-manually-trigger-a-secret-refresh)
+can request an immediate readback. Verify a new refresh and the delivered value
+without printing it, then reconcile `OCIRepository/tamoss-release`. Test a fresh,
+temporary OCIRepository against the same private digest and delivered Secret to
+verify registry access independently of the existing source's cached artefact.
+
+Move every consumer, including any Actions secret using the old token, before
+revocation. After revoking the old token at GitHub, a separate temporary source
+using that token must report `Ready=False` with an authentication-related fetch
+failure. The replacement must still fetch successfully. An arbitrary fetch error
+does not establish revoked-access rejection. Keep failure probes separate from
+the application source, remove them and their temporary Secrets afterwards, and
+retain only redacted evidence. This procedure still requires live qualification.

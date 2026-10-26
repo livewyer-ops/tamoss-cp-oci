@@ -1,9 +1,11 @@
 # TAMOSS integration
 
+[Overview](../../README.md) | [Architecture](../../docs/architecture.md) | [Operations](../../docs/operations.md)
+
 TAMOSS is an external, read-only dependency. `release.yaml` selects an immutable
 release record and matching source archive. `Taskfile.yaml` verifies and prepares
-them using the repository's native tools. The [operating guide](../../README.md)
-lists the public commands and named checks.
+them using the repository's native tools. See the [public commands](../../README.md#commands)
+and [testing guide](../../docs/testing.md).
 
 | Owner | Assets |
 | --- | --- |
@@ -36,10 +38,26 @@ its schema migrations. The browser container runs unchanged upstream tests with
 the upstream dependency lock. Its test selection and container recipe are
 maintained here, and missing selected tests fail local checks.
 
+## Release selection
+
+The repository lock records the tag and checksums of the release record and
+matching source archive. The verified release record supplies the source commit,
+image digests and published asset checksums. To select another release, update
+`release.yaml` from its published metadata, review compatibility and migration
+requirements, then run `task check`. Upstream interface changes may require local
+overlay or test-selection changes. Verified database TLS remains mandatory.
+
 An environment's `tamoss-release.yaml` records its verified installed selection.
-Preserve it through teardown. The GitOps qualification path records a verified
-upgrade here and retains the initial lock as `tamoss-release.bootstrap.yaml`.
-See the [operating guide](../../README.md) and [GitOps guide](../gitops/README.md)
+Public `up` and `qualify` reject a different repository selection. `down` uses
+the recorded selection and can fetch its assets again. Finish teardown before
+deploying a different release through the public lifecycle; the lock is not an
+in-place upgrade or database rollback mechanism.
+
+Preserve the environment's release record through teardown. The GitOps
+qualification path records a verified release change here and retains the initial
+lock as `tamoss-release.bootstrap.yaml`; this bookkeeping alone does not qualify
+an upgrade.
+See [Operations](../../docs/operations.md#release-selection) and the [GitOps guide](../gitops/README.md#release-changes)
 for release selection, verification and lifecycle instructions.
 
 ## Private release bundle
@@ -59,4 +77,6 @@ checks receive this token; Docker publishing uses `GITHUB_TOKEN`. A missing read
 token stops the workflow before release checks or publication. Deploy
 using that digest. Private runtime pulls require a separate read-only package
 credential supplied through Vault/ESO; GitHub App credentials are for Git access.
-Private-cluster pulls still require live qualification.
+Private runtime pulls have passed live OCI checks. A supported release upgrade
+and package-read credential rotation/revocation remain unqualified; see
+[coverage limits](../../docs/testing.md#verified-coverage-and-limits).

@@ -1,5 +1,7 @@
 # OCI account prerequisites
 
+[Overview](../../README.md) | [Getting started](../../docs/getting-started.md) | [Operations](../../docs/operations.md)
+
 Create a dedicated compartment and separate identities for infrastructure
 provisioning and application storage. Account administrators own these
 prerequisites; Crossplane owns the environment resources inside the compartment.
@@ -37,16 +39,25 @@ these service identities using the native `bypassNotification` creation field.
 
 Store the provisioner's private signing key and OCI profile in owner-only files.
 Capture the storage key's identifier and secret once into the private files
-listed in the [operating guide](../../README.md#environment-inputs). Keep all
+listed in [Storage credentials](../../docs/getting-started.md#storage-credentials). Keep all
 credential output out of logs and shared manifests. Validate the profile with
-`oci os ns get` and read-only compartment inventory before deployment; new IAM
+the [pinned OCI CLI](../../docs/operations.md#native-oci-cli) and read-only
+compartment inventory before deployment; new IAM
 credentials and policies can take time to propagate.
+
+## Retirement
 
 Retain these identities, policies and keys until `task down` has verified cloud
 deletion. For temporary account prerequisites owned by the run, revoke the keys,
 remove memberships and policies, delete the users/groups, then delete the empty
 compartment through the administrator's credential workflow. Record identifiers
 privately so cleanup does not depend on matching names.
+
+The [internal GitOps workflow](../gitops/README.md#inputs-and-secret-delivery)
+also requires scoped Vault/key, secret and runtime-policy permissions. Its retained
+foundation has an explicit owner and prevents treating the compartment as empty
+after workload teardown. Billing access is separate; see
+[posted billing](../../docs/operations.md#posted-billing).
 
 Oracle documents the [OKE permissions](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpolicyconfig.htm),
 [PostgreSQL resource types](https://docs.oracle.com/en-us/iaas/Content/postgresql/policies.htm)
