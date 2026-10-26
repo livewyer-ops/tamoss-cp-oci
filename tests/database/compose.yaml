@@ -38,5 +38,18 @@ services:
     volumes:
       - socket:/var/run/postgresql
       - ./assert.sql:/sql/assert.sql:ro
+  initialise-tadoss:
+    image: ${TEST_DB_IMAGE}
+    network_mode: none
+    user: postgres
+    entrypoint: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/sql/init.sql]
+    environment:
+      PGHOST: /var/run/postgresql
+      PGDATABASE: postgres
+      PGUSER: bootstrap_admin
+      TADOSS_PASSWORD: "tads'password"
+    volumes:
+      - socket:/var/run/postgresql
+      - ../../deploy/tadoss/config/files/init.sql:/sql/init.sql:ro
 volumes:
   socket: {}

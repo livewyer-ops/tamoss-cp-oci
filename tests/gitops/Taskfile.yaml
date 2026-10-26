@@ -6,6 +6,7 @@ vars:
     sh: 'yq -r ''"xpkg.crossplane.io/crossplane/crossplane:v" + .crossplane.version'' {{.PROJECT_ROOT}}/dependencies.yaml'
 includes:
   gitops: {taskfile: ../../tasks/gitops.yaml, dir: '{{.PROJECT_ROOT}}'}
+  bootstrap: {taskfile: ../../tasks/bootstrap.yaml, dir: '{{.PROJECT_ROOT}}', internal: true}
   verify: {taskfile: ../../tasks/check.yaml, dir: '{{.PROJECT_ROOT}}'}
 tasks:
   check:
@@ -14,6 +15,10 @@ tasks:
   export:
     cmds:
       - task: gitops:export
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+  record-release:
+    cmds:
+      - task: bootstrap:record-release
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   fixture:
     cmds:
@@ -31,7 +36,9 @@ tasks:
         yq -n '{"url": "https://github.com/example/tamoss-environments", "branch": "main", "path": "clusters/oci-dev",
         "product": {"url": "https://github.com/example/tamoss-cp-oci", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
         "bundle": {"url": load("{{.ROOT_DIR}}/tests/gitops/values.yaml").release.bundleURL,
-        "digest": load("{{.ROOT_DIR}}/tests/gitops/values.yaml").release.digest}}' > '{{.DIRECTORY}}/inputs/gitops.yaml'
+        "digest": load("{{.ROOT_DIR}}/tests/gitops/values.yaml").release.digest},
+        "tadoss": {"bundle": {"url": load("{{.ROOT_DIR}}/tests/tadoss/values.yaml").tadoss.release.bundleURL,
+        "digest": load("{{.ROOT_DIR}}/tests/tadoss/values.yaml").tadoss.release.digest}}}' > '{{.DIRECTORY}}/inputs/gitops.yaml'
       - >-
         yq -n 'load("{{.ROOT_DIR}}/.local/tmp/check/adoption.yaml").spec.adoption.externalNames |
         to_entries | map({"resourceName": .key, "externalName": .value})' > '{{.DIRECTORY}}/inputs/resources-current.yaml'

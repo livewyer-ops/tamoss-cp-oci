@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Render
+(length(resources)): 1
+(resources[0]):
+  apiVersion: tadoss.livewyer.io/v1alpha1
+  kind: Tadoss
+  metadata: {name: tadoss, namespace: tads}
+  spec:
+    profile: multi-server
+    deletionProtection: true
+    deletionPolicy: Retain
+    api: {replicaCount: 2, minAvailable: 1}
+    worker: {replicaCount: 2, minAvailable: 1}
+    ingress: {host: tads.203-0-113-10.sslip.io, className: traefik, clusterIssuer: tamoss-public}
+    auth:
+      oauth2:
+        issuer: https://auth.203-0-113-10.sslip.io/application/o/tadoss/
+        audience: tadoss-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        jwksURI: https://auth.203-0-113-10.sslip.io/application/o/tadoss/jwks/
+    backends:
+      db:
+        providedBy: external
+        external:
+          existingSecret: tadoss-database
+          caConfigMap: {name: database-ca, key: ca.pem}
+    networkPolicy:
+      enabled: true
+      api:
+        ingress:
+          - from:
+              - namespaceSelector:
+                  matchLabels: {kubernetes.io/metadata.name: traefik}

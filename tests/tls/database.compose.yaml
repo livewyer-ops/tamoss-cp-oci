@@ -1,0 +1,30 @@
+services:
+  certificates:
+    image: ${TEST_DB_IMAGE:?}
+    network_mode: none
+    entrypoint: [install, -o, postgres, -g, postgres, -m, '600', /input/server.key, /certs/server.key]
+    volumes:
+      - ${TEST_TLS_DIRECTORY:?}/server.key:/input/server.key:ro
+      - keys:/certs
+  database:
+    image: ${TEST_DB_IMAGE}
+    environment: &database
+      POSTGRES_USER: tams
+      POSTGRES_PASSWORD: local-test-only
+      POSTGRES_DB: tams
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/server.crt, -c, ssl_key_file=/certs/server.key]
+    volumes:
+      - keys:/certs:ro
+      - ${TEST_TLS_DIRECTORY}/server.crt:/server.crt:ro
+    networks:
+      default:
+        aliases: [mismatched]
+    healthcheck: &health
+      test: [CMD, pg_isready, -U, tams, -d, tams]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+  plaintext:
+    image: ${TEST_DB_IMAGE}
+    environment: *database
+    healthcheck: *health

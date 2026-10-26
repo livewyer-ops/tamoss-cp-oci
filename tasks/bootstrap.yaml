@@ -16,6 +16,12 @@ tasks:
           (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))] | all'
           '{{.ENV_DIR}}/gitops.yaml' > /dev/null
         msg: Select the published product commit and private release bundle digest before provisioning
+      - sh: >-
+          yq -e '(.tadoss == null) or
+          ((.tadoss.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")) and
+          (.tadoss.bundle.digest | test("^sha256:[a-f0-9]{64}$")))'
+          '{{.ENV_DIR}}/gitops.yaml' > /dev/null
+        msg: Optional TADOSS integration requires its published private bundle URL and digest
     cmds:
       - task: :verify:tools
       - task: :verify:privacy
@@ -26,9 +32,12 @@ tasks:
       - task: :tamoss:assert-current
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :tamoss:fetch
+      - task: :tadoss:fetch
       - task: :tamoss:release
       - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - task: :lifecycle:prepare
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: initial-inventory
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: foundation
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -233,26 +242,33 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :transfer:freeze-runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :tadoss:remove-instance
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remove-operator
+        vars: {ENV_DIR: '{{.ENV_DIR}}', NAME: tadoss-operator}
       - task: :application:remove-instance
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: remove-operator
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - for: [tamoss-platform/tamoss-platform-config, auth/authentik, auth/tamoss-database-init, auth/authentik-bootstrap, auth/tamoss-database-connection, traefik/traefik, cert-manager/cert-manager]
+      - for: [tamoss-platform/tamoss-platform-config, auth/authentik, auth/tadoss-config, tads/tadoss-secrets, auth/tamoss-database-init, auth/authentik-bootstrap, auth/tamoss-database-connection, traefik/traefik, cert-manager/cert-manager]
         task: remove-release
         vars:
           KUBECONFIG: '{{.ENV_DIR}}/remote.kubeconfig'
           NAMESPACE: '{{splitList "/" .ITEM | first}}'
           NAME: '{{splitList "/" .ITEM | last}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tamoss-database-init --ignore-not-found --wait=true --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tadoss-database-init --ignore-not-found --wait=true --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n traefik delete service/traefik --ignore-not-found --wait=true --timeout=600s
       - 'yq -i ''.applicationRemoved = true'' {{.ENV_DIR}}/identity.yaml'
   remove-operator:
     requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: '{{.NAME | default "tamoss-operator"}}'
     status:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get kustomization/tamoss-operator --ignore-not-found -o json | yq -p=json -e 'length == 0'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get kustomization/{{.NAME}} --ignore-not-found -o json | yq -p=json -e 'length == 0'
     cmds:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth patch kustomization/tamoss-operator --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete kustomization/tamoss-operator --wait=true --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth patch kustomization/{{.NAME}} --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete kustomization/{{.NAME}} --wait=true --timeout=300s
   remove-release:
     requires: {vars: [KUBECONFIG, NAMESPACE, NAME]}
     status:
@@ -301,6 +317,12 @@ tasks:
       - kind delete cluster --name 'tamoss-cp-{{.NAME}}'
       - rm -f '{{.ENV_DIR}}/management.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig'
       - echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{.ENV_DIR}}/retained-foundation.yaml'
+  initial-inventory:
+    requires: {vars: [ENV_DIR]}
+    status: ["test -f '{{.ENV_DIR}}/inventory-initial/.complete'"]
+    cmds:
+      - task: :cloud:inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', INVENTORY_DIR: '{{.ENV_DIR}}/inventory-initial'}
   remove-access:
     requires: {vars: [ENV_DIR]}
     status:

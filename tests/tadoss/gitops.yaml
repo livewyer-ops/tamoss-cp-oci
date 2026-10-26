@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'Namespace' && metadata.name == 'tads'])): 1
+(length(resources[?kind == 'Namespace' && metadata.name == 'tadoss-system'])): 1
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'])): 1
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'traefik'])): 1
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'cert-manager'])): 1
+(length(resources[?kind == 'Cluster' || kind == 'PsqlDbSystem' || kind == 'Secret'])): 0
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.blueprints.configMaps): [tadoss-authentik-blueprint]
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.dependsOn[?name == 'tadoss-config'] | length(@)): 1
+(resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[0].name): database-connection
+(resources[?kind == 'OCIRepository' && metadata.name == 'tadoss-release'] | [0].spec.secretRef.name): ghcr
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.deletionPolicy): Orphan
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.prune): false
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.dependsOn[].name): [tadoss-operator, tadoss-credentials, platform, calico]

@@ -1,4 +1,5 @@
 qualification:
+  postgres16Image: docker.io/library/postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
   hurlImage: ghcr.io/orange-opensource/hurl:8.0.1@sha256:49a02dc39d7084e5a6e8c57e2d4754ef102e4ee3761a02ef6dc0e305ab1a832d
 crossplane:
   version: 2.4.2

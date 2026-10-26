@@ -6,10 +6,16 @@ tasks:
     vars:
       KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .RELEASE_LOCK}}'}
       ASSETS: '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}'
+      TADOSS_KEY: {sh: 'yq -r ''.artifacts."release.json"'' {{.ROOT_DIR}}/deploy/tadoss/release.yaml'}
+      TADOSS_ASSETS: '{{.ROOT_DIR}}/.local/tmp/tadoss/{{.TADOSS_KEY}}'
     cmds:
       - >-
         yq -n 'load("{{.ROOT_DIR}}/dependencies.yaml") as $d |
-        {"dependencies": {"crossplane": $d.crossplane, "externalSecrets": $d.externalSecrets,
+        {"tadoss": {"enabled": false, "release": {
+        "version": load("{{.TADOSS_ASSETS}}/release.json").version,
+        "releaseSha256": "{{.TADOSS_KEY}}",
+        "runtimeImage": ("docker.io/" + load("{{.TADOSS_ASSETS}}/release.json").runtimeImage)}},
+        "dependencies": {"crossplane": $d.crossplane, "externalSecrets": $d.externalSecrets,
         "platform": load("{{.ASSETS}}/dependencies.yaml").spec,
         "calicoCommit": ($d.artifacts[] | select(.path == "calico/calico-policy-only.yaml") | .url | split("/")[5])},
         "packages": load("{{.ROOT_DIR}}/charts/packages/values.yaml"),
@@ -93,6 +99,11 @@ tasks:
         "bucket": $e.storage.bucket, "objectEndpoint": $o.objectEndpoint,
         "acmeEmail": $s.acmeEmail, "adminEmail": $s.adminEmail}} * load("{{.CANDIDATE}}/pins.yaml")'
         > '{{.CANDIDATE}}/values.yaml'
+      - >-
+        yq -i 'with(select(load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle != null);
+        .tadoss.release.bundleURL = load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle.url |
+        .tadoss.release.digest = load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle.digest)'
+        '{{.CANDIDATE}}/values.yaml'
       - helm lint '{{.ROOT_DIR}}/charts/gitops' -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml' -f '{{.CANDIDATE}}/values.yaml'
       - >-
         yq 'load("{{.ENV_DIR}}/identity.yaml") as $id |

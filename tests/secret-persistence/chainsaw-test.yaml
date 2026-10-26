@@ -93,6 +93,37 @@ spec:
               metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git-auth, namespace: secret-backend}
               data:
                 githubAppID: Zml4dHVyZS1vcmlnaW5hbA==
+    - name: deliver a rotated persisted credential after creation is retired
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git-auth, namespace: secret-backend}
+              stringData:
+                githubAppID: fixture-rotated
+        - patch:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: git-auth
+                namespace: secret-check
+                annotations: {force-sync: rotated-backend}
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: git-auth, namespace: secret-check}
+              data:
+                githubAppID: Zml4dHVyZS1yb3RhdGVk
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: git-auth, namespace: secret-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: report a missing established password without regenerating it
       try:
         - delete:

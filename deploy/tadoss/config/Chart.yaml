@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tadoss-config
+description: External database and shared Authentik configuration for TADOSS
+type: application
+version: 0.1.0

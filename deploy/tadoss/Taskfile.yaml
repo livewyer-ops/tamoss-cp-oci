@@ -1,0 +1,162 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  LOCK: '{{.ROOT_DIR}}/deploy/tadoss/release.yaml'
+  KEY: {sh: 'yq -r ''.artifacts."release.json"'' {{.LOCK}}'}
+  ASSETS: '{{.ROOT_DIR}}/.local/tmp/tadoss/{{.KEY}}'
+  CACHE: '{{.ROOT_DIR}}/.local/tmp/check'
+tasks:
+  baseline:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    status: ["test -f '{{.ENV_DIR}}/tadoss-inventory-before/.complete'"]
+    preconditions:
+      - sh: 'yq -e ''.tadoss.enabled == false'' {{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'
+        msg: Capture shared infrastructure before enabling TADOSS
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', INVENTORY_DIR: '{{.ENV_DIR}}/tadoss-inventory-before'}
+  tls:
+    env:
+      TEST_TLS_DIRECTORY: '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check'
+      TEST_DB_IMAGE: {sh: 'yq -r .qualification.postgres16Image {{.ROOT_DIR}}/dependencies.yaml'}
+      TEST_API_IMAGE: {sh: 'yq -r ''"docker.io/" + .runtimeImage'' {{.ASSETS}}/release.json'}
+    cmds:
+      - mkdir -p -m 700 '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check'
+      - defer: rm -r '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check'
+      - defer: docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml down --volumes
+      - docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml pull --quiet migration database
+      - openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=database -addext subjectAltName=DNS:database -keyout '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check/server.key' -out '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check/server.crt' 2>/dev/null
+      - openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=untrusted -keyout '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check/untrusted.key' -out '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check/untrusted.crt' 2>/dev/null
+      - chmod 644 '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check/server.crt' '{{.ROOT_DIR}}/.local/tmp/tadoss-tls-check/untrusted.crt'
+      - docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml run --rm certificates
+      - docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml up --wait --wait-timeout 45 database plaintext
+      - chainsaw test --no-cluster --test-dir tests/tadoss-tls --report-format JUNIT-TEST --report-path .local/reports --report-name tadoss-database-tls
+  qualify:
+    silent: true
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      DEPLOYMENT: {sh: 'yq -r .deploymentUID {{.ENV_DIR}}/identity.yaml'}
+      DOMAIN: {sh: 'yq -r ''.publicIp | sub("\\."; "-") + ".sslip.io"'' {{.ENV_DIR}}/outputs.json'}
+      KIND_NAME: {sh: 'yq -r ''"tamoss-cp-" + .environment.name'' {{.ENV_DIR}}/identity.yaml'}
+      SCHEMA_ID: {sh: cat /proc/sys/kernel/random/uuid}
+      TRACK_ID: {sh: cat /proc/sys/kernel/random/uuid}
+      REVISION: {sh: 'git -C {{shellQuote .CHECKOUT}} rev-parse HEAD'}
+      INVENTORY_NAMES: {sh: 'find {{shellQuote .ENV_DIR}}/tadoss-inventory-before -maxdepth 1 -name "*.ids" -printf "%f\n" | sort'}
+    preconditions:
+      - sh: 'yq -e ''.tadoss.enabled == true'' {{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'
+        msg: Enable TADOSS in the environment repository before qualification
+      - sh: test -f '{{.ENV_DIR}}/tadoss-inventory-before/.complete'
+        msg: Capture the infrastructure baseline before enabling TADOSS
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - docker ps --all --filter 'label=io.x-k8s.kind.cluster={{.KIND_NAME}}' --format '{{"{{.ID}}"}}' | wc -l | xargs test 0 -lt
+      - docker ps --filter 'label=io.x-k8s.kind.cluster={{.KIND_NAME}}' --format '{{"{{.ID}}"}}' | wc -l | xargs test 0 -eq
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=10m
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile helmrelease tamoss-gitops --with-source --timeout=15m
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/environment -o json |
+        yq -p=json -e '.status.lastAppliedRevision | endswith("@sha1:{{.REVISION}}")' > /dev/null
+      - git -C {{shellQuote .CHECKOUT}} rev-parse HEAD > '{{.ENV_DIR}}/reports/tadoss-git-revision'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth wait kustomization/tadoss --for=condition=Ready --timeout=900s
+      - KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --test-dir tests/tadoss-live --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name tadoss-runtime
+      - defer: rm -f '{{.ENV_DIR}}/api-token' '{{.ENV_DIR}}/api.curl' '{{.ENV_DIR}}/targets.jsonl' '{{.ENV_DIR}}/http-secrets.env' '{{.ENV_DIR}}/tadoss-http-secrets.env' '{{.ENV_DIR}}/tadoss-segments.json'
+      - task: :qualification:credentials
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - install -m 600 /dev/null '{{.ENV_DIR}}/tadoss-http-secrets.env'
+      - cp '{{.ENV_DIR}}/http-secrets.env' '{{.ENV_DIR}}/tadoss-http-secrets.env'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get secret/tadoss-oauth -o json |
+        yq -p=json -r '"tadoss_client_secret=" + (.data.password | @base64d)' >> '{{.ENV_DIR}}/tadoss-http-secrets.env'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get ingestrun/qualification -o json > '{{.ENV_DIR}}/reports/tadoss-ingest.json'
+      - task: proof-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', DOMAIN: '{{.DOMAIN}}', DEPLOYMENT: '{{.DEPLOYMENT}}', SCHEMA_ID: '{{.SCHEMA_ID}}', TRACK_ID: '{{.TRACK_ID}}'}
+      - hurl --test --no-output --secrets-file '{{.ENV_DIR}}/tadoss-http-secrets.env' --variables-file '{{.ENV_DIR}}/reports/tadoss-variables.env' --max-time 20 --max-filesize 1048576 tests/http/tadoss.hurl
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads rollout restart deployment/tadoss-api deployment/tadoss-worker
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads rollout status deployment/tadoss-api --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads rollout status deployment/tadoss-worker --timeout=300s
+      - hurl --test --no-output --secrets-file '{{.ENV_DIR}}/tadoss-http-secrets.env' --variables-file '{{.ENV_DIR}}/reports/tadoss-variables.env' --max-time 20 --max-filesize 1048576 tests/http/tadoss-persistence.hurl
+      - task: :qualification:media
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:inventory
+        vars: {ENV_DIR: '{{.ENV_DIR}}', INVENTORY_DIR: '{{.ENV_DIR}}/tadoss-inventory-after'}
+      - for: {var: INVENTORY_NAMES}
+        cmd: diff -u '{{.ENV_DIR}}/tadoss-inventory-before/{{.ITEM}}' '{{.ENV_DIR}}/tadoss-inventory-after/{{.ITEM}}'
+      - docker ps --filter 'label=io.x-k8s.kind.cluster={{.KIND_NAME}}' --format '{{"{{.ID}}"}}' | wc -l | xargs test 0 -eq
+  proof-inputs:
+    silent: true
+    requires: {vars: [ENV_DIR, DOMAIN, DEPLOYMENT, SCHEMA_ID, TRACK_ID]}
+    vars:
+      FLOW: {sh: 'yq -e -r ''[.status.output.memberFlows[] | select(.format == "urn:x-nmos:format:video")][0].id'' {{.ENV_DIR}}/reports/tadoss-ingest.json'}
+    cmds:
+      - install -m 600 /dev/null '{{.ENV_DIR}}/tadoss-segments.json'
+      - curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{.ENV_DIR}}/api.curl' --output '{{.ENV_DIR}}/tadoss-segments.json' 'https://api.{{.DOMAIN}}/flows/{{.FLOW}}/segments'
+      - 'yq -e ''length > 0 and (.[0].timerange | tag == "!!str" and length > 0)'' {{.ENV_DIR}}/tadoss-segments.json > /dev/null'
+      - >-
+        yq -n -r 'load("{{.ENV_DIR}}/reports/tadoss-ingest.json").status.output.sourceID as $source |
+        ("tams://api.{{.DOMAIN}}/sources/" + $source) as $entity |
+        {"tams": "https://api.{{.DOMAIN}}", "tads": "https://tads.{{.DOMAIN}}", "issuer": "https://auth.{{.DOMAIN}}",
+        "source_id": $source, "flow_id": "{{.FLOW}}", "schema_id": "{{.SCHEMA_ID}}", "track_id": "{{.TRACK_ID}}",
+        "client_id": "tadoss-{{.DEPLOYMENT}}", "entity": $entity, "entity_filter": ($entity | @uri),
+        "timerange": load("{{.ENV_DIR}}/tadoss-segments.json")[0].timerange} |
+        to_entries | .[] | .key + "=" + .value' > '{{.ENV_DIR}}/reports/tadoss-variables.env'
+  remove-instance:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - >-
+        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd tadosses.tadoss.livewyer.io --ignore-not-found -o json | yq -p=json -e 'length == 0') ||
+        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads get tadoss/tadoss --ignore-not-found -o json | yq -p=json -e 'length == 0')
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads patch tadoss/tadoss --type=merge -p '{"spec":{"deletionProtection":false}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads delete tadoss/tadoss --ignore-not-found --cascade=foreground --wait=true --timeout=300s
+  fetch:
+    vars:
+      TAG: {sh: 'yq -r .tag {{.LOCK}}'}
+    cmds:
+      - 'yq -e ''(.tag | test("^v[0-9]+[.][0-9]+[.][0-9]+[-a-zA-Z0-9.]*$")) and ([.artifacts[] | test("^[a-f0-9]{64}$")] | all)'' {{.LOCK}} > /dev/null'
+      - mkdir -p -m 700 '{{.ASSETS}}'
+      - install -m 600 /dev/null '{{.ASSETS}}/.github-header'
+      - defer: rm -f '{{.ASSETS}}/.github-header'
+      - >-
+        gh auth token | yq -r '"Authorization: Bearer " + .' > '{{.ASSETS}}/.github-header'
+      - gh release view '{{.TAG}}' --repo livewyer-ops/tadoss --json assets > '{{.ASSETS}}/assets.json'
+      - for: [release.json, catalogue.json, compatibility.yaml, install.yaml]
+        task: :verify:artifact
+        vars:
+          CACHE: '{{.ASSETS}}'
+          URL: {sh: 'yq -e -r ''.assets[] | select(.name == "{{.ITEM}}" and .state == "uploaded" and .size > 0 and .size <= 16777216) | .apiUrl | select(test("^https://api.github.com/repos/livewyer-ops/tadoss/releases/assets/[0-9]+$"))'' {{.ASSETS}}/assets.json'}
+          TARGET: '{{.ITEM}}'
+          SHA: {sh: 'yq -r ''.artifacts."{{.ITEM}}"'' {{.LOCK}}'}
+          HEADER_FILE: '{{.ASSETS}}/.github-header'
+      - >-
+        yq -e '.version == (load("{{.LOCK}}").tag | sub("^v"; "")) and
+        (.sourceRevision | test("^[a-f0-9]{40}$")) and
+        (.runtimeImage | test("^livewyer/tadoss-api@sha256:[a-f0-9]{64}$")) and
+        (.operatorImage | test("^livewyer/tadoss-operator@sha256:[a-f0-9]{64}$")) and
+        .version == load("{{.ASSETS}}/compatibility.yaml").version and
+        .runtimeImage == load("{{.ASSETS}}/catalogue.json")[0].apiImage'
+        '{{.ASSETS}}/release.json' > /dev/null
+  bundle:
+    vars:
+      BUNDLE: '{{.ROOT_DIR}}/.local/tmp/tadoss-bundle'
+    cmds:
+      - rm -rf '{{.BUNDLE}}'
+      - mkdir -p -m 700 '{{.BUNDLE}}' '{{.CACHE}}'
+      - for: [install.yaml, release.json, compatibility.yaml, catalogue.json]
+        cmd: cp '{{.ASSETS}}/{{.ITEM}}' '{{.BUNDLE}}/{{.ITEM}}'
+      - cp '{{.ROOT_DIR}}/deploy/tadoss/bundle/kustomization.yaml' '{{.BUNDLE}}/'
+      - find '{{.BUNDLE}}' -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > '{{.CACHE}}/tadoss-bundle-files.txt'
+      - diff -u '{{.ROOT_DIR}}/deploy/tadoss/bundle/files.txt' '{{.CACHE}}/tadoss-bundle-files.txt'
+      - for: [install.yaml, release.json, compatibility.yaml, catalogue.json]
+        cmd: cmp '{{.ASSETS}}/{{.ITEM}}' '{{.BUNDLE}}/{{.ITEM}}'
+      - kubectl kustomize '{{.BUNDLE}}' > '{{.CACHE}}/tadoss-operator.yaml'
+      - flux build artifact --path '{{.BUNDLE}}' --output '{{.CACHE}}/tadoss-bundle.tgz'
+      - flux build artifact --path '{{.BUNDLE}}' --output '{{.CACHE}}/tadoss-bundle-repeat.tgz'
+      - cmp '{{.CACHE}}/tadoss-bundle.tgz' '{{.CACHE}}/tadoss-bundle-repeat.tgz'

@@ -1,0 +1,36 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: tadoss-postgresql16-tls}
+spec:
+  timeouts: {exec: 1m}
+  steps:
+    - name: migrate-with-trusted-TLS-and-repeat
+      try:
+        - command: &migration
+            entrypoint: docker
+            args: [compose, --project-name, tadoss-cp-tls-check, -f, compose.yaml, run, --rm, migration]
+        - command: *migration
+    - name: reject-untrusted-CA
+      try:
+        - command:
+            <<: *migration
+            env: [{name: TLS_CA, value: untrusted.crt}]
+            check:
+              ($error != null): true
+              (contains($stdout, 'certificate verify failed')): true
+    - name: reject-hostname-mismatch
+      try:
+        - command:
+            <<: *migration
+            env: [{name: TLS_HOST, value: mismatched}]
+            check:
+              ($error != null): true
+              (contains($stdout, 'does not match host name')): true
+    - name: reject-plaintext
+      try:
+        - command:
+            <<: *migration
+            env: [{name: TLS_HOST, value: plaintext}]
+            check:
+              ($error != null): true
+              (contains($stdout, 'server does not support SSL')): true

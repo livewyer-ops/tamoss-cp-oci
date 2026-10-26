@@ -1,0 +1,43 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: tadoss-runtime}
+spec:
+  timeouts:
+    assert: 10m
+  steps:
+    - name: current-release-and-replicas
+      try:
+        - assert:
+            resource:
+              apiVersion: tadoss.livewyer.io/v1alpha1
+              kind: Tadoss
+              metadata: {name: tadoss, namespace: tads}
+              spec:
+                profile: multi-server
+                backends:
+                  db: {providedBy: external}
+              status:
+                readyReplicas: 2
+                workerReadyReplicas: 2
+                phase: Ready
+              (status.observedGeneration == metadata.generation): true
+              (status.currentVersion == spec.version): true
+        - assert:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: tadoss-public-tls, namespace: tads}
+              status:
+                conditions:
+                  - {type: Ready, status: 'True'}
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: tadoss-api, namespace: tads}
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: api
+                        (env[?name == 'TADOSS_DATABASE_SSL_ROOT_CERT'] | [0].value): /etc/tadoss/database-ca/ca.pem

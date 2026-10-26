@@ -23,6 +23,10 @@ spec:
         - command:
             entrypoint: yq
             env: *env
+            args: [-e, '.tadoss.enabled == false and .tadoss.release.digest == load(strenv(DIRECTORY) + "/inputs/gitops.yaml").tadoss.bundle.digest', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
             args: [-e, '.spec.managementPolicies | join(",") == "Observe"', '$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
         - command:
             entrypoint: yq
@@ -55,6 +59,73 @@ spec:
             check:
               ($error != null): true
               (contains($stderr, 'incomplete')): true
+    - name: reject mismatched release sources without changing the installed record
+      try:
+        - command:
+            entrypoint: cp
+            env: *env
+            args: ['$DIRECTORY/inputs/tamoss-release.yaml', '$DIRECTORY/inputs/tamoss-release.current.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, '.tag = "0.0.0-record-fixture"', '$DIRECTORY/inputs/tamoss-release.yaml']
+        - command:
+            entrypoint: cp
+            env: *env
+            args: ['$DIRECTORY/inputs/tamoss-release.yaml', '$DIRECTORY/inputs/initial-release.yaml']
+        - command:
+            entrypoint: cp
+            env: *env
+            args: ['$DIRECTORY/checkout/clusters/oci-dev/sources.yaml', '$DIRECTORY/inputs/expected-sources.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, 'with(select(.metadata.name == "tamoss-upstream"); .spec.ref.commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")', '$DIRECTORY/checkout/clusters/oci-dev/sources.yaml']
+        - command:
+            entrypoint: task
+            env: *env
+            args: [record-release]
+            check: {($error != null): true}
+        - command:
+            entrypoint: cmp
+            env: *env
+            args: ['$DIRECTORY/inputs/initial-release.yaml', '$DIRECTORY/inputs/tamoss-release.yaml']
+        - command:
+            entrypoint: test
+            env: *env
+            args: ['!', -e, '$DIRECTORY/inputs/tamoss-release.bootstrap.yaml']
+    - name: preserve the initial release when recording the current selection and retrying
+      try:
+        - command:
+            entrypoint: cp
+            env: *env
+            args: ['$DIRECTORY/inputs/expected-sources.yaml', '$DIRECTORY/checkout/clusters/oci-dev/sources.yaml']
+        - command:
+            entrypoint: task
+            env: *env
+            args: [record-release]
+            check: {($error == null): true}
+        - command:
+            entrypoint: cmp
+            env: *env
+            args: ['$PROJECT_ROOT/deploy/tamoss/release.yaml', '$DIRECTORY/inputs/tamoss-release.yaml']
+        - command:
+            entrypoint: cmp
+            env: *env
+            args: ['$DIRECTORY/inputs/initial-release.yaml', '$DIRECTORY/inputs/tamoss-release.bootstrap.yaml']
+        - command:
+            entrypoint: cp
+            env: *env
+            args: ['$PROJECT_ROOT/deploy/tamoss/release.yaml', '$DIRECTORY/inputs/tamoss-release.current.yaml']
+        - command:
+            entrypoint: task
+            env: *env
+            args: [record-release]
+            check: {($error == null): true}
+        - command:
+            entrypoint: cmp
+            env: *env
+            args: ['$DIRECTORY/inputs/initial-release.yaml', '$DIRECTORY/inputs/tamoss-release.bootstrap.yaml']
     - name: reject missing provider bindings before writing the checkout
       try:
         - command:

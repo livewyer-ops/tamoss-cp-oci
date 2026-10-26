@@ -10,6 +10,24 @@
     "databaseId": {"type": "string", "pattern": "^ocid1\\.postgresqldbsystem\\.[a-z0-9.-]+$"},
     "databaseAdministrator": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
     "databaseRefreshRevision": {"type": "string", "minLength": 1, "maxLength": 64},
+    "tadoss": {
+      "type": "object", "additionalProperties": false, "required": ["enabled", "release"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "release": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+[-a-zA-Z0-9.]*$"},
+            "releaseSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "runtimeImage": {"$ref": "#/definitions/image"},
+            "bundleURL": {"type": "string", "pattern": "^oci://ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$"},
+            "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        }
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"properties": {"release": {"required": ["version", "releaseSha256", "runtimeImage", "bundleURL", "digest"]}}}
+    },
     "release": {
       "type": "object", "additionalProperties": false, "required": ["tag", "releaseSha256", "sourceSha256", "bundleURL", "digest", "postgresImage"],
       "properties": {

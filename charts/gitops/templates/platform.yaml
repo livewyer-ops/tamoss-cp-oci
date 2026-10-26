@@ -6,6 +6,12 @@
 {{- $context := dict "Values" (dict "runtime" $r) -}}
 {{- $platform := mergeOverwrite (deepCopy .Values) (tpl (.Files.Get "files/platform-values.yaml.gotmpl") $context | fromYaml) -}}
 {{- $bom := .Values.dependencies.platform -}}
+{{- if .Values.tadoss.enabled -}}
+{{- $blueprints := deepCopy ($platform.authentikChart.blueprints | default dict) -}}
+{{- $_ := set $blueprints "configMaps" (append ($blueprints.configMaps | default list) "tadoss-authentik-blueprint") -}}
+{{- $_ := set $platform.authentikChart "blueprints" $blueprints -}}
+{{- $_ := set $platform.authentikChart.worker "env" (append ($platform.authentikChart.worker.env | default list) (dict "name" "TADOSS_CLIENT_SECRET" "valueFrom" (dict "secretKeyRef" (dict "name" "tadoss-oauth" "key" "password")))) -}}
+{{- end -}}
 {{- $releases := list
   (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))
   (dict "name" "traefik" "namespace" "traefik" "chart" "traefik" "source" "traefik" "version" $bom.traefik.chartVersion "values" $platform.traefik)
@@ -30,6 +36,9 @@ spec:
 {{ with .needs }}
   dependsOn:
 {{ . | toYaml | indent 4 }}
+{{ end }}
+{{ if and $.Values.tadoss.enabled (eq .name "authentik") }}
+    - {name: tadoss-config, namespace: auth}
 {{ end }}
   chart:
     spec:

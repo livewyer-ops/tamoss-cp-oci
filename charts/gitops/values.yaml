@@ -4,6 +4,9 @@ vaultId: ''
 databaseId: ''
 databaseAdministrator: postgres
 databaseRefreshRevision: '1'
+tadoss:
+  enabled: false
+  release: {}
 release:
   tag: ''
   releaseSha256: ''

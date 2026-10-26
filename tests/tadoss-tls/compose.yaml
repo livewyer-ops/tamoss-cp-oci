@@ -1,0 +1,26 @@
+services:
+  certificates:
+    extends: {file: ../tls/database.compose.yaml, service: certificates}
+  database:
+    extends: {file: ../tls/database.compose.yaml, service: database}
+  plaintext:
+    extends: {file: ../tls/database.compose.yaml, service: plaintext}
+  migration:
+    image: ${TEST_API_IMAGE:?}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    entrypoint: [tadoss, migrate]
+    environment:
+      TADOSS_DATABASE: postgresql://tams:local-test-only@${TLS_HOST:-database}:5432/tams
+      TADOSS_DATABASE_SSL_ROOT_CERT: /ca/${TLS_CA:-server.crt}
+      TADOSS_MIGRATE_TIMEOUT: '5'
+    volumes:
+      - ${TEST_TLS_DIRECTORY:?}/server.crt:/ca/server.crt:ro
+      - ${TEST_TLS_DIRECTORY}/untrusted.crt:/ca/untrusted.crt:ro
+networks:
+  default:
+    internal: true
+volumes:
+  keys: {}
