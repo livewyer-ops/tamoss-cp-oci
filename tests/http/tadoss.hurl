@@ -64,7 +64,7 @@ jsonpath "$.all_successful" == true
 GET {{tads}}/tracks
 Authorization: Bearer {{read_token}}
 [QueryStringParams]
-timeline_reference.entity_id: {{entity_filter}}
+timeline_reference.entity_id: {{entity}}
 HTTP 200
 [Asserts]
 jsonpath "$[*].id" includes "{{track_id}}"

@@ -104,7 +104,7 @@ tasks:
         ("tams://api.{{.DOMAIN}}/sources/" + $source) as $entity |
         {"tams": "https://api.{{.DOMAIN}}", "tads": "https://tads.{{.DOMAIN}}", "issuer": "https://auth.{{.DOMAIN}}",
         "source_id": $source, "flow_id": "{{.FLOW}}", "schema_id": "{{.SCHEMA_ID}}", "track_id": "{{.TRACK_ID}}",
-        "client_id": "tadoss-{{.DEPLOYMENT}}", "entity": $entity, "entity_filter": ($entity | @uri),
+        "client_id": "tadoss-{{.DEPLOYMENT}}", "entity": $entity,
         "timerange": load("{{.ENV_DIR}}/tadoss-segments.json")[0].timerange} |
         to_entries | .[] | .key + "=" + .value' > '{{.ENV_DIR}}/reports/tadoss-variables.env'
   remove-instance:
