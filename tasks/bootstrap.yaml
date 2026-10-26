@@ -82,6 +82,7 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=condition=Ready --timeout=900s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait kustomization/infrastructure --for=condition=Ready --timeout=1800s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
       - for: [flux-system, tamoss-infra, auth, tams]
         cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.ITEM}}' wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=300s

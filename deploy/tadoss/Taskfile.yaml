@@ -63,7 +63,7 @@ tasks:
       - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile helmrelease tamoss-gitops --with-source --timeout=15m
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/environment -o json |
-        yq -p=json -e '.status.lastAppliedRevision | endswith("@sha1:{{.REVISION}}")' > /dev/null
+        yq -p=json -e '.status.lastAppliedRevision | split(":")[-1] == "{{.REVISION}}"' > /dev/null
       - git -C {{shellQuote .CHECKOUT}} rev-parse HEAD > '{{.ENV_DIR}}/reports/tadoss-git-revision'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth wait kustomization/tadoss --for=condition=Ready --timeout=900s
       - KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --test-dir tests/tadoss-live --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name tadoss-runtime

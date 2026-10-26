@@ -132,9 +132,9 @@ spec:
   healthCheckExprs:
     - apiVersion: tadoss.livewyer.io/v1alpha1
       kind: Tadoss
-      failed: has(status) && has(status.phase) && status.phase == 'Error'
+      failed: has(status.phase) && status.phase == 'Error'
       current: >-
-        has(status) && has(status.observedGeneration) && status.observedGeneration == metadata.generation &&
+        has(status.observedGeneration) && status.observedGeneration == metadata.generation &&
         has(status.currentVersion) && status.currentVersion == spec.version &&
         has(status.readyReplicas) && status.readyReplicas == spec.api.replicaCount &&
         has(status.workerReadyReplicas) && status.workerReadyReplicas == spec.worker.replicaCount &&
