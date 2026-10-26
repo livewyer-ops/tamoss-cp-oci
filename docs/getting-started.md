@@ -29,10 +29,6 @@ Expected: Docker is reachable, Compose is available and Task lists the public
 commands. Setup and local checks need internet access for pinned downloads and
 container builds. Browser checks run in the repository's container.
 
-Local checks also download the private TADOSS release. Authenticate with
-`gh auth login` using read access to `livewyer-ops/tadoss` before `task check`.
-See [release access](../deploy/tadoss/README.md#release-access) for CI credentials.
-
 ## OCI preparation
 
 Use a dedicated, precreated compartment with quota for three OKE workers,

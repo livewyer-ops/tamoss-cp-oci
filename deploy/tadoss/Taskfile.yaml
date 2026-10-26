@@ -122,19 +122,13 @@ tasks:
     cmds:
       - 'yq -e ''(.tag | test("^v[0-9]+[.][0-9]+[.][0-9]+[-a-zA-Z0-9.]*$")) and ([.artifacts[] | test("^[a-f0-9]{64}$")] | all)'' {{.LOCK}} > /dev/null'
       - mkdir -p -m 700 '{{.ASSETS}}'
-      - install -m 600 /dev/null '{{.ASSETS}}/.github-header'
-      - defer: rm -f '{{.ASSETS}}/.github-header'
-      - >-
-        gh auth token | yq -r '"Authorization: Bearer " + .' > '{{.ASSETS}}/.github-header'
-      - gh release view '{{.TAG}}' --repo livewyer-ops/tadoss --json assets > '{{.ASSETS}}/assets.json'
       - for: [release.json, catalogue.json, compatibility.yaml, install.yaml]
         task: :verify:artifact
         vars:
           CACHE: '{{.ASSETS}}'
-          URL: {sh: 'yq -e -r ''.assets[] | select(.name == "{{.ITEM}}" and .state == "uploaded" and .size > 0 and .size <= 16777216) | .apiUrl | select(test("^https://api.github.com/repos/livewyer-ops/tadoss/releases/assets/[0-9]+$"))'' {{.ASSETS}}/assets.json'}
+          URL: 'https://github.com/livewyer-ops/tadoss/releases/download/{{.TAG}}/{{.ITEM}}'
           TARGET: '{{.ITEM}}'
           SHA: {sh: 'yq -r ''.artifacts."{{.ITEM}}"'' {{.LOCK}}'}
-          HEADER_FILE: '{{.ASSETS}}/.github-header'
       - >-
         yq -e '.version == (load("{{.LOCK}}").tag | sub("^v"; "")) and
         (.sourceRevision | test("^[a-f0-9]{40}$")) and

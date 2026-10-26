@@ -42,8 +42,6 @@ jobs:
           aqua exec -- yq -o=json '{"status": .status, "visibility": .visibility, "repository": .repository.full_name}' .local/tmp/check/package.json
           aqua exec -- yq -e '(.status == "404") or ((.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
       - name: Verify the release and prepare the allowlisted bundle
-        env:
-          GH_TOKEN: ${{ secrets.TADOSS_READ_TOKEN }}
         run: |
           export PATH="$(aqua root-dir)/bin:$PATH"
           task check

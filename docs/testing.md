@@ -4,8 +4,6 @@
 
 Run commands from the repository root with Aqua's tools on `PATH`. Local checks
 need Docker and internet access. They do not require OCI credentials.
-TADOSS asset checks also require GitHub CLI access to its private release repository;
-see [release access](../deploy/tadoss/README.md#release-access).
 
 ## Local checks
 

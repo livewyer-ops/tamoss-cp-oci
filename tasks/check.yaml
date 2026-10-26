@@ -33,10 +33,7 @@ tasks:
     status:
       - echo '{{.SHA}}  {{.CACHE}}/{{.TARGET}}' | sha256sum --check --status
     cmds:
-      - >-
-        curl --fail --location --silent --show-error --max-time 60 --max-filesize 16777216
-        {{if .HEADER_FILE}}--header @{{shellQuote .HEADER_FILE}} --header 'Accept: application/octet-stream'{{end}}
-        --create-dirs --output '{{.CACHE}}/{{.TARGET}}.download' '{{.URL}}'
+      - curl --fail --location --silent --show-error --max-time 60 --max-filesize 16777216 --create-dirs --output '{{.CACHE}}/{{.TARGET}}.download' '{{.URL}}'
       - echo '{{.SHA}}  {{.CACHE}}/{{.TARGET}}.download' | sha256sum --check --status
       - mv '{{.CACHE}}/{{.TARGET}}.download' '{{.CACHE}}/{{.TARGET}}'
   render:

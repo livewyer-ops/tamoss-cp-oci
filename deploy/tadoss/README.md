@@ -12,12 +12,10 @@ the media source through a `tams://` identifier. TADOSS needs no object store.
 
 ## Release access
 
-The upstream repository is private. Local checks require GitHub CLI authentication
-with read access to `livewyer-ops/tadoss`; authenticate using `gh auth login`.
-For Actions, configure `TADOSS_READ_TOKEN` in the product repository with
-Contents: read-only access to that upstream repository. The workflow uses this
-credential only to read release assets. Publication uses `GITHUB_TOKEN`, and OKE
-uses the existing package-read credential delivered from Vault.
+Published upstream release assets are public and downloaded without authentication.
+Private bundle publication uses `GITHUB_TOKEN`; metadata verification uses
+`GHCR_READ_TOKEN`. OKE uses the existing package-read credential delivered from
+Vault.
 
 Downloads have size/time limits and must match the committed checksums. The
 private `tadoss-release-assets` bundle contains only unchanged published assets
