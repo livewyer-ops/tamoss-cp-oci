@@ -50,3 +50,11 @@ releases:
     values:
       - {{ $packages | toJson }}
       - foundation: true
+  - name: tamoss-bootstrap-api
+    namespace: crossplane-system
+    chart: ../../charts/bootstrap
+    labels:
+      stage: bootstrap-api
+    values:
+      - environmentDefinition: {{ readFile "../../charts/environment/definition.yaml" | quote }}
+        foundationDefinition: {{ readFile "../../charts/secret-foundation/definition.yaml" | quote }}

@@ -70,6 +70,8 @@ tasks:
       - 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f deploy/contracts/quiesce-input.yaml
+      - task: :bootstrap:release
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       # Persist the guard before changing the live control plane.
       - 'yq -i ''.spec.managementPolicies = ["Observe"]'' {{.ENV_DIR}}/environment.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch tamossenvironment/{{.NAME}} --type=merge -p '{"spec":{"managementPolicies":["Observe"]}}'
@@ -237,7 +239,11 @@ tasks:
         yq -p=json -e 'length == 0 or (.spec.managementPolicies | join(",") == "Observe,Delete")' > /dev/null) ||
         (kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} -o json |
         yq -p=json -e '[.spec.adoption == null, ((.spec.managementPolicies // ["*"]) | join(",") == "*")] | all' > /dev/null &&
-        (test ! -f '{{.ENV_DIR}}/runtime-access.yaml' || yq -e '.providerWrites == false' '{{.ENV_DIR}}/runtime-access.yaml' > /dev/null))
+        (test ! -f '{{.ENV_DIR}}/runtime-access.yaml' || yq -e '.providerWrites == false' '{{.ENV_DIR}}/runtime-access.yaml' > /dev/null)) ||
+        (yq -e '.teardownStarted == true and .compositeUID == null and .gitopsEstablished != true' '{{.ENV_DIR}}/identity.yaml' > /dev/null &&
+        (test ! -f '{{.ENV_DIR}}/runtime-access.yaml' || yq -e '.providerWrites == false' '{{.ENV_DIR}}/runtime-access.yaml' > /dev/null) &&
+        kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} --ignore-not-found -o json |
+        yq -p=json -e 'length == 0' > /dev/null)
     cmds:
       - task: return-observe
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}

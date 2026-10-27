@@ -1,0 +1,229 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: bootstrap-controller
+spec:
+  steps:
+    - name: create only the foundation while dependencies are unavailable
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: tamoss-infra}
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, prepare-management, ROOT=$ROOT]
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, empty-return, ROOT=$ROOT]
+        - apply: {file: children.yaml}
+        - command:
+            entrypoint: kubectl
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [apply, --server-side, -f, $ROOT/.local/tmp/check/bootstrap/root.yaml]
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: SecretFoundation
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, observe, ROOT=$ROOT]
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, reject-replaced-root, ROOT=$ROOT]
+            check: {($error != null): true}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              status: {foundationReady: false, credentialsReady: false, infrastructureReady: false}
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+    - name: continue from a foundation status update without reapplying the root
+      try:
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: SecretFoundation
+              metadata:
+                name: bootstrap-check
+                namespace: tamoss-infra
+                annotations: {test.livewyer.io/ready: 'true'}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              status: {foundationReady: true, credentialsReady: false, infrastructureReady: false}
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+    - name: deliver credentials through ESO and let Crossplane complete the child
+      try:
+        - apply:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: SecretStore
+              metadata: {name: tamoss-vault, namespace: tamoss-infra}
+              spec:
+                provider:
+                  fake:
+                    data:
+                      - key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-database-admin
+                        value: fixture-only
+        - apply: {file: ../credentials.yaml}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: database-admin, namespace: tamoss-infra}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              status:
+                foundationReady: true
+                credentialsReady: true
+                infrastructureReady: true
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: preserve children and readiness across a Crossplane restart
+      bindings:
+        - name: environmentUID
+          value: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'TamossEnvironment', 'tamoss-infra', 'bootstrap-check').metadata.uid)
+        - name: foundationUID
+          value: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'SecretFoundation', 'tamoss-infra', 'bootstrap-check').metadata.uid)
+      try:
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, record-composite, ROOT=$ROOT]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              spec: {released: true}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+              status: {released: true}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: bootstrap-check, namespace: tamoss-infra, uid: ($environmentUID)}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: SecretFoundation
+              metadata: {name: bootstrap-check, namespace: tamoss-infra, uid: ($foundationUID)}
+    - name: released root cannot restore stale writes or settings
+      try:
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
+                database: {backupRetentionDays: 2}
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              spec:
+                environment:
+                  database: {backupRetentionDays: 3}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
+                database: {backupRetentionDays: 2}
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, patch, tamossbootstrap/bootstrap-check, --type=merge, --dry-run=server, -p, '{"spec":{"released":false}}']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Released bootstrap authority cannot be restored')): true
+    - name: release pauses bootstrap before infrastructure deletion and survives repeat
+      try:
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+        - delete:
+            ref:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              name: bootstrap-check
+              namespace: tamoss-infra
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, delete, tamossbootstrap/bootstrap-check, --wait=false]
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, annotate, tamossbootstrap/bootstrap-check, 'crossplane.io/paused-']
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, wait, tamossbootstrap/bootstrap-check, --for=delete, --timeout=120s]
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, observe, ROOT=$ROOT]
+            check: {($error != null): true}

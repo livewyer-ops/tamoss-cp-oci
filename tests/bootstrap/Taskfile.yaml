@@ -1,0 +1,81 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  ROOT: '{{.ROOT}}'
+  ROOT_DIR: '{{.ROOT}}'
+  DIRECTORY: '{{.ROOT}}/.local/tmp/check/bootstrap'
+  CORE: {sh: 'yq -r ''"xpkg.crossplane.io/crossplane/crossplane:v" + .crossplane.version'' {{.ROOT}}/dependencies.yaml'}
+includes:
+  bootstrap: {taskfile: ../../tasks/bootstrap.yaml, internal: true}
+  identity: {taskfile: ../../tasks/identity.yaml, internal: true}
+  transfer: {taskfile: ../../tasks/transfer.yaml, internal: true}
+tasks:
+  prepare-management:
+    cmds:
+      - mkdir -p -m 700 '{{.DIRECTORY}}/management'
+      - cp '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/management/bootstrap.yaml'
+      - 'yq ''{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": .metadata, "spec": .spec.environment}'' {{.DIRECTORY}}/root.yaml > {{.DIRECTORY}}/management/environment.yaml'
+      - cp "$KUBECONFIG" '{{.DIRECTORY}}/management/management.kubeconfig'
+      - task: identity:observe-inputs
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management'}
+      - cp '{{.DIRECTORY}}/management/identity-inputs.yaml' '{{.DIRECTORY}}/management/identity.yaml'
+      - kubectl get namespace kube-system -o json > '{{.DIRECTORY}}/management/namespace.json'
+      - 'yq -i ''.deploymentUID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" | .managementUID = load("{{.DIRECTORY}}/management/namespace.json").metadata.uid'' {{.DIRECTORY}}/management/identity.yaml'
+  observe:
+    cmds:
+      - task: bootstrap:observe
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management'}
+  record-composite:
+    cmds:
+      - task: identity:record-composite
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management'}
+  reject-replaced-root:
+    cmds:
+      - cp '{{.DIRECTORY}}/management/identity.yaml' '{{.DIRECTORY}}/management/identity.saved.yaml'
+      - defer: cp '{{.DIRECTORY}}/management/identity.saved.yaml' '{{.DIRECTORY}}/management/identity.yaml'
+      - 'yq -i ''.bootstrapUID = "replaced-root"'' {{.DIRECTORY}}/management/identity.yaml'
+      - task: observe
+  release:
+    cmds:
+      - task: bootstrap:release
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management'}
+  empty-return:
+    cmds:
+      - 'yq -i ''.teardownStarted = true'' {{.DIRECTORY}}/management/identity.yaml'
+      - task: transfer:return-ownership
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management', CHECKOUT: '{{.DIRECTORY}}/unused-checkout'}
+  render:
+    cmds:
+      - mkdir -p '{{.DIRECTORY}}'
+      - helm lint '{{.ROOT}}/charts/bootstrap' --set-file environmentDefinition='{{.ROOT}}/charts/environment/definition.yaml' --set-file foundationDefinition='{{.ROOT}}/charts/secret-foundation/definition.yaml'
+      - helm template bootstrap '{{.ROOT}}/charts/bootstrap' --set-file environmentDefinition='{{.ROOT}}/charts/environment/definition.yaml' --set-file foundationDefinition='{{.ROOT}}/charts/secret-foundation/definition.yaml' > '{{.DIRECTORY}}/api.yaml'
+      - 'yq ''select(.kind == "Composition")'' {{.DIRECTORY}}/api.yaml > {{.DIRECTORY}}/composition.yaml'
+      - >-
+        yq -n 'load("{{.ROOT}}/environments/example/environment.yaml") as $e |
+        {"apiVersion": "tamoss.livewyer.io/v1alpha1", "kind": "TamossBootstrap",
+        "metadata": {"name": "bootstrap-check", "namespace": "tamoss-infra"},
+        "spec": {"deploymentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "released": false,
+        "foundationName": "bootstrap-check", "foundation": load("{{.ROOT}}/environments/example/foundation.yaml").spec,
+        "environment": ($e.spec * {"managementPolicies": ["*"]})}}' > '{{.DIRECTORY}}/root.yaml'
+      - crossplane resource validate '{{.DIRECTORY}}/api.yaml' '{{.DIRECTORY}}/root.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT}}/.local/tmp/check/crossplane' --error-on-missing-schemas
+      - crossplane composition render '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/initial.yaml'
+      - >-
+        yq 'select(.kind == "SecretFoundation") | .status = {"conditions": [{"type": "Ready", "status": "True"}],
+        "vaultId": "ocid1.vault.oc1.fixture", "keyId": "ocid1.key.oc1.fixture"}'
+        '{{.DIRECTORY}}/initial.yaml' > '{{.DIRECTORY}}/foundation.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/foundation.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/waiting.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/foundation.yaml' --required-resources='{{.ROOT}}/tests/bootstrap/credentials.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/creating.yaml'
+      - 'yq ''.spec.data[0].remoteRef.key = "different-deployment-database-admin"'' {{.ROOT}}/tests/bootstrap/credentials.yaml > {{.DIRECTORY}}/wrong-credentials.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/foundation.yaml' --required-resources='{{.DIRECTORY}}/wrong-credentials.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/wrong-delivery.yaml'
+      - 'yq ''select(.kind != "TamossBootstrap") | .status.conditions = [{"type": "Ready", "status": "True"}] | with(select(.kind == "SecretFoundation"); .status = load("{{.DIRECTORY}}/foundation.yaml").status)'' {{.DIRECTORY}}/creating.yaml > {{.DIRECTORY}}/ready-observed.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/ready-observed.yaml' --required-resources='{{.ROOT}}/tests/bootstrap/credentials.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/ready.yaml'
+      - 'yq ''del(.status)'' {{.DIRECTORY}}/ready-observed.yaml > {{.DIRECTORY}}/recovering-observed.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/recovering-observed.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/recovering.yaml'
+      - 'yq ''.spec.released = true'' {{.DIRECTORY}}/root.yaml > {{.DIRECTORY}}/released-root.yaml'
+      - 'yq ''with(select(.kind == "TamossEnvironment"); .spec.managementPolicies = ["Observe"] | .spec.database.backupRetentionDays = 2)'' {{.DIRECTORY}}/ready-observed.yaml > {{.DIRECTORY}}/released-observed.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/released-root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/released-observed.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/released.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/released-root.yaml' '{{.DIRECTORY}}/composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/foundation.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/deleted-child.yaml'
+      - 'yq ''with(select(.kind == "TamossEnvironment"); .metadata.annotations."tamoss.livewyer.io/deployment-id" = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")'' {{.DIRECTORY}}/ready-observed.yaml > {{.DIRECTORY}}/foreign-observed.yaml'
+      - for: [initial, waiting, creating, wrong-delivery, ready, recovering, released, deleted-child]
+        cmd: 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.DIRECTORY}}/{{.ITEM}}.yaml > {{.DIRECTORY}}/{{.ITEM}}-list.yaml'
+      - chainsaw test --no-cluster --test-dir '{{.ROOT}}/tests/bootstrap/render' --set-string root='{{.ROOT}}' --set-string crossplaneImage={{.CORE}} --report-format JUNIT-TEST --report-path '{{.ROOT}}/.local/reports' --report-name bootstrap-render

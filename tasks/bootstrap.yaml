@@ -86,17 +86,18 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: initial-inventory
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: foundation
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: secrets
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -e ''load("{{.ENV_DIR}}/identity.yaml").compositeUID == null or .metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
       - task: :lifecycle:baseline
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - 'yq ''.metadata.annotations."tamoss.livewyer.io/deployment-id" = load("{{.ENV_DIR}}/identity.yaml").deploymentUID'' {{.ENV_DIR}}/environment.yaml > {{.ENV_DIR}}/bootstrap-environment.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/bootstrap-environment.yaml'
+      - task: seed
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: foundation
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: secrets
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossenvironment/$(yq -r .metadata.name '{{.ENV_DIR}}/environment.yaml') --for=create --timeout=300s
       - task: :identity:record-composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - defer:
@@ -109,6 +110,70 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :gitops:export
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  seed:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-providers sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait provider.pkg.crossplane.io/provider-oci-kms provider.pkg.crossplane.io/provider-oci-identity --for=condition=Healthy --timeout=600s
+      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-api -l stage=bootstrap-api sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io compositeresourcedefinition/tamossbootstraps.tamoss.livewyer.io --for=condition=Established --timeout=120s
+      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
+      - task: observe
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - >-
+        yq -n 'load("{{.ENV_DIR}}/environment.yaml") as $e | load("{{.ENV_DIR}}/foundation.yaml") as $f |
+        {"apiVersion": "tamoss.livewyer.io/v1alpha1", "kind": "TamossBootstrap",
+        "metadata": {"name": $e.metadata.name, "namespace": $e.metadata.namespace},
+        "spec": {"deploymentId": load("{{.ENV_DIR}}/identity.yaml").deploymentUID,
+        "released": false, "foundationName": $f.metadata.name, "foundation": $f.spec, "environment": $e.spec}}'
+        > '{{.ENV_DIR}}/bootstrap.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/bootstrap.yaml'
+      - task: observe
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  observe:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{.NAME}} --ignore-not-found -o json > '{{.ENV_DIR}}/bootstrap-observed.json'
+      - >-
+        yq -e '(length == 0 and load("{{.ENV_DIR}}/identity.yaml").bootstrapUID == null) or
+        ([.spec.deploymentId == load("{{.ENV_DIR}}/identity.yaml").deploymentUID,
+        (.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").bootstrapUID or load("{{.ENV_DIR}}/identity.yaml").bootstrapUID == null)] | all)'
+        '{{.ENV_DIR}}/bootstrap-observed.json' > /dev/null
+      - 'yq -i ''.bootstrapUID = (load("{{.ENV_DIR}}/bootstrap-observed.json").metadata.uid // .bootstrapUID)'' {{.ENV_DIR}}/identity.yaml'
+  release:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - 'test ! -f {{.ENV_DIR}}/bootstrap.yaml && yq -e ''.bootstrapUID == null'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: observe
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: release-observed
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  release-observed:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    status:
+      - >-
+        (test -f '{{.ENV_DIR}}/bootstrap-observed.json' && test ! -s '{{.ENV_DIR}}/bootstrap-observed.json') ||
+        yq -e '[.spec.released == true, .status.released == true,
+        .status.observedGeneration == .metadata.generation,
+        .metadata.annotations."crossplane.io/paused" == "true",
+        ([.status.conditions[] | select(.type == "Synced") | .reason] | join(",") == "ReconcilePaused")] | all'
+        '{{.ENV_DIR}}/bootstrap-observed.json' > /dev/null
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch tamossbootstrap/{{.NAME}} --type=merge -p '{"spec":{"released":true}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{.NAME}} crossplane.io/paused- --overwrite
+      - 'yq ''.metadata.name = "{{.NAME}}"'' {{.ROOT_DIR}}/deploy/contracts/bootstrap-released.yaml > {{.ENV_DIR}}/bootstrap-release.yaml'
+      - KUBECONFIG='{{.ENV_DIR}}/management.kubeconfig' chainsaw assert -f '{{.ENV_DIR}}/bootstrap-release.yaml' --timeout=180s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{.NAME}} crossplane.io/paused=true --overwrite
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s
   runtime:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
@@ -204,11 +269,7 @@ tasks:
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-providers sync
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait provider.pkg.crossplane.io/provider-oci-kms provider.pkg.crossplane.io/provider-oci-identity --for=condition=Healthy --timeout=600s
-      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-api sync
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io --for=condition=Established --timeout=120s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/foundation.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait secretfoundation/{{.NAME}} --for=create --timeout=180s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait secretfoundation/{{.NAME}} --for=condition=Ready --timeout=1800s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait vault.kms.oci.m.upbound.io/{{.NAME}} key.kms.oci.m.upbound.io/{{.NAME}} --for=condition=Synced --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secretfoundation/{{.NAME}} -o json > '{{.ENV_DIR}}/foundation-observed.json'
@@ -275,7 +336,6 @@ tasks:
     cmds:
       - task: secret-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
       - task: secret-store
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/bootstrap-helmfile.yaml.gotmpl sync
@@ -362,9 +422,15 @@ tasks:
     cmds:
       - task: :transfer:start-kind
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :identity:composite
+      - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.teardownStarted = true'' {{.ENV_DIR}}/identity.yaml'
+      - task: release
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:record-observed-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :transfer:return-ownership
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: :identity:resources

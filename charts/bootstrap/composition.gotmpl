@@ -1,0 +1,77 @@
+{{- $xr := .observed.composite.resource -}}
+{{- $p := $xr.spec -}}
+{{- $foundation := (get .observed.resources "foundation" | default dict).resource | default dict -}}
+{{- $environment := (get .observed.resources "environment" | default dict).resource | default dict -}}
+{{- if and $environment (ne (index $environment.metadata.annotations "tamoss.livewyer.io/deployment-id") $p.deploymentId) -}}
+{{- fail "Observed environment belongs to a different deployment" -}}
+{{- end -}}
+{{- $foundationReady := false -}}
+{{- range (dig "status" "conditions" (list) $foundation) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $foundationReady = true -}}{{- end -}}
+{{- end -}}
+{{- $foundationReady = and $foundationReady (ne (dig "status" "vaultId" "" $foundation) "") (ne (dig "status" "keyId" "" $foundation) "") -}}
+{{- $credentialsReady := false -}}
+{{- range (dig "credentials" "items" (list) (.extraResources | default dict)) -}}
+{{- $secret := .resource -}}
+{{- $matches := and (eq (dig "spec" "target" "name" "" $secret) "database-admin") (eq (dig "spec" "secretStoreRef" "name" "" $secret) "tamoss-vault") (eq (dig "spec" "secretStoreRef" "kind" "SecretStore" $secret) "SecretStore") -}}
+{{- $bound := false -}}
+{{- range (dig "spec" "data" (list) $secret) -}}
+{{- if and (eq .secretKey "password") (eq .remoteRef.key (printf "%s-database-admin" $p.deploymentId)) -}}{{- $bound = true -}}{{- end -}}
+{{- end -}}
+{{- range (dig "status" "conditions" (list) $secret) -}}
+{{- if and $matches $bound (eq .type "Ready") (eq .status "True") -}}{{- $credentialsReady = true -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $infrastructureReady := false -}}
+{{- range (dig "status" "conditions" (list) $environment) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
+{{- end -}}
+apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+kind: ExtraResources
+requirements:
+  credentials:
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    namespace: {{ $xr.metadata.namespace }}
+    matchName: database-admin
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: SecretFoundation
+metadata:
+  name: {{ $p.foundationName }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "foundation" }}
+    gotemplating.fn.crossplane.io/ready: {{ $foundationReady | toString | title | quote }}
+spec:
+{{ $p.foundation | toYaml | indent 2 }}
+{{- if or $environment (and (not $p.released) $foundationReady $credentialsReady) }}
+{{- $spec := $p.environment -}}
+{{- if $p.released -}}
+{{- $spec = omit $environment.spec "crossplane" -}}
+{{- end }}
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossEnvironment
+metadata:
+  name: {{ $xr.metadata.name }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "environment" }}
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ $infrastructureReady | toString | title | quote }}
+spec:
+{{ $spec | toYaml | indent 2 }}
+{{- end }}
+---
+apiVersion: {{ $xr.apiVersion }}
+kind: {{ $xr.kind }}
+metadata:
+  annotations:
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $infrastructureReady) | toString | title | quote }}
+status:
+  observedGeneration: {{ $xr.metadata.generation | default 1 }}
+  foundationReady: {{ $foundationReady }}
+  credentialsReady: {{ $credentialsReady }}
+  infrastructureReady: {{ $infrastructureReady }}
+  released: {{ $p.released }}

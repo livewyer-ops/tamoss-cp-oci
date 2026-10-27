@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'TamossEnvironment'])): 1
+(resources[?kind == 'TamossEnvironment'] | [0].spec.managementPolicies): ['*']
+(resources[?kind == 'TamossBootstrap'] | [0].status.foundationReady): true
+(resources[?kind == 'TamossBootstrap'] | [0].status.credentialsReady): true
+(resources[?kind == 'TamossBootstrap'] | [0].status.infrastructureReady): false

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-bootstrap
+description: Native foundation and infrastructure convergence in the original Kind
+type: application
+version: 0.1.0

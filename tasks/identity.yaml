@@ -68,6 +68,8 @@ tasks:
         yq -e 'length == 0 or
         (.metadata.annotations."tamoss.livewyer.io/deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and
         (.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").compositeUID or load("{{.ENV_DIR}}/identity.yaml").compositeUID == null) and
+        (load("{{.ENV_DIR}}/identity.yaml").bootstrapUID == null or
+        ([.metadata.ownerReferences[].uid] | contains([load("{{.ENV_DIR}}/identity.yaml").bootstrapUID]))) and
         .spec.region == load("{{.ENV_DIR}}/identity.yaml").environment.region and
         .spec.compartmentId == load("{{.ENV_DIR}}/identity.yaml").environment.compartmentId and
         .spec.storage.namespace == load("{{.ENV_DIR}}/identity.yaml").environment.storage.namespace and
@@ -80,6 +82,12 @@ tasks:
       - task: composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -e ''.metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
+      - task: record-observed-composite
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  record-observed-composite:
+    requires: {vars: [ENV_DIR]}
+    status: ["test -f '{{.ENV_DIR}}/composite.json' && test ! -s '{{.ENV_DIR}}/composite.json'"]
+    cmds:
       - 'yq -i ''.compositeUID = load("{{.ENV_DIR}}/composite.json").metadata.uid | .creationCompositeUID = (.creationCompositeUID // load("{{.ENV_DIR}}/composite.json").spec.adoption.creationCompositeUID // .compositeUID)'' {{.ENV_DIR}}/identity.yaml'
   local-owner:
     silent: true

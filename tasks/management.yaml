@@ -31,6 +31,9 @@ tasks:
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/storage-cleanup --set-string root='{{.ROOT_DIR}}' --set-string name='{{.CHECK_NAME}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-storage' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name storage-cleanup
       - defer: rm -rf '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-restart'
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/kind-restart --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-restart' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name kind-restart
+      - helmfile --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' -f deploy/management/helmfile.yaml.gotmpl -l stage=foundation-api -l stage=bootstrap-api sync
+      - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io compositeresourcedefinition/tamossbootstraps.tamoss.livewyer.io --for=condition=Established --timeout=120s
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --exec-timeout 180s --assert-timeout 180s --test-dir tests/bootstrap/management --set-string root='{{.ROOT_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name bootstrap-controller
   install:
     requires:
       vars: [MANAGEMENT_KUBECONFIG]

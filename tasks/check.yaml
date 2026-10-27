@@ -97,6 +97,7 @@ tasks:
         cmd: 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/{{.ITEM}}.yaml > {{.CACHE}}/{{.ITEM}}-list.yaml'
       - chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render
       - task: handover
+      - task --taskfile tests/bootstrap/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
       - task: secrets
       - task: connection-details
       - task: gitops

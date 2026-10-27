@@ -7,6 +7,19 @@ Flux, Crossplane and External Secrets on OKE take over ongoing reconciliation.
 The original Kind stops after verified ownership transfer and is retained for
 teardown. Git owns desired configuration after the initial export.
 
+Kind receives a `TamossBootstrap` composite containing the foundation and
+environment inputs. Crossplane creates the retained foundation, then creates the
+infrastructure child once the foundation is Ready and ESO has delivered this
+deployment's database credential. Those dependencies reconcile without a running
+Task process. The root reports foundation, credential and infrastructure readiness
+separately; application readiness remains the responsibility of the OKE controllers.
+
+Task still supplies the initial credential imports, OCI access, Git publication
+and remote bootstrap. Ownership transfer, qualification and cleanup remain explicit
+operations. Before handover or teardown, Task irreversibly releases the root's
+configuration authority and confirms its reconciliation is paused. This prevents
+bootstrap settings or child recreation from competing with subsequent operations.
+
 ```mermaid
 flowchart LR
     Inputs[Private environment inputs] --> Kind[Kind / Crossplane]
@@ -65,6 +78,7 @@ remained unchanged across enablement. See the [qualification limits](testing.md#
 | --- | --- |
 | [Environment examples](../environments/example/) | Private region, placement, capacity, settings and cost inputs |
 | [Environment schema](../charts/environment/definition.yaml) | Typed infrastructure contract and immutable fields |
+| [Bootstrap chart](../charts/bootstrap/) | Kind root, child dependencies and release state; reuses the foundation and environment schemas |
 | [dependencies.yaml](../dependencies.yaml), [aqua.yaml](../aqua.yaml) | Infrastructure component selections/checksums and workstation tools |
 | [TAMOSS release lock](../deploy/tamoss/release.yaml) | Verified release record and matching source archive |
 | [TAMOSS integration](../deploy/tamoss/README.md) | Platform settings, instance overlays, database bootstrap and qualification assets |

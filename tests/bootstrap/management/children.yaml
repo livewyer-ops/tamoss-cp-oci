@@ -1,0 +1,50 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: tamoss-secret-foundation
+spec:
+  compositeTypeRef: {apiVersion: tamoss.livewyer.io/v1alpha1, kind: SecretFoundation}
+  mode: Pipeline
+  pipeline:
+    - step: controlled-foundation-status
+      functionRef: {name: function-go-templating}
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{ $ready := eq (index (.observed.composite.resource.metadata.annotations | default dict) "test.livewyer.io/ready") "true" }}
+            apiVersion: tamoss.livewyer.io/v1alpha1
+            kind: SecretFoundation
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/ready: {{ $ready | toString | title | quote }}
+            status:
+              vaultId: {{ ternary "ocid1.vault.oc1.fixture" "" $ready | quote }}
+              keyId: {{ ternary "ocid1.key.oc1.fixture" "" $ready | quote }}
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: tamoss-oci
+spec:
+  compositeTypeRef: {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossEnvironment}
+  mode: Pipeline
+  pipeline:
+    - step: controlled-infrastructure-status
+      functionRef: {name: function-go-templating}
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            apiVersion: tamoss.livewyer.io/v1alpha1
+            kind: TamossEnvironment
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/ready: "True"
+            status:
+              outputs:
+                clusterId: ocid1.cluster.oc1.fixture

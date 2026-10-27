@@ -34,6 +34,11 @@ cluster. It tests provider package health, real API admission, required database
 CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
 include partial installs and retention of state when the cloud audit fails.
 
+Bootstrap checks use the real Crossplane and ESO controllers with fixture child
+compositions that create no cloud resources. They cover dependency readiness,
+controller restart with unchanged child identities, rejection of a replaced root,
+preservation of current settings after release and the pause before deletion.
+
 External Secrets uses a local Kubernetes backend; the database connection Job
 uses fixture retrieval. Tests cover persisted-value reuse and refresh, missing
 secrets, denied access, stale connection data and release-record handling. Native
@@ -113,6 +118,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 | TAMOSS application | External DB/S3, trusted TLS, ingest, browser access/playback, replica placement and network policy passed on a fresh deployment |
 | Worker disruption | Replica placement and ordinary worker-drain availability passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
+| Bootstrap root | Dependency convergence, controller restart and release/pause checks passed locally; OCI provisioning with Task stopped still needs live qualification |
 | Public GitOps lifecycle | Fresh bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
 | Combined environment cleanup | Public down completed in one invocation: original Kind startup, current-Git ownership return, application finalisation, empty OCI hardware audit, pending Vault secret deletion and Kind removal passed |
