@@ -25,16 +25,16 @@ managed-database failover and regional recovery are outside the verified
 coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
 
 [GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
-Flux, Crossplane and External Secrets on OKE. Live handover and Kind-off operation
-have passed. The public commands use this workflow. Release upgrades and
-package-credential rotation remain unqualified.
+Flux, Crossplane and External Secrets on OKE. Public bootstrap, repeat,
+qualification and teardown have passed, including Kind-off operation. Release
+upgrades and package-credential rotation remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
 through the environment Git repository, using the same platform services. Live
 checks passed with Kind stopped: authenticated metadata linked to ingested media,
-persistence after pod replacement and unchanged OCI infrastructure. The build
-required integration corrections and a database-provider restart; an unattended
-cold build remains unqualified.
+persistence after pod replacement and unchanged OCI infrastructure. Authentik
+workers required an automatic startup retry; see the
+[qualification limits](docs/testing.md#verified-coverage-and-limits).
 
 ## Quickstart
 

@@ -110,16 +110,14 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 | Behaviour | Observed status |
 | --- | --- |
-| Earlier Kind-owned deployment and cleanup | Fresh deployment, unchanged repeat, external DB/S3, trusted TLS, ingest, browser access/playback, network policy and direct cloud-deletion checks passed |
+| TAMOSS application | External DB/S3, trusted TLS, ingest, browser access/playback, replica placement and network policy passed on a fresh deployment |
 | Worker disruption | Replica placement and ordinary worker-drain availability passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| GitOps integration | Fresh bootstrap/repeat, workload authentication, persisted secrets, private Git/GHCR pulls, ownership transfer/return, Kind-off operation and interrupted/resumed cleanup passed |
+| Public GitOps lifecycle | Fresh bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
-| Combined environment cleanup | Current-Git ownership return, application finalisation, empty OCI hardware audit and temporary access retirement passed; Kind startup and asynchronous Vault secret retirement required retries |
-| Unattended combined build | Remains unqualified: the PostgreSQL adoption delay was reproduced locally and corrected with native polling configuration; a fresh OCI run must confirm unattended operation |
+| Combined environment cleanup | Public down completed in one invocation: original Kind startup, current-Git ownership return, application finalisation, empty OCI hardware audit, pending Vault secret deletion and Kind removal passed |
+| Build readiness | Fresh TAMOSS bootstrap completed without a provider restart. Git-enabled TADOSS passed after the OAuth startup-hook correction; each Authentik worker required one automatic restart after its first hook timed out. First-attempt hook completion remains unqualified |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
-Public commands now use the GitOps workflow. Its individual live gates have
-passed; a fresh unattended public lifecycle run remains necessary after the
-teardown changes. Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
+Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
