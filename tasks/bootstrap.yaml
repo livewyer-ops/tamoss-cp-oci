@@ -29,7 +29,9 @@ tasks:
     status:
       - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     preconditions:
-      - sh: 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null'
+      - sh: >-
+          yq -e '.gitopsEstablished == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
+          yq -e '.spec.managementPolicies | join(",") == "Observe"' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null
         msg: Initial publication requires observe-only infrastructure; write authority follows verified handover
     cmds:
       - task: :gitops:publish
@@ -47,7 +49,9 @@ tasks:
     preconditions:
       - sh: test -s '{{.ENV_DIR}}/foundation.yaml' && test -s '{{.ENV_DIR}}/gitops.yaml'
         msg: Prepare the retained foundation and GitOps inputs before provisioning
-      - sh: test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = "$(yq -r .product.commit '{{.ENV_DIR}}/gitops.yaml')"
+      - sh: >-
+          (test -s '{{.ENV_DIR}}/identity.yaml' && yq -e '.gitopsEstablished == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null) ||
+          test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = "$(yq -r .product.commit '{{.ENV_DIR}}/gitops.yaml')"
         msg: Check out the product commit selected for Flux before provisioning
       - sh: >-
           yq -e '[(.product.commit | test("^[a-f0-9]{40}$")),
@@ -113,7 +117,9 @@ tasks:
     status:
       - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     preconditions:
-      - sh: 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null'
+      - sh: >-
+          yq -e '.gitopsEstablished == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
+          yq -e '.spec.managementPolicies | join(",") == "Observe"' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null
         msg: Bootstrap must begin with observe-only infrastructure in Git
     cmds:
       - task: :gitops:current-checkout

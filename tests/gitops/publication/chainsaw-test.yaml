@@ -52,6 +52,18 @@ spec:
               (contains($stderr, 'Initial publication requires observe-only infrastructure')): true
         - command: *publish
         - command: *promotion
+    - name: skip completed bootstrap with promoted policy and a different product checkout
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, completed-bootstrap]
+        - command:
+            entrypoint: git
+            env: *paths
+            args: [-C, '$DIRECTORY/checkout', rev-list, --count, HEAD]
+            check:
+              ($stdout): "2\n"
     - name: reject unrelated desired changes during promotion recovery
       try:
         - command:

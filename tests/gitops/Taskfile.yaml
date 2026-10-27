@@ -43,6 +43,16 @@ tasks:
     cmds:
       - task: bootstrap:initialise-runtime
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+  completed-bootstrap:
+    cmds:
+      - cp '{{.ROOT_DIR}}/environments/example/foundation.yaml' '{{.DIRECTORY}}/inputs/'
+      - 'yq -i ''.gitopsEstablished = true'' {{.DIRECTORY}}/inputs/identity.yaml'
+      - task: bootstrap:provision
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+      - task: bootstrap:initialise-runtime
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+      - task: bootstrap:runtime
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   record-release:
     cmds:
       - task: bootstrap:record-release
