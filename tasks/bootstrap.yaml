@@ -84,8 +84,6 @@ tasks:
       - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - task: :lifecycle:prepare
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: initial-inventory
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -e ''load("{{.ENV_DIR}}/identity.yaml").compositeUID == null or .metadata.uid != null'' {{.ENV_DIR}}/composite.json > /dev/null'
@@ -462,12 +460,6 @@ tasks:
       - kind delete cluster --name 'tamoss-cp-{{.NAME}}'
       - rm -f '{{.ENV_DIR}}/management.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig'
       - echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{.ENV_DIR}}/retained-foundation.yaml'
-  initial-inventory:
-    requires: {vars: [ENV_DIR]}
-    status: ["test -f '{{.ENV_DIR}}/inventory-initial/.complete'"]
-    cmds:
-      - task: :cloud:inventory
-        vars: {ENV_DIR: '{{.ENV_DIR}}', INVENTORY_DIR: '{{.ENV_DIR}}/inventory-initial'}
   remove-access:
     requires: {vars: [ENV_DIR]}
     status:
