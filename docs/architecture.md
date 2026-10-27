@@ -57,6 +57,11 @@ provider bindings. Only one control plane may write at a time. The original Kind
 is retained without write authority, stopped, and later receives current Git/live
 configuration for deletion. This does not recover lost Kind state.
 
+Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
+the load balancer. Handover compares the address, resource identity and desired
+configuration, excluding attachment status that the two control planes may
+observe at different times.
+
 The OKE PostgreSQL provider polls every minute so observe-only adoption can
 refresh status within the five-minute readiness check. Its first observation
 can lose status when the provider adds its Kubernetes finaliser. The next poll

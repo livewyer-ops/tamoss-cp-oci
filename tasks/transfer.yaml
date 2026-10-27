@@ -29,12 +29,15 @@ tasks:
   compare:
     requires: {vars: [ENV_DIR]}
     cmds:
+      # OKE owns public-IP attachment; Crossplane observations can differ in age.
       # OCI returns adminUsername; credentials retains creation-only provider state.
       - for: [management, remote]
         cmd: >-
           yq '.resources | map(with(select(.kind == "PsqlDbSystem");
           .spec.initProvider.credentials = (.spec.initProvider.credentials // .spec.forProvider.credentials) |
           del(.spec.forProvider.credentials, .status.atProvider.credentials)) |
+          with(select(.kind == "PublicIp"); del(.status.atProvider.assignedEntityId,
+          .status.atProvider.assignedEntityType, .status.atProvider.privateIpId, .status.atProvider.state)) |
           {"apiVersion": .apiVersion, "kind": .kind,
           "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
           "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}},

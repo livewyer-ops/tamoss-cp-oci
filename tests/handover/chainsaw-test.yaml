@@ -110,6 +110,32 @@ spec:
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/transfer.yaml, compare, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer']
         - command:
             entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.state = "AVAILABLE" | .status.atProvider.assignedEntityType = "")', ../../.local/tmp/check/transfer/management-resources.json]
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.state = "ASSIGNED" | .status.atProvider.assignedEntityType = "PRIVATE_IP" | .status.atProvider.assignedEntityId = "ocid1.privateip.oc1..loadbalancer" | .status.atProvider.privateIpId = "ocid1.privateip.oc1..loadbalancer")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command: *compare
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.2")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            <<: *compare
+            check:
+              ($error != null): true
+              (contains($stderr, 'ipAddress')): true
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.id = "ocid1.publicip.oc1..unrelated")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            <<: *compare
+            check:
+              ($error != null): true
+              (contains($stderr, 'atProvider.id')): true
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.id = "ocid1.test.oc1..public-ip")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            entrypoint: yq
             args: [-i, 'with(.resources[] | select(.kind == "PsqlDbSystem"); .spec.forProvider.credentials = .spec.initProvider.credentials | del(.spec.initProvider.credentials))', ../../.local/tmp/check/transfer/management-resources.json]
         - command: *compare
         - command:
