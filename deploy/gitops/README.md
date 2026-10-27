@@ -18,9 +18,9 @@ delivery, private Git/GHCR pulls, ownership transfer in both directions, Kind-of
 application operation and interrupted/resumed teardown. A supported TAMOSS upgrade
 and package-read credential rotation/revocation remain unqualified. See
 [verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
-The internal `bootstrap`, `gitops` and `transfer` Task namespaces are not public
-entry points. The root `up`, `qualify` and `down` commands retain the previously
-tested Kind-owned lifecycle until the replacement is qualified.
+The public `up`, `qualify` and `down` commands sequence this workflow. The
+`bootstrap`, `gitops` and `transfer` namespaces remain internal implementation
+tasks. See [setup](../../docs/getting-started.md#git-and-vault-preparation).
 
 ## Repository contents
 
@@ -41,8 +41,10 @@ repository. Initial export writes one cluster directory containing:
 
 Export validates the checkout's origin, branch, path and deployment identity.
 It writes this directory once and preserves subsequent user changes. Incomplete
-existing configuration and missing provider bindings stop export. It does not
-commit or push. Secrets, Kubernetes status, kubeconfigs and owner references are
+existing configuration and missing provider bindings stop export. `up` commits
+and pushes only the generated cluster files, then publishes the ownership-policy
+change after Kind is quiesced. It preserves unrelated staged files and does not
+force-push. Secrets, Kubernetes status, kubeconfigs and owner references are
 excluded; non-secret cloud identifiers belong in the private environment repo.
 
 Flux fetches reusable integration charts from the pinned product commit and
@@ -117,12 +119,12 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
 
 1. Validate bounded inputs; create original Kind, retained foundation and persisted
    credentials; provision the infrastructure and export the environment directory.
-2. Review and publish the exported configuration. Install OKE secret delivery and
+2. Publish the initial exported configuration. Install OKE secret delivery and
    Flux, then verify release adoption and observe-only infrastructure reconciliation.
 3. Compare exact external names, provider configuration, cloud status and ownership
    tags. Set Kind to observation, wait for operations to finish, pause reconciliation
    and persist its non-writing configuration locally.
-4. Prepare the Git promotion, grant runtime provider writes and publish the reviewed
+4. Prepare the Git promotion, grant runtime provider writes and publish the policy
    change. Verify OKE reconciliation and TAMOSS readiness, then stop original Kind.
 5. Make operational changes through Git. Qualification uses the running release's
    verified assets and exercises ingest, TLS, external storage, UI and worker drain.
@@ -144,9 +146,10 @@ controller installation, retries also leave those manifests to Flux.
 Bootstrap refreshes Kubernetes API discovery after the infrastructure controllers
 are ready before checking their resources.
 
-Secret deletion scheduling is asynchronous. If OCI still reports
-`SCHEDULING_DELETION`, retain Kind and rerun teardown after scheduling completes.
-Removal requires `PENDING_DELETION` or `DELETED` for every environment secret.
+Secret deletion scheduling is asynchronous. A Kubernetes Job retries OCI metadata
+reads for up to three minutes, accepting only `PENDING_DELETION` or `DELETED` for
+this deployment. A failed or timed-out Job stops teardown and retains Kind,
+credentials and Job evidence. Resolve the cause and repeat `down`.
 
 The transfer uses the same deployment ID and original cloud ownership tags, with
 separate Kubernetes composite UIDs for Kind and OKE. It requires the original
@@ -164,8 +167,9 @@ A bucket external name is `n/<namespace>/b/<bucket>`, not its OCID. The composit
 preserves original cloud ownership tags when the Kubernetes composite UID changes.
 
 Transfer gates compare both inventories, provider configuration, cloud status and
-tags before changing the writer. Ordinary `up` and `down` reject an adopted or
-observe-only environment.
+tags before changing the writer. Interrupted handover accepts only the published
+configuration or its ownership-policy change. Once teardown starts, `up` refuses
+to recreate resources; resume `down`.
 
 The [provider package chart](../../charts/packages/) accepts
 `okeWorkloadIdentity.region`. It gives each OCI service provider a distinct stable

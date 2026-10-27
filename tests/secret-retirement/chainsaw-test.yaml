@@ -1,0 +1,92 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: bounded-secret-retirement}
+spec:
+  steps:
+    - name: retry asynchronous retirement until OCI confirms the terminal state
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: secret-retirement-check}
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: secret-inventory, namespace: secret-retirement-check}
+              data:
+                secrets.json: '{"data":[{"secret-name":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-password","lifecycle-state":"ACTIVE"},{"secret-name":"another-deployment-password","lifecycle-state":"ACTIVE"}]}'
+        - apply:
+            template: false
+            file: ../../.local/tmp/check/secret-retirement-fixture.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: secret-retirement, namespace: secret-retirement-check}
+              status:
+                (failed >= `1`): true
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: secret-inventory, namespace: secret-retirement-check}
+              data:
+                secrets.json: '{"data":[{"secret-name":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-password","lifecycle-state":"SCHEDULING_DELETION"}]}'
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: secret-retirement, namespace: secret-retirement-check}
+              status:
+                (failed >= `2`): true
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: secret-inventory, namespace: secret-retirement-check}
+              data:
+                secrets.json: '{"data":[{"secret-name":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-password","lifecycle-state":"PENDING_DELETION"},{"secret-name":"another-deployment-password","lifecycle-state":"ACTIVE"}]}'
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: secret-retirement, namespace: secret-retirement-check}
+              status:
+                (conditions[?type == 'Complete'] | [0].status): 'True'
+    - name: retain a failed job when retirement never completes
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: secret-inventory, namespace: secret-retirement-check}
+              data:
+                secrets.json: '{"data":[{"secret-name":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-password","lifecycle-state":"ACTIVE"},{"secret-name":"another-deployment-password","lifecycle-state":"ACTIVE"}]}'
+        - apply:
+            template: false
+            file: ../../.local/tmp/check/secret-retirement-timeout.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: retirement-timeout, namespace: secret-retirement-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].reason): DeadlineExceeded
+        - command:
+            entrypoint: kubectl
+            args: [-n, secret-retirement-check, wait, job/retirement-timeout, --for=condition=Complete, --timeout=1s]
+            check: {($error != null): true}
+    - name: a failed OCI request cannot validate an empty result
+      try:
+        - apply:
+            template: false
+            file: ../../.local/tmp/check/secret-retirement-fetch-failed.yaml
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: retirement-fetch-failed, namespace: secret-retirement-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].reason): BackoffLimitExceeded

@@ -177,23 +177,6 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-  connection:
-    vars:
-      OCI_KEY_FILE: {sh: *keyFile}
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
-      PROJECT_ROOT: '{{.ROOT_DIR}}'
-    cmds:
-      - task: infrastructure-ready
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - '{{.OCI}} psql connection-details get --db-system-id "$(yq -r .databaseId {{.ENV_DIR}}/outputs.json)" > {{.ENV_DIR}}/database-connection.json'
-      - 'yq -e ''(.data."primary-db-endpoint".fqdn | length > 0) and (.data."ca-certificate" | length > 0)'' {{.ENV_DIR}}/database-connection.json'
-      - 'yq -r ''.data."ca-certificate"'' {{.ENV_DIR}}/database-connection.json > {{.ENV_DIR}}/database-ca.pem'
-      - openssl x509 -in '{{.ENV_DIR}}/database-ca.pem' -noout -checkend 0
   inventory:
     requires: {vars: [ENV_DIR, INVENTORY_DIR]}
     vars:
@@ -471,6 +454,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - for: {var: IDS}
         cmd: '{{.OCI}} vault secret schedule-secret-deletion --secret-id {{shellQuote .ITEM}} --time-of-deletion {{shellQuote .DELETION_TIME}} > /dev/null'
+      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/secrets/retirement-helmfile.yaml.gotmpl sync
       - task: secret-inventory
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -e ''[.[] | (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all'' {{.ENV_DIR}}/environment-secrets.json > /dev/null'

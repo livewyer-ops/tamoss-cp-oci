@@ -3,7 +3,7 @@
 [Overview](../README.md) | [Operations](operations.md) | [Testing](testing.md) | [Architecture](architecture.md)
 
 Run commands from the repository root. Examples use `.local/environment` for a
-new deployment; use the same `ENV_DIR` for every lifecycle command. Retain this
+new deployment; use the same `ENV_DIR` and `CHECKOUT` for every lifecycle command. Retain this
 directory and the original Kind cluster until teardown is verified.
 
 ## Workstation prerequisites
@@ -80,7 +80,8 @@ Create a fresh private directory and copy the examples:
 umask 077
 install -d -m 700 .local/environment/secrets
 cp environments/example/environment.yaml environments/example/settings.yaml \
-  environments/example/cost.yaml .local/environment/
+  environments/example/cost.yaml environments/example/foundation.yaml \
+  environments/example/gitops.yaml .local/environment/
 ```
 
 ### Infrastructure
@@ -156,6 +157,35 @@ Keep credentials out of manifests, command-line arguments, shell tracing and
 logs. Application database passwords are generated on first deployment. A
 missing credential in an established environment must be recovered.
 
+### Git and Vault preparation
+
+Create a private environment Git repository with an initial commit and clone it:
+
+```bash
+git clone https://github.com/YOUR-OWNER/tamoss-environments.git .local/gitops
+```
+
+Configure Git author/committer identity and authenticated push access on the
+workstation. `up` publishes the generated configuration and the handover policy;
+branch protections must permit these pushes. Flux uses a separate GitHub App
+with read access to the environment and product repositories.
+
+Edit `.local/environment/gitops.yaml` to match the checkout's exact origin,
+branch and an unused `clusters/<name>` path. Select the published product commit
+checked out locally and the immutable private GHCR bundle digest. Follow the
+[private bundle procedure](../deploy/tamoss/README.md#private-release-bundle).
+
+Edit `.local/environment/foundation.yaml` for the same region, compartment and
+owner. To reuse an owned Vault/key, provide its recorded adoption IDs and creation
+identity; retain that foundation record. The [OCI prerequisites](../deploy/oci/README.md)
+include secret-management and runtime-IAM permissions.
+
+Place the GitHub App IDs, PEM private key and package-read Docker credential JSON
+in the exact owner-only files listed under
+[secret delivery](../deploy/gitops/README.md#inputs-and-secret-delivery). The App's
+read token does not provide the workstation's push access. Never commit secrets
+or kubeconfigs to either repository.
+
 ### Spending and expiry
 
 **File: `.local/environment/cost.yaml`**
@@ -184,19 +214,19 @@ Run local checks after changing configuration or dependencies, then deploy:
 
 ```bash
 task check
-task up ENV_DIR=.local/environment
+task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
 `up` records identity and a cloud inventory baseline, creates Kind, installs
-Crossplane and provisions OCI. It waits for infrastructure `Ready` and managed
-resources `Synced` before installing the platform and TAMOSS. Database
-initialisation precedes application readiness. It prints the active stage.
+Crossplane, persists credentials in Vault and provisions OCI. It publishes the
+initial environment configuration, installs Flux and verifies observe-only OKE
+adoption before transferring write authority. It waits for TAMOSS readiness, then
+stops original Kind. Ongoing changes come from Git.
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Cloud IDs and endpoints | `outputs.json` |
-| Public URLs and rendered settings | `instance/runtime.yaml` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and baseline records | `resources.yaml`, `owned-cloud.yaml`, `inventory-before/` |
 | Live qualification reports | `reports/` |
@@ -210,8 +240,8 @@ them to bypass a mismatch.
 Display the public URLs and verify the application:
 
 ```bash
-yq '.data | {"api": .apiURL, "ui": .uiURL, "auth": .issuerURL}' \
-  .local/environment/instance/runtime.yaml
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o json |
+  yq '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss,storagebackends
 ```
 
@@ -242,7 +272,7 @@ For an authenticated API request, see [Operations](operations.md#first-api-reque
 Read the [qualification effects](testing.md#deployed-qualification) before running:
 
 ```bash
-task qualify ENV_DIR=.local/environment
+task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get ingestrun qualification
 ```
 

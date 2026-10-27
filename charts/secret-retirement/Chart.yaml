@@ -1,0 +1,5 @@
+apiVersion: v2
+name: secret-retirement
+description: Wait for environment secrets to finish scheduling deletion
+type: application
+version: 0.1.0

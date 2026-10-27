@@ -1,0 +1,38 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: original-kind-restart}
+spec:
+  timeouts:
+    exec: 5m
+  steps:
+    - name: restart the original cluster twice without changing its credentials
+      try:
+        - command:
+            entrypoint: task
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: DIRECTORY, value: ($values.directory)}
+              - {name: MANAGEMENT_KUBECONFIG, value: ($values.kubeconfig)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+              - {name: OCI_CLI_PROFILE, value: DEFAULT}
+            args: [prepare]
+        - command: &restart
+            entrypoint: task
+            env: *paths
+            args: [restart]
+        - command: *restart
+        - command:
+            entrypoint: cmp
+            env: *paths
+            args: ['$MANAGEMENT_KUBECONFIG', '$DIRECTORY/management.kubeconfig']
+    - name: reject a mismatched management identity after API readiness
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.managementUID = "wrong-cluster"', '$DIRECTORY/identity.yaml']
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [start]
+            check: {($error != null): true}

@@ -4,16 +4,16 @@
 
 Run commands from the repository root with Aqua's tools on `PATH`. Examples use
 `.local/environment`; substitute your original environment directory throughout.
-These procedures describe the public Kind-owned lifecycle. For transferred
-environments, follow the [GitOps guide](../deploy/gitops/README.md#lifecycle-stages).
+Use the matching environment Git checkout (`CHECKOUT`, default `.local/gitops`).
+Kind stays stopped during ordinary operation; OKE owns ongoing reconciliation.
 
 ## Inspect the installation
 
 ```bash
-yq '.data | {"api": .apiURL, "ui": .uiURL, "auth": .issuerURL}' \
-  .local/environment/instance/runtime.yaml
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossenvironments
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get managed
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o json |
+  yq '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get tamossenvironments
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get managed
 kubectl --kubeconfig .local/environment/remote.kubeconfig get nodes
 kubectl --kubeconfig .local/environment/remote.kubeconfig get pods -A
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss,storagebackends,ingestruns
@@ -38,7 +38,7 @@ TOKEN_SECRET="$(kubectl --kubeconfig .local/environment/remote.kubeconfig -n tam
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get secret "$TOKEN_SECRET" -o json |
   yq -p=json -r '"Authorization: Bearer " + (.data.TAMOSS_API_TOKEN | @base64d)' \
   > .local/environment/access/api-header
-API_URL="$(yq -r .data.apiURL .local/environment/instance/runtime.yaml)"
+API_URL="https://api.$(kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o jsonpath='{.spec.publicEndpoint.baseDomain}')"
 curl --proto '=https' --fail --silent --show-error --connect-timeout 10 --max-time 30 \
   --header @.local/environment/access/api-header "$API_URL/flows"
 rm .local/environment/access/api-header
@@ -56,7 +56,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Stage or symptom | Check |
 | --- | --- |
 | Preflight rejection | Placeholder inputs, matching OCI region/profile, file permissions, current UTC cost date and cleanup window |
-| Crossplane providers unavailable | Kind pods in `crossplane-system`, Provider health and events |
+| Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
@@ -65,8 +65,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Teardown stopped | Recorded ownership, live deletion conditions and direct OCI inventory; retain Kind and credentials |
 
 ```bash
-kubectl --kubeconfig .local/environment/management.kubeconfig -n crossplane-system get pods
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get events --sort-by=.lastTimestamp
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n crossplane-system get pods
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get events --sort-by=.lastTimestamp
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n auth describe job tamoss-database-init
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams describe tamoss tamoss
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams describe ingestrun qualification
@@ -88,14 +88,17 @@ Resolve the reported problem, preserve its evidence, then repeat with the origin
 inputs and state:
 
 ```bash
-task up ENV_DIR=.local/environment
+task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
 Run `task check` first if configuration or dependencies changed. `up` verifies and
 prepares its deployment assets independently; a previous check cache is not required.
-Unchanged repeats reuse identities and credentials. The installed release must
-match the repository selection. Input/ownership mismatches and missing established
-credentials require investigation, not replacement identities or regenerated passwords.
+Unchanged repeats reuse identities and persisted credentials. After handover,
+`up` reconciles the current published Git selection and keeps Kind stopped. It
+resumes an interrupted promotion only when the checkout matches the published
+configuration or its ownership-policy change. Resolve input/ownership mismatches
+and missing established credentials before retrying. Once teardown starts, use
+`down` to finish it.
 
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
 overwrites them, continue independent checks where appropriate, and keep enough
@@ -103,15 +106,14 @@ time and money for cleanup. If the cleanup window is all that remains, run `down
 
 ## Release selection
 
-The public lifecycle rejects in-place release changes. Tear down the environment
-before deploying a different selection. `down` uses the environment's recorded
-release and can fetch its assets again without a render-test cache. Follow the
-[TAMOSS release procedure](../deploy/tamoss/README.md#release-selection).
+Initial deployment uses the repository's verified TAMOSS lock. Afterwards, Git
+owns the release selection. `qualify` verifies and records the current selection
+while preserving the initial release record. `down` returns current Git/live
+configuration to Kind for deletion.
 
-The internal GitOps workflow has a separate
-[release-change procedure](../deploy/gitops/README.md#release-changes); a supported
-upgrade still needs live qualification. A Git revert alone does not establish
-that database migrations can be reversed.
+Follow the [release-change procedure](../deploy/gitops/README.md#release-changes).
+A supported upgrade still needs live qualification. A Git revert alone does not
+establish that database migrations can be reversed.
 
 ## Native OCI CLI
 
@@ -172,29 +174,32 @@ invoice or a live resource inventory.
 and its backups. Keep the original environment directory and credentials:
 
 ```bash
-task down ENV_DIR=.local/environment
+task down ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
-`down` verifies identity, finalises ingest and external storage registration while
-the TAMOSS operator is present, removes the application/platform, and confirms
-load-balancer deletion. It empties the owned bucket, including versions and
-multipart uploads, and deletes the composite and database backups. Kind and
-provider access remain until direct OCI inventory matches the baseline, including
-volumes and addresses. Teardown does not run the test suite.
+`down` starts the original Kind and waits for API readiness before checking its
+identity. It verifies the published environment checkout, freezes Flux, quiesces
+OKE providers and revokes their write grants. Current configuration and exact
+provider bindings return to Kind before it receives deletion authority.
 
-| Lifecycle | Deleted | Retained |
-| --- | --- | --- |
-| Public `down` | Owned workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking, then Kind | Precreated compartment, account prerequisites and private records/input files |
-| Internal GitOps teardown | Workload resources after ownership return, runtime IAM grants, then Kind; Vault secrets scheduled for deletion | Owned foundation Vault/key, their compartment, explicit owner, pending-deletion record, private environment Git configuration and local records |
+TAMOSS finalises while its operator remains available. Teardown removes platform
+releases and the load balancer, empties the owned bucket (including versions and
+multipart uploads), and deletes infrastructure and database backups. Kind and
+provider credentials remain until direct OCI inventory matches the baseline.
 
-For GitOps environments use the [ownership-return procedure](../deploy/gitops/README.md#lifecycle-stages).
-Ordinary `down` rejects transferred environments. Confirm the retained foundation
-and secret-deletion status separately; its compartment is not empty.
+| Deleted | Retained |
+| --- | --- |
+| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
 
-After public teardown, the account administrator can revoke run-owned keys and
-remove temporary IAM prerequisites and the empty compartment following
-[account retirement](../deploy/oci/README.md#retirement). Keep credentials until
-the deletion audit succeeds. Local exported credentials remain your responsibility.
+Environment secrets are scheduled for deletion. A bounded Kubernetes Job waits
+for OCI to report `PENDING_DELETION` or `DELETED`; a timeout retains Kind and the
+Job for diagnosis. `retained-foundation.yaml` records the owner, Vault/key and
+scheduled deletion times. The compartment still contains that foundation.
+
+After the audit succeeds, the account administrator can retire run-owned keys and
+temporary IAM prerequisites using [account retirement](../deploy/oci/README.md#retirement).
+Keep access until deletion is confirmed. Retain the foundation's compartment and
+owner access; local exported credentials remain your responsibility.
 
 ### Interrupted teardown
 
@@ -203,20 +208,22 @@ Resolve the failure and repeat `task down` with the same directory. Preserve
 `owned-cloud.yaml`, the baseline inventory and credentials until cleanup completes.
 Do not edit records to bypass mismatches or remove finalisers to simulate deletion.
 
-## Temporary management interruption
+## Retained management state
 
-Stop and start only the existing Kind containers. First identify them:
+`up` stops original Kind after verified handover. Keep those containers and the
+private identity records intact; do not create a replacement cluster with the
+same name. `down` starts and verifies the original cluster automatically. A
+failed API readiness or identity check stops the operation without deleting it.
+
+For manual inspection, identify the original containers:
 
 ```bash
 MANAGEMENT_NAME="tamoss-cp-$(yq -r .metadata.name .local/environment/environment.yaml)"
 docker ps -a --filter "label=io.x-k8s.kind.cluster=$MANAGEMENT_NAME"
 ```
 
-Review the returned container IDs, then pass those exact IDs to native
-`docker stop` and `docker start`. Check public service continuity while stopped
-and Crossplane reconciliation after restart. Do not delete the containers or
-create another cluster with the same name. For a transferred environment, retain
-its non-writing configuration and follow the GitOps ownership-return gates.
+Keep Kind's non-writing configuration after handover. Operational changes belong
+in Git and reconcile on OKE while Kind is stopped.
 
 ## Manual cleanup after management state loss
 

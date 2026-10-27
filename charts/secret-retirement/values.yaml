@@ -1,0 +1,11 @@
+deploymentId: ''
+oracle:
+  region: ''
+  vault: ''
+  compartment: ''
+  auth:
+    user: ''
+    tenancy: ''
+images:
+  oci: ''
+  yq: ''

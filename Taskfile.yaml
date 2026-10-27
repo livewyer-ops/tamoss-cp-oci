@@ -9,6 +9,9 @@ vars:
     sh: realpath -m {{shellQuote .STORAGE_DIR}}
   ENV_PATH:
     sh: realpath -m {{shellQuote .ENV_DIR}}
+  CHECKOUT: '{{.CHECKOUT | default ".local/gitops"}}'
+  CHECKOUT_PATH:
+    sh: realpath -m {{shellQuote .CHECKOUT}}
   CORE:
     sh: aqua exec -- yq -r '"xpkg.crossplane.io/crossplane/crossplane:v" + .crossplane.version' dependencies.yaml
 includes:
@@ -67,20 +70,12 @@ tasks:
       - task: cloud:storage-cleanup
         vars: {STORAGE_DIR: '{{.STORAGE_PATH}}'}
   up:
-    desc: Provision and install the environment after release and lifecycle preflight
+    desc: Bootstrap OCI, publish GitOps configuration and transfer operations to OKE
     cmds:
       - task: verify:tools
       - task: verify:privacy
-      - task: tamoss:assert-current
-        vars: {ENV_DIR: '{{.ENV_PATH}}'}
-      - task: tamoss:fetch
-      - task: tamoss:release
-      - "echo 'Preparing verified deployment assets'"
-      - task: application:calico
-      - task: tamoss:operator
-      - task: tamoss:media
-      - task: lifecycle:up
-        vars: {ENV_DIR: '{{.ENV_PATH}}'}
+      - task: bootstrap:up
+        vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
   qualify:
     desc: Qualify ingest, media reads and availability during one worker drain
     preconditions:
@@ -89,18 +84,14 @@ tasks:
     cmds:
       - task: verify:tools
       - task: verify:privacy
-      - task: tamoss:assert-current
-        vars: {ENV_DIR: '{{.ENV_PATH}}'}
-      - task: tamoss:fetch
-      - task: tamoss:release
-      - task: qualification:run
-        vars: {ENV_DIR: '{{.ENV_PATH}}'}
+      - task: bootstrap:qualify
+        vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
   down:
-    desc: Remove the selected environment only after its lifecycle prerequisites pass
+    desc: Return current GitOps ownership to Kind, remove hardware and retire secrets
     preconditions:
       - sh: test -f '{{.ENV_DIR}}/management.kubeconfig'
         msg: No selected management kubeconfig; no deletion attempted
     cmds:
       - task: verify:tools
-      - task: lifecycle:down
-        vars: {ENV_DIR: '{{.ENV_PATH}}'}
+      - task: bootstrap:down
+        vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}

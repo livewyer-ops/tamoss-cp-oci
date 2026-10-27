@@ -1,0 +1,74 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: gitops-publication}
+spec:
+  steps:
+    - name: publish only generated paths and preserve unrelated staged files
+      try:
+        - command:
+            entrypoint: task
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: DIRECTORY, value: "(join('', [$values.directory, '-publication']))"}
+            args: [-t, ../Taskfile.yaml, publication-fixture]
+        - command: &publish
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, publish]
+        - command:
+            entrypoint: git
+            env: *paths
+            args: [-C, '$DIRECTORY/checkout', diff, --cached, --name-only]
+            check:
+              ($stdout): "unrelated.txt\n"
+        - command: *publish
+        - command:
+            entrypoint: git
+            env: *paths
+            args: [-C, '$DIRECTORY/checkout', rev-list, --count, HEAD]
+            check:
+              ($stdout): "1\n"
+    - name: resume publication after a policy edit or a commit without a push
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.spec.managementPolicies = ["*"]', '$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
+        - command: &promotion
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, promotion]
+        - command:
+            entrypoint: git
+            env: *paths
+            args: [-C, '$DIRECTORY/checkout', commit, --only, -m, 'feat: promote fixture', --, clusters/oci-dev/infrastructure/environment.yaml]
+        - command: *promotion
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, initialise-runtime]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Initial publication requires observe-only infrastructure')): true
+        - command: *publish
+        - command: *promotion
+    - name: reject unrelated desired changes during promotion recovery
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.runtime.adminEmail = "unpublished@example.invalid"', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+        - command:
+            <<: *promotion
+            check: {($error != null): true}
+        - command:
+            entrypoint: git
+            env: *paths
+            args: [-C, '$DIRECTORY/checkout', restore, clusters/oci-dev/values.yaml]
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.spec.storage.bucket = "changed-during-promotion"', '$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
+        - command:
+            <<: *promotion
+            check: {($error != null): true}

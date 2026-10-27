@@ -7,8 +7,48 @@ tasks:
   up:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     preconditions:
+      - sh: 'test ! -f {{shellQuote .ENV_DIR}}/identity.yaml || yq -e ''.teardownStarted != true and .returnComplete != true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+        msg: Teardown has started; resume down rather than recreating this environment
+    cmds:
+      - task: :lifecycle:time-window
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: provision
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: initialise-runtime
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: handover
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: reconcile
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  initialise-runtime:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+    status:
+      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    preconditions:
+      - sh: 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null'
+        msg: Initial publication requires observe-only infrastructure; write authority follows verified handover
+    cmds:
+      - task: :gitops:publish
+        vars:
+          ENV_DIR: '{{.ENV_DIR}}'
+          CHECKOUT: '{{.CHECKOUT}}'
+          MESSAGE: 'feat: initialise environment GitOps configuration'
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml]
+      - task: runtime
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  provision:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    status:
+      - 'test -s {{shellQuote .ENV_DIR}}/identity.yaml && yq -e ''.gitopsEstablished == true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+    preconditions:
       - sh: test -s '{{.ENV_DIR}}/foundation.yaml' && test -s '{{.ENV_DIR}}/gitops.yaml'
         msg: Prepare the retained foundation and GitOps inputs before provisioning
+      - sh: test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = "$(yq -r .product.commit '{{.ENV_DIR}}/gitops.yaml')"
+        msg: Check out the product commit selected for Flux before provisioning
       - sh: >-
           yq -e '[(.product.commit | test("^[a-f0-9]{40}$")),
           (.product.url | test("^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")),
@@ -27,6 +67,8 @@ tasks:
       - task: :verify:privacy
       - task: :gitops:export-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: :gitops:write-access
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - for: [github-app-id, github-app-installation-id, github-app-private-key, ghcr-dockerconfigjson]
         cmd: test -s '{{.ENV_DIR}}/secrets/{{.ITEM}}'
       - task: :tamoss:assert-current
@@ -34,6 +76,7 @@ tasks:
       - task: :tamoss:fetch
       - task: :tadoss:fetch
       - task: :tamoss:release
+      - task: :tamoss:media
       - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - task: :lifecycle:prepare
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -57,6 +100,7 @@ tasks:
           vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:infrastructure-ready
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - cp '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256' '{{.ENV_DIR}}/qualification.sha256'
       - task: :identity:resources
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :gitops:export
@@ -66,6 +110,8 @@ tasks:
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
       NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    status:
+      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     preconditions:
       - sh: 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null'
         msg: Bootstrap must begin with observe-only infrastructure in Git
@@ -89,6 +135,28 @@ tasks:
       - task: :identity:runtime-composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+  handover:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    status:
+      - 'yq -e ''.handoverComplete == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    cmds:
+      - task: :transfer:start-kind
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :transfer:prepare-promotion
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: :transfer:runtime-writes
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:publish
+        vars:
+          ENV_DIR: '{{.ENV_DIR}}'
+          CHECKOUT: '{{.CHECKOUT}}'
+          MESSAGE: 'feat: transfer infrastructure ownership to OKE'
+          FILES: [infrastructure/environment.yaml]
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=15m
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization infrastructure --with-source --timeout=15m
+      - task: :transfer:stop-kind
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.handoverComplete = true'' {{.ENV_DIR}}/identity.yaml'
   runtime-flux:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
@@ -236,8 +304,9 @@ tasks:
     status:
       - >-
         yq -e '.applicationRemoved == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
-        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null) ||
-        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get helmrelease/tamoss-gitops --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null)
+        yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{.ENV_DIR}}/owned-current.yaml' > /dev/null ||
+        (CRD="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD") ||
+        (RELEASE="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get helmrelease/tamoss-gitops --ignore-not-found -o name)" && test -z "$RELEASE")
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -266,14 +335,14 @@ tasks:
     vars:
       NAME: '{{.NAME | default "tamoss-operator"}}'
     status:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get kustomization/{{.NAME}} --ignore-not-found -o json | yq -p=json -e 'length == 0'
+      - RESOURCE="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get kustomization/{{.NAME}} --ignore-not-found -o name)" && test -z "$RESOURCE"
     cmds:
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth patch kustomization/{{.NAME}} --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete kustomization/{{.NAME}} --wait=true --timeout=300s
   remove-release:
     requires: {vars: [KUBECONFIG, NAMESPACE, NAME]}
     status:
-      - kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' get helmrelease/{{.NAME}} --ignore-not-found -o json | yq -p=json -e 'length == 0'
+      - RESOURCE="$(kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' get helmrelease/{{.NAME}} --ignore-not-found -o name)" && test -z "$RESOURCE"
     cmds:
       - kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' patch helmrelease/{{.NAME}} --type=merge -p '{"spec":{"suspend":false}}'
       - kubectl --kubeconfig {{shellQuote .KUBECONFIG}} -n '{{.NAMESPACE}}' delete helmrelease/{{.NAME}} --wait=true --timeout=600s
@@ -289,11 +358,14 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.teardownStarted = true'' {{.ENV_DIR}}/identity.yaml'
       - task: :transfer:return-ownership
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: :identity:resources
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:observe-owned
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :cloud:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: remove-application
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -330,7 +402,7 @@ tasks:
       - helm --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' list -n tamoss-infra -o json | yq -p=json -e '[(tag == "!!seq"), ([.[] | select(.name == "runtime-access")] | length == 0)] | all'
     cmds:
       - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl destroy
-  qualify:
+  reconcile:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
@@ -346,6 +418,13 @@ tasks:
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss/tamoss -o json |
         yq -p=json -e '.spec.version == load("{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml").release.tag' > /dev/null
+  qualify:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - task: reconcile
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - >-
         yq '.release | {"tag": .tag, "releaseSha256": .releaseSha256, "sourceSha256": .sourceSha256}'
         '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml' > '{{.ENV_DIR}}/tamoss-release.current.yaml'

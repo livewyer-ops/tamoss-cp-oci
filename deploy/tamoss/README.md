@@ -47,16 +47,14 @@ image digests and published asset checksums. To select another release, update
 requirements, then run `task check`. Upstream interface changes may require local
 overlay or test-selection changes. Verified database TLS remains mandatory.
 
-An environment's `tamoss-release.yaml` records its verified installed selection.
-Public `up` and `qualify` reject a different repository selection. `down` uses
-the recorded selection and can fetch its assets again. Finish teardown before
-deploying a different release through the public lifecycle; the lock is not an
-in-place upgrade or database rollback mechanism.
+Initial deployment verifies the repository lock. After handover, `qualify` verifies
+the current environment Git selection, records it in `tamoss-release.yaml` and
+retains the initial lock as `tamoss-release.bootstrap.yaml`. Repeat deployment
+preserves Git-owned configuration. This bookkeeping alone does not qualify an
+upgrade or establish that database migrations can be reversed.
 
-Preserve the environment's release record through teardown. The GitOps
-qualification path records a verified release change here and retains the initial
-lock as `tamoss-release.bootstrap.yaml`; this bookkeeping alone does not qualify
-an upgrade.
+Preserve the release records through teardown. `down` returns current Git/live
+configuration to Kind for deletion.
 See [Operations](../../docs/operations.md#release-selection) and the [GitOps guide](../gitops/README.md#release-changes)
 for release selection, verification and lifecycle instructions.
 

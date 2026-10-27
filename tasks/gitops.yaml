@@ -148,3 +148,49 @@ tasks:
       - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' > /dev/null
       - git -C {{shellQuote .CHECKOUT}} fetch origin {{shellQuote .BRANCH}}
       - test "$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)" = "$(git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD)"
+  publish:
+    requires: {vars: [ENV_DIR, CHECKOUT, FILES, MESSAGE]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      PATHS: '{{range .FILES}}{{shellQuote (printf "%s/%s" $.PATH_IN_GIT .)}} {{end}}'
+    cmds:
+      - task: export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - kubectl kustomize '{{.CHECKOUT}}/{{.PATH_IN_GIT}}' > /dev/null
+      - task: commit
+        vars: {CHECKOUT: '{{.CHECKOUT}}', PATHS: '{{.PATHS}}', MESSAGE: '{{.MESSAGE}}'}
+      - git -C {{shellQuote .CHECKOUT}} push origin {{shellQuote (printf "HEAD:%s" .BRANCH)}}
+      - task: current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  write-access:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - git -C {{shellQuote .CHECKOUT}} var GIT_AUTHOR_IDENT > /dev/null
+      - git -C {{shellQuote .CHECKOUT}} var GIT_COMMITTER_IDENT > /dev/null
+      - git -C {{shellQuote .CHECKOUT}} push --dry-run origin {{shellQuote (printf "HEAD:%s" .BRANCH)}}
+  commit:
+    requires: {vars: [CHECKOUT, PATHS, MESSAGE]}
+    status:
+      - test -z "$(git -C {{shellQuote .CHECKOUT}} status --porcelain -- {{.PATHS}})"
+    cmds:
+      - git -C {{shellQuote .CHECKOUT}} add -- {{.PATHS}}
+      - git -C {{shellQuote .CHECKOUT}} commit --only -m {{shellQuote .MESSAGE}} -- {{.PATHS}}
+  promotion-checkout:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - task: export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - git -C {{shellQuote .CHECKOUT}} fetch origin {{shellQuote .BRANCH}}
+      - git -C {{shellQuote .CHECKOUT}} diff --quiet FETCH_HEAD -- '{{.PATH_IN_GIT}}' ':(exclude){{.PATH_IN_GIT}}/infrastructure/environment.yaml'
+      - test -z "$(git -C {{shellQuote .CHECKOUT}} ls-files --others --exclude-standard -- '{{.PATH_IN_GIT}}')"
+      - git -C {{shellQuote .CHECKOUT}} show 'FETCH_HEAD:{{.PATH_IN_GIT}}/infrastructure/environment.yaml' > '{{.ENV_DIR}}/promotion-published.yaml'
+      - 'yq ''.spec.managementPolicies = ["*"]'' {{.ENV_DIR}}/promotion-published.yaml > {{.ENV_DIR}}/promotion-candidate.yaml'
+      - >-
+        cmp --silent '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml' '{{.ENV_DIR}}/promotion-published.yaml' ||
+        cmp --silent '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml' '{{.ENV_DIR}}/promotion-candidate.yaml'

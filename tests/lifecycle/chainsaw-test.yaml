@@ -23,12 +23,53 @@ spec:
             entrypoint: task
             env: *paths
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remote, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
-    - name: repeat bootstrap without replacing identity or credentials
+    - name: repeat bootstrap without replacing identity or baseline
       try:
         - command:
             entrypoint: task
             env: *paths
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, repeat-bootstrap, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+    - name: require a successful empty inventory before skipping absent OKE cleanup
+      try:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/remote.kubeconfig, $CHECK_DIRECTORY/remote.saved.kubeconfig]
+        - command: &absentApplication
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-application, 'ENV_DIR=$CHECK_DIRECTORY']
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/owned-current.yaml, $CHECK_DIRECTORY/owned-current.saved.yaml]
+        - command:
+            <<: *absentApplication
+            check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-operator, 'ENV_DIR=$CHECK_DIRECTORY']
+            check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-release, 'KUBECONFIG=$CHECK_DIRECTORY/remote.kubeconfig', NAMESPACE=auth, NAME=fixture]
+            check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/application.yaml, --status, remove-resource, 'ENV_DIR=$CHECK_DIRECTORY', RESOURCE_NAMESPACE=tams, CRD=tamosses.tamoss.livewyer.io, RESOURCE=tamoss/tamoss]
+            check: {($error != null): true}
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/owned-current.saved.yaml, $CHECK_DIRECTORY/owned-current.yaml]
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/remote.saved.kubeconfig, $CHECK_DIRECTORY/remote.kubeconfig]
     - name: reject stale local configuration after write authority is relinquished
       try:
         - apply:
@@ -69,27 +110,12 @@ spec:
     - name: allow local cleanup after the original composite has disappeared
       try:
         - command: *localOwner
-    - name: preserve credential bytes in generated Secrets
+    - name: reject credential files with line endings
       try:
         - command:
             entrypoint: task
             env: *paths
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, secrets, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Secret
-              metadata: {name: database-admin, namespace: auth}
-              data:
-                username: (base64_encode('bootstrap_admin'))
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Secret
-              metadata: {name: tams-s3, namespace: tams}
-              data:
-                accessKey: (base64_encode('fixture-credential'))
-                secretKey: (base64_encode('fixture-credential'))
         - command:
             entrypoint: task
             env: *paths
@@ -97,37 +123,6 @@ spec:
             check:
               ($error != null): true
               (contains($stderr, 'without line endings')): true
-    - name: wait for deletion only when the owned composite is deleting
-      try:
-        - command:
-            entrypoint: touch
-            env: *paths
-            args: [$CHECK_DIRECTORY/composite.json]
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/management.kubeconfig, $CHECK_DIRECTORY/management.saved.kubeconfig]
-        - command: &waitDeletion
-            entrypoint: task
-            env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, wait-deletion, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
-        - command:
-            entrypoint: yq
-            env: *paths
-            args: [-i, '.metadata.deletionTimestamp = "2026-01-01T00:00:00Z"', $CHECK_DIRECTORY/composite.json]
-        - command:
-            <<: *waitDeletion
-            check:
-              ($error != null): true
-              (contains($stderr, 'management.kubeconfig')): true
-      finally:
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/management.saved.kubeconfig, $CHECK_DIRECTORY/management.kubeconfig]
-    - name: resume after the deleting composite has disappeared
-      try:
-        - command: *waitDeletion
     - name: reject a missing identity record for existing state
       try:
         - command:
@@ -244,51 +239,6 @@ spec:
               kind: IngestRun
               metadata: {name: qualification, namespace: tams}
         - command: *remove
-    - name: remove an uninstalled operator without cert-manager and repeat cleanup
-      try:
-        - command: &removeOperator
-            entrypoint: task
-            env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remove-operator, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
-            check:
-              ($error == null): true
-        - command: *removeOperator
-    - name: platform cleanup distinguishes installed releases from failed discovery
-      try:
-        - command:
-            entrypoint: helm
-            env: *paths
-            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, install, authentik, $PROJECT_ROOT/tests/lifecycle/platform-release, -n, auth]
-        - command:
-            entrypoint: task
-            env: *paths
-            args: &platformStatusArgs [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/application.yaml, --status, remove-platform, 'ENV_DIR=$CHECK_DIRECTORY', 'ROOT_DIR=$PROJECT_ROOT']
-            check:
-              ($error != null): true
-        - command: &removePlatformFixture
-            entrypoint: helm
-            env: *paths
-            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, uninstall, authentik, -n, auth, --ignore-not-found]
-        - command: &platformStatus
-            entrypoint: task
-            env: *paths
-            args: *platformStatusArgs
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/remote.kubeconfig, $CHECK_DIRECTORY/remote.saved.kubeconfig]
-        - command:
-            <<: *platformStatus
-            check:
-              ($error != null): true
-      finally:
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [-f, $CHECK_DIRECTORY/remote.saved.kubeconfig, $CHECK_DIRECTORY/remote.kubeconfig]
-            check:
-              ($error == null || contains($stderr, 'No such file')): true
-        - command: *removePlatformFixture
     - name: runtime access cleanup distinguishes installed releases from failed discovery
       try:
         - command:

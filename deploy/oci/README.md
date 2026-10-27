@@ -53,7 +53,7 @@ remove memberships and policies, delete the users/groups, then delete the empty
 compartment through the administrator's credential workflow. Record identifiers
 privately so cleanup does not depend on matching names.
 
-The [internal GitOps workflow](../gitops/README.md#inputs-and-secret-delivery)
+The [GitOps workflow](../gitops/README.md#inputs-and-secret-delivery)
 also requires scoped Vault/key, secret and runtime-policy permissions. Its retained
 foundation has an explicit owner and prevents treating the compartment as empty
 after workload teardown. Billing access is separate; see

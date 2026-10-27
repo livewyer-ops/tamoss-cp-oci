@@ -16,6 +16,33 @@ tasks:
     cmds:
       - task: gitops:export
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+  publication-fixture:
+    cmds:
+      - task: fixture
+      - task: export
+      - git init --bare --initial-branch=main '{{.DIRECTORY}}/origin.git'
+      - git -C '{{.DIRECTORY}}/checkout' remote set-url origin '{{.DIRECTORY}}/origin.git'
+      - 'yq -i ''.url = "{{.DIRECTORY}}/origin.git"'' {{.DIRECTORY}}/inputs/gitops.yaml'
+      - git -C '{{.DIRECTORY}}/checkout' config user.name 'GitOps fixture'
+      - git -C '{{.DIRECTORY}}/checkout' config user.email 'fixture@example.invalid'
+      - touch '{{.DIRECTORY}}/checkout/unrelated.txt'
+      - git -C '{{.DIRECTORY}}/checkout' add unrelated.txt
+  publish:
+    cmds:
+      - task: gitops:publish
+        vars:
+          ENV_DIR: '{{.DIRECTORY}}/inputs'
+          CHECKOUT: '{{.DIRECTORY}}/checkout'
+          MESSAGE: 'feat: publish fixture'
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml]
+  promotion:
+    cmds:
+      - task: gitops:promotion-checkout
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+  initialise-runtime:
+    cmds:
+      - task: bootstrap:initialise-runtime
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   record-release:
     cmds:
       - task: bootstrap:record-release

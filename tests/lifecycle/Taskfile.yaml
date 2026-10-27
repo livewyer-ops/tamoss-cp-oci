@@ -61,14 +61,8 @@ tasks:
       - cmp '{{.ENV_DIR}}/identity-valid.yaml' '{{.ENV_DIR}}/identity.yaml'
       - task: lifecycle:create-management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: lifecycle:password
-        vars: {ENV_DIR: '{{.ENV_DIR}}', DESTINATION: '{{.ENV_DIR}}/password'}
-      - cp '{{.ENV_DIR}}/password' '{{.ENV_DIR}}/password.saved'
       - mkdir '{{.ENV_DIR}}/inventory-before'
       - touch '{{.ENV_DIR}}/inventory-before/.complete'
-      - task: lifecycle:password
-        vars: {ENV_DIR: '{{.ENV_DIR}}', DESTINATION: '{{.ENV_DIR}}/password'}
-      - cmp '{{.ENV_DIR}}/password.saved' '{{.ENV_DIR}}/password'
       - task: lifecycle:baseline
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -n ''[]'' > {{.ENV_DIR}}/owned-current.yaml'
@@ -81,14 +75,10 @@ tasks:
   secrets:
     cmds:
       - mkdir -p -m 700 '{{.ENV_DIR}}/secrets'
-      - for: [database-admin-password, tams-database-password, s3-access-key, s3-secret-key]
+      - for: [s3-access-key, s3-secret-key]
         cmd: install -m 600 '{{.PROJECT_ROOT}}/tests/lifecycle/oci-config' '{{.ENV_DIR}}/secrets/{{.ITEM}}'
       - for: [s3-access-key, s3-secret-key]
         cmd: printf '%s' fixture-credential > '{{.ENV_DIR}}/secrets/{{.ITEM}}'
-      - cp '{{.PROJECT_ROOT}}/tests/lifecycle/oci-config' '{{.ENV_DIR}}/database-ca.pem'
-      - task: application:secrets
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get secret database-admin -o jsonpath='{.data.password}' | base64 --decode | cmp '{{.ENV_DIR}}/secrets/database-admin-password' -
   reject-secret-newline:
     cmds:
       - mkdir -p -m 700 '{{.ENV_DIR}}/invalid-credentials/secrets'
@@ -102,17 +92,7 @@ tasks:
     cmds:
       - task: lifecycle:create-management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-  wait-deletion:
-    cmds:
-      - task: lifecycle:wait-deletion
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   remove-instance:
     cmds:
       - task: application:remove-instance
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-  remove-operator:
-    cmds:
-      - mkdir -p '{{.ENV_DIR}}/operator-removal'
-      - cp '{{.PROJECT_ROOT}}/.local/tmp/check/operator.yaml' '{{.ENV_DIR}}/operator-removal/rendered.yaml'
-      - task: application:remove-operator
         vars: {ENV_DIR: '{{.ENV_DIR}}'}

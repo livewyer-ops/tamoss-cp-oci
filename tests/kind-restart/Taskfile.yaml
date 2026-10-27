@@ -1,0 +1,33 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  ROOT_DIR: '{{.PROJECT_ROOT}}'
+includes:
+  identity: {taskfile: ../../tasks/identity.yaml, internal: true}
+  transfer: {taskfile: ../../tasks/transfer.yaml, internal: true}
+tasks:
+  prepare:
+    vars:
+      NAME: {sh: 'kubectl --kubeconfig {{shellQuote .MANAGEMENT_KUBECONFIG}} config current-context | sed s/^kind-tamoss-cp-//'}
+    cmds:
+      - install -d -m 700 '{{.DIRECTORY}}'
+      - 'yq ''.metadata.name = "{{.NAME}}"'' {{.ROOT_DIR}}/environments/example/environment.yaml > {{.DIRECTORY}}/environment.yaml'
+      - task: identity:observe-inputs
+        vars: {ENV_DIR: '{{.DIRECTORY}}'}
+      - task: identity:initialise
+        vars: {ENV_DIR: '{{.DIRECTORY}}'}
+      - cp '{{.MANAGEMENT_KUBECONFIG}}' '{{.DIRECTORY}}/management.kubeconfig'
+      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{.DIRECTORY}}/management-uid'
+      - 'yq -i ''.managementUID = load_str("{{.DIRECTORY}}/management-uid")'' {{.DIRECTORY}}/identity.yaml'
+  restart:
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.DIRECTORY}}/identity.yaml'}
+      NODES: {sh: 'kind get nodes --name tamoss-cp-{{.NAME}}'}
+    cmds:
+      - for: {var: NODES}
+        cmd: docker stop '{{.ITEM}}'
+      - task: start
+  start:
+    cmds:
+      - task: transfer:start-kind
+        vars: {ENV_DIR: '{{.DIRECTORY}}'}

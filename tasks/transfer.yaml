@@ -60,6 +60,10 @@ tasks:
     requires: {vars: [ENV_DIR]}
     vars:
       NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    status:
+      - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f '{{.ROOT_DIR}}/deploy/contracts/quiesced.yaml'
+      - 'yq -e ''(.spec.managementPolicies | join(",")) == "Observe" and .metadata.annotations."crossplane.io/paused" == "true"'' {{.ENV_DIR}}/composite.json > /dev/null'
+      - 'yq -e ''(.spec.managementPolicies | join(",")) == "Observe" and .metadata.annotations."crossplane.io/paused" == "true"'' {{.ENV_DIR}}/environment.yaml > /dev/null'
     cmds:
       - task: inspect
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -87,8 +91,10 @@ tasks:
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
     cmds:
-      - task: :gitops:current-checkout
+      - task: :gitops:promotion-checkout
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: inspect
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: quiesce-kind
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.spec.managementPolicies = ["*"]'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml'
@@ -100,7 +106,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: assert-quiesced
         vars: {FILE: '{{.ENV_DIR}}/management-resources.json'}
-      - 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
+      - 'yq -e ''(.spec.managementPolicies | join(",")) == "Observe" or (.spec.managementPolicies | join(",")) == "*"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
       - 'yq -i ''.providerWrites = true'' {{.ENV_DIR}}/runtime-access.yaml'
       - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl sync
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
@@ -211,6 +217,12 @@ tasks:
     cmds:
       - for: {var: NODES}
         cmd: docker start '{{.ITEM}}'
+      - for: {var: NODES}
+        cmd: >-
+          docker exec '{{.ITEM}}' curl --fail --silent --show-error
+          --cacert /etc/kubernetes/pki/ca.crt --connect-timeout 2 --max-time 5
+          --retry 90 --retry-all-errors --retry-delay 2 --retry-max-time 180
+          https://localhost:6443/readyz
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' wait --for=condition=Ready nodes --all --timeout=180s
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}

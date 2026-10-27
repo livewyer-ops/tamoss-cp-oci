@@ -5,7 +5,6 @@ vars:
 includes:
   verify: {taskfile: ../../tasks/check.yaml, dir: '{{.PROJECT_ROOT}}', internal: true}
   tamoss: {taskfile: ../../deploy/tamoss/Taskfile.yaml, dir: '{{.PROJECT_ROOT}}', internal: true}
-  application: {taskfile: ../../tasks/application.yaml, dir: '{{.PROJECT_ROOT}}', internal: true}
 tasks:
   prepare:
     dir: '{{.PROJECT_ROOT}}'
@@ -49,8 +48,10 @@ tasks:
         vars: {ASSETS: '{{.CHECK_ASSETS}}'}
   prepare-removal:
     cmds:
-      - task: application:prepare-removal
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: tamoss:fetch
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml'}
+      - task: tamoss:operator
+        vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml', OUTPUT_DIR: '{{.ENV_DIR}}/operator-removal'}
   prepare-removal-alternate:
     cmds:
       - >-

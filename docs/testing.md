@@ -36,7 +36,10 @@ include partial installs and retention of state when the cloud audit fails.
 
 External Secrets uses a local Kubernetes backend; the database connection Job
 uses fixture retrieval. Tests cover persisted-value reuse and refresh, missing
-secrets, denied access, stale connection data and release-record handling. These
+secrets, denied access, stale connection data and release-record handling. Native
+Job tests exercise asynchronous secret retirement, deadlines and failed retrieval;
+Kind restart checks preserve the kubeconfig and reject a mismatched identity. Git
+publication checks cover repeat pushes, interrupted promotion and unrelated edits. These
 checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
 
 ## OCI storage check
@@ -73,10 +76,10 @@ ownership-verified manual cleanup before the OCI audit can pass.
 ## Deployed qualification
 
 Requires a running deployment, its original environment directory, credentials
-and matching release selection:
+and the matching published environment Git checkout:
 
 ```bash
-task qualify ENV_DIR=.local/environment
+task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
 **Qualification changes the environment.** It deletes its previous IngestRun and
@@ -107,16 +110,16 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 | Behaviour | Observed status |
 | --- | --- |
-| Public deployment and cleanup | Fresh deployment, unchanged repeat, external DB/S3, trusted TLS, ingest, browser access/playback, network policy and direct cloud-deletion checks passed |
+| Earlier Kind-owned deployment and cleanup | Fresh deployment, unchanged repeat, external DB/S3, trusted TLS, ingest, browser access/playback, network policy and direct cloud-deletion checks passed |
 | Worker disruption | Replica placement and ordinary worker-drain availability passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Internal GitOps integration | Fresh bootstrap/repeat, workload authentication, persisted secrets, private Git/GHCR pulls, ownership transfer/return, Kind-off operation and interrupted/resumed cleanup passed |
+| GitOps integration | Fresh bootstrap/repeat, workload authentication, persisted secrets, private Git/GHCR pulls, ownership transfer/return, Kind-off operation and interrupted/resumed cleanup passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
 | Combined environment cleanup | Current-Git ownership return, application finalisation, empty OCI hardware audit and temporary access retirement passed; Kind startup and asynchronous Vault secret retirement required retries |
 | Unattended combined build | Remains unqualified: the PostgreSQL adoption delay was reproduced locally and corrected with native polling configuration; a fresh OCI run must confirm unattended operation |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
-The internal GitOps workflow remains separate from the public commands until its
-remaining qualification is complete. Detailed procedures are in the
-[GitOps guide](../deploy/gitops/README.md).
+Public commands now use the GitOps workflow. Its individual live gates have
+passed; a fresh unattended public lifecycle run remains necessary after the
+teardown changes. Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).

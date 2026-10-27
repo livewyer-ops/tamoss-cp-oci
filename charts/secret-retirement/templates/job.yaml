@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: secret-retirement
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  activeDeadlineSeconds: 180
+  backoffLimit: 6
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: retrieve
+          image: {{ required "OCI CLI image is required" .Values.images.oci | quote }}
+          command: [/bin/sh, -ec]
+          args:
+            - >-
+              oci --auth api_key --connection-timeout 10 --read-timeout 30 --max-retries 0
+              vault secret list --compartment-id "$COMPARTMENT_ID" --vault-id "$VAULT_ID" --all
+              > /work/secrets.json
+          env:
+            - {name: COMPARTMENT_ID, value: {{ required "compartment is required" .Values.oracle.compartment | quote }}}
+            - {name: VAULT_ID, value: {{ required "vault is required" .Values.oracle.vault | quote }}}
+            - {name: OCI_CLI_REGION, value: {{ required "region is required" .Values.oracle.region | quote }}}
+            - {name: OCI_CLI_USER, value: {{ required "user is required" .Values.oracle.auth.user | quote }}}
+            - {name: OCI_CLI_TENANCY, value: {{ required "tenancy is required" .Values.oracle.auth.tenancy | quote }}}
+            - name: OCI_CLI_FINGERPRINT
+              valueFrom:
+                secretKeyRef: {name: oci-vault-bootstrap, key: fingerprint}
+            - name: OCI_CLI_KEY_CONTENT
+              valueFrom:
+                secretKeyRef: {name: oci-vault-bootstrap, key: privatekey}
+          resources: &resources
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext: &security
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts: &mounts
+            - {name: work, mountPath: /work}
+            - {name: temporary, mountPath: /tmp}
+      containers:
+        - name: validate
+          image: {{ required "yq image is required" .Values.images.yq | quote }}
+          command: [yq]
+          args:
+            - --exit-status
+            - >-
+              [((.data // []) | tag == "!!seq"),
+              ([(.data // [])[] | select(."secret-name" | test("^" + strenv(DEPLOYMENT_ID) + "-")) |
+              (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all)] | all
+            - /work/secrets.json
+          env:
+            - {name: DEPLOYMENT_ID, value: {{ required "deploymentId is required" .Values.deploymentId | quote }}}
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *mounts
+      volumes:
+        - name: work
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: temporary
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}

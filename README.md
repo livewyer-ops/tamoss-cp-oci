@@ -12,7 +12,7 @@ for temporary HA qualification environments.
 
 | Component | Configuration |
 | --- | --- |
-| Management | Local Kind running Crossplane; retain it through teardown |
+| Management | Kind bootstraps; Flux and Crossplane on OKE operate; retain original Kind for teardown |
 | Kubernetes | OKE with three workers and explicit failure-domain placement |
 | Application | Replicated TAMOSS API, worker, UI and Console API |
 | PostgreSQL | Two OCI database nodes; separate TAMOSS and Authentik databases, with verified TLS |
@@ -26,8 +26,8 @@ coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md
 
 [GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
 Flux, Crossplane and External Secrets on OKE. Live handover and Kind-off operation
-have passed. Release upgrades and package-credential rotation remain unqualified,
-so the public commands below retain the Kind-owned lifecycle.
+have passed. The public commands use this workflow. Release upgrades and
+package-credential rotation remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
 through the environment Git repository, using the same platform services. Live
@@ -50,11 +50,11 @@ task check
 ```
 
 Complete [Getting started](docs/getting-started.md) to prepare OCI access,
-private environment inputs and a bounded spending allowance before deploying:
+private environment inputs, an environment Git checkout and a bounded spending allowance before deploying:
 
 ```bash
-task up ENV_DIR=.local/environment
-task qualify ENV_DIR=.local/environment
+task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
 Qualification replaces its test media and drains one worker. Follow the
@@ -69,11 +69,12 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 | `task check:management` | Also test a disposable, credential-free Kind bootstrap. |
 | `task check:storage` | Test a real OCI bucket in a separately authorised compartment. |
 | `task check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
-| `task up` | Provision the selected environment and install TAMOSS. |
+| `task up` | Provision OCI, publish GitOps configuration, install TAMOSS and stop Kind. |
 | `task qualify` | Test ingest, access, network isolation and a worker drain. |
-| `task down` | Delete the selected environment after ownership checks. |
+| `task down` | Return current ownership to Kind, delete hardware and retire secrets. |
 
-`ENV_DIR` selects the private deployment directory. Storage checks have separate
+`ENV_DIR` selects the private deployment directory; `CHECKOUT` selects its environment
+Git checkout (default `.local/gitops`). Storage checks have separate
 inputs; see [Testing](docs/testing.md#oci-storage-check).
 **Teardown deletes application data**, including the owned bucket and database
 backups. See [teardown and retention](docs/operations.md#destroy-the-environment).
