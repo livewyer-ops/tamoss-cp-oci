@@ -78,7 +78,7 @@ Create a fresh private directory and copy the examples:
 
 ```bash
 umask 077
-install -d -m 700 .local/environment/secrets
+install -d -m 700 .local/environment .local/environment/secrets
 cp environments/example/environment.yaml environments/example/settings.yaml \
   environments/example/cost.yaml environments/example/foundation.yaml \
   environments/example/gitops.yaml .local/environment/
