@@ -118,7 +118,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 | TAMOSS application | External DB/S3, trusted TLS, ingest, browser access/playback, replica placement and network policy passed on a fresh deployment |
 | Worker disruption | Replica placement and ordinary worker-drain availability passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Bootstrap root | Dependency convergence, controller restart and release/pause checks passed locally; OCI provisioning with Task stopped still needs live qualification |
+| Bootstrap root | Dependency convergence, controller restart and release/pause checks passed locally. Live OCI provisioning completed after a host Task crash; resume preserved resource identities. Release/pause survived handover and original Kind restart, and infrastructure deletion left the child absent |
 | Public GitOps lifecycle | Fresh bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
 | Combined environment cleanup | Public down completed in one invocation: original Kind startup, current-Git ownership return, application finalisation, empty OCI hardware audit, pending Vault secret deletion and Kind removal passed |
@@ -127,3 +127,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
+
+The live bootstrap-root proof included deliberate interruption and a handover
+comparison correction. It establishes resumed convergence; a fresh uninterrupted
+installation with those changes remains unqualified.
