@@ -117,8 +117,8 @@ tasks:
     requires: {vars: [ENV_DIR]}
     status:
       - >-
-        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd tadosses.tadoss.livewyer.io --ignore-not-found -o json | yq -p=json -e 'length == 0') ||
-        (kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads get tadoss/tadoss --ignore-not-found -o json | yq -p=json -e 'length == 0')
+        (CRD="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd tadosses.tadoss.livewyer.io --ignore-not-found -o name)" && test -z "$CRD") ||
+        (RESOURCE="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads get tadoss/tadoss --ignore-not-found -o name)" && test -z "$RESOURCE")
     cmds:
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads patch tadoss/tadoss --type=merge -p '{"spec":{"deletionProtection":false}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tads delete tadoss/tadoss --ignore-not-found --cascade=foreground --wait=true --timeout=300s

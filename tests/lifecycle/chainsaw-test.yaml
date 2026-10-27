@@ -61,6 +61,11 @@ spec:
             env: *paths
             args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/application.yaml, --status, remove-resource, 'ENV_DIR=$CHECK_DIRECTORY', RESOURCE_NAMESPACE=tams, CRD=tamosses.tamoss.livewyer.io, RESOURCE=tamoss/tamoss]
             check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/deploy/tadoss/Taskfile.yaml, --status, remove-instance, 'ENV_DIR=$CHECK_DIRECTORY']
+            check: {($error != null): true}
       finally:
         - command:
             entrypoint: mv
