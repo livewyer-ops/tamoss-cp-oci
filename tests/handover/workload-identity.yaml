@@ -4,6 +4,8 @@ kind: Render
 (length(resources[?kind == 'Provider' && spec.runtimeConfigRef.name == metadata.name])): 4
 (length(resources[?kind == 'DeploymentRuntimeConfig' && spec.serviceAccountTemplate.metadata.name == metadata.name])): 4
 (length(resources[?kind == 'DeploymentRuntimeConfig' && spec.deploymentTemplate.spec.template.spec.automountServiceAccountToken == `true`])): 4
+(resources[?kind == 'DeploymentRuntimeConfig' && metadata.name == 'provider-oci-psql'] | [0].spec.deploymentTemplate.spec.template.spec.containers[?name == 'package-runtime'] | [0].args): [--poll=1m]
+(length(resources[?kind == 'DeploymentRuntimeConfig' && metadata.name != 'provider-oci-psql'].spec.deploymentTemplate.spec.template.spec.containers[] | [?args != `null`])): 0
 (resources[?kind == 'Secret'] | [0].stringData.credentials | parse_json(@)):
   auth: OKEWorkloadIdentity
   region: eu-frankfurt-1

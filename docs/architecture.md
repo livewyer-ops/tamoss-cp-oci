@@ -45,6 +45,12 @@ provider bindings. Only one control plane may write at a time. The original Kind
 is retained without write authority, stopped, and later receives current Git/live
 configuration for deletion. This does not recover lost Kind state.
 
+The OKE PostgreSQL provider polls every minute so observe-only adoption can
+refresh status within the five-minute readiness check. Its first observation
+can lose status when the provider adds its Kubernetes finaliser. The next poll
+restores it without restarting the provider; Ready, Synced and identity checks
+still control ownership transfer.
+
 The optional [TADOSS integration](../deploy/tadoss/README.md) uses the same OKE,
 PostgreSQL, authentication, ingress and secret services. Git enables its released
 operator and API/worker replicas, a separate database/role and an OAuth client.

@@ -113,7 +113,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 | Internal GitOps integration | Fresh bootstrap/repeat, workload authentication, persisted secrets, private Git/GHCR pulls, ownership transfer/return, Kind-off operation and interrupted/resumed cleanup passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
 | Combined environment cleanup | Current-Git ownership return, application finalisation, empty OCI hardware audit and temporary access retirement passed; Kind startup and asynchronous Vault secret retirement required retries |
-| Unattended combined build | Remains unqualified: the live proof required integration corrections and a restart of the observe-only PostgreSQL provider before ownership transfer |
+| Unattended combined build | Remains unqualified: the PostgreSQL adoption delay was reproduced locally and corrected with native polling configuration; a fresh OCI run must confirm unattended operation |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 

@@ -44,6 +44,10 @@ spec:
           automountServiceAccountToken: true
           containers:
             - name: package-runtime
+{{- if eq $service "psql" }}
+              # Re-observe after finaliser creation within the five-minute adoption gate.
+              args: [--poll=1m]
+{{- end }}
               env:
                 - name: OCI_RESOURCE_PRINCIPAL_VERSION
                   value: '2.2'
