@@ -11,6 +11,7 @@ kind: Render
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentikChart.authentik.postgresql.host): null
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[0].name): authentik-values
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[1].targetPath): authentikChart.authentik.postgresql.host
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.worker.lifecycle.postStart): null
 (resources[?kind == 'OCIRepository'] | [0].spec.ref.digest): sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.prune): false
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.deletionPolicy): Orphan

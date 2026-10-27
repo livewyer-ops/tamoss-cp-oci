@@ -11,6 +11,9 @@
 {{- $_ := set $blueprints "configMaps" (append ($blueprints.configMaps | default list) "tadoss-authentik-blueprint") -}}
 {{- $_ := set $platform.authentikChart "blueprints" $blueprints -}}
 {{- $_ := set $platform.authentikChart.worker "env" (append ($platform.authentikChart.worker.env | default list) (dict "name" "TADOSS_CLIENT_SECRET" "valueFrom" (dict "secretKeyRef" (dict "name" "tadoss-oauth" "key" "password")))) -}}
+{{- $lifecycle := deepCopy ($platform.authentikChart.worker.lifecycle | default dict) -}}
+{{- $_ := set $lifecycle "postStart" (dict "exec" (dict "command" (list "timeout" "120" "ak" "apply_blueprint" "/blueprints/mounted/cm-tadoss-authentik-blueprint/tadoss.yaml"))) -}}
+{{- $_ := set $platform.authentikChart.worker "lifecycle" $lifecycle -}}
 {{- end -}}
 {{- $releases := list
   (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))

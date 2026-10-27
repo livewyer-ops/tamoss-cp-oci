@@ -71,6 +71,10 @@ kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n auth get kustomizations
 kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n tads get tadoss,pods,ingress,certificate
 ```
 
+When TADOSS is enabled, Authentik workers apply its mounted OAuth blueprint with
+the native `ak apply_blueprint` startup hook, bounded to 120 seconds. Worker
+readiness waits for the hook, avoiding the hourly blueprint-discovery delay.
+
 The instance requires its current generation, selected release and both API and
 worker replica counts to be ready. Certificate readiness and working API requests
 are separate checks. Initial enablement and full environment teardown are the

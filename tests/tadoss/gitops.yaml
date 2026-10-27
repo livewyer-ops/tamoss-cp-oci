@@ -7,6 +7,7 @@ kind: Render
 (length(resources[?kind == 'HelmRelease' && metadata.name == 'cert-manager'])): 1
 (length(resources[?kind == 'Cluster' || kind == 'PsqlDbSystem' || kind == 'Secret'])): 0
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.blueprints.configMaps): [tadoss-authentik-blueprint]
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.worker.lifecycle.postStart.exec.command): [timeout, '120', ak, apply_blueprint, /blueprints/mounted/cm-tadoss-authentik-blueprint/tadoss.yaml]
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.dependsOn[?name == 'tadoss-config'] | length(@)): 1
 (resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[0].name): database-connection
 (resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[?targetPath == 'caBase64'] | [0]):
