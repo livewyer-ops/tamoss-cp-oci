@@ -192,7 +192,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', GITOPS_VALUES: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'}
       - task: runtime-flux
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=15m
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=create --timeout=900s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=condition=Ready --timeout=900s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait kustomization/infrastructure --for=condition=Ready --timeout=1800s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null

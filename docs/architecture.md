@@ -60,6 +60,11 @@ provider bindings. Only one control plane may write at a time. The original Kind
 is retained without write authority, stopped, and later receives current Git/live
 configuration for deletion. This does not recover lost Kind state.
 
+After the remote Flux seed is submitted, its controllers fetch Git and create
+the runtime releases through their declared dependencies. Bootstrap waits for
+the GitOps HelmRelease to exist and become Ready; it does not force that initial
+source or Kustomization reconciliation.
+
 Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
 the load balancer. Handover compares the address, resource identity and desired
 configuration, excluding attachment status that the two control planes may
@@ -130,6 +135,11 @@ creates or adopts a separately retained OCI Vault/key. External Secrets persists
 to OKE using scoped workload identities. Git contains non-secret configuration and
 provider bindings. The environment repository contains neither TAMOSS source nor
 secret payloads. See [secret delivery](../deploy/gitops/README.md#inputs-and-secret-delivery).
+
+After persistence is verified, bootstrap disables initial credential creation and
+removes staging inputs. A missing established value must fail secret delivery
+without silently generating a replacement. Secret retirement remains an explicit
+operation with a separate check of OCI's asynchronous deletion state.
 
 Keep original Kind state, deployment identity, release records and cloud inventory
 until deletion is verified. [Operations](operations.md#destroy-the-environment)
