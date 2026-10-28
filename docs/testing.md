@@ -34,6 +34,11 @@ cluster. It tests provider package health, real API admission, required database
 CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
 include partial installs and retention of state when the cloud audit fails.
 
+Authentik startup checks use the selected release's chart and image with an
+external PostgreSQL database and verified TLS. They require bounded OAuth setup
+with no server or worker restarts, then first-attempt repeat application and
+recovery from an invalid blueprint without pod replacement.
+
 Bootstrap checks use the real Crossplane and ESO controllers with fixture child
 compositions that create no cloud resources. They cover dependency readiness,
 controller restart with unchanged child identities, rejection of a replaced root,

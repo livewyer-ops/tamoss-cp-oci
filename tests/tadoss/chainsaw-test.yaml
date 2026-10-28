@@ -18,6 +18,9 @@ spec:
         - command:
             entrypoint: chainsaw
             args: [assert, -r, ../../.local/tmp/check/tadoss-config-list.yaml, -f, config.yaml, --timeout, 1s]
+        - command:
+            entrypoint: yq
+            args: [-e, 'select(.kind == "HelmRelease" and .metadata.name == "authentik") | (.spec.values | del(.additionalObjects) | to_json) == (load("../../.local/tmp/check/tadoss-disabled.yaml")[] | select(.kind == "HelmRelease" and .metadata.name == "authentik") | .spec.values | to_json)', ../../.local/tmp/check/tadoss-gitops.yaml]
     - name: reject-incomplete-release
       try:
         - command:

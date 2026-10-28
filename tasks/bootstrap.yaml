@@ -390,7 +390,7 @@ tasks:
           NAMESPACE: '{{splitList "/" .ITEM | first}}'
           NAME: '{{splitList "/" .ITEM | last}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tamoss-database-init --ignore-not-found --wait=true --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tadoss-database-init --ignore-not-found --wait=true --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth delete job/tadoss-database-init job/tadoss-authentik-blueprint --ignore-not-found --wait=true --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n traefik delete service/traefik --ignore-not-found --wait=true --timeout=600s
       - 'yq -i ''.applicationRemoved = true'' {{.ENV_DIR}}/identity.yaml'
   remove-operator:

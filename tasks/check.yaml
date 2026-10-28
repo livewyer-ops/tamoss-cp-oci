@@ -286,6 +286,7 @@ tasks:
       - task: :gitops:pins
         vars: {RELEASE_LOCK: '{{.ROOT_DIR}}/deploy/tamoss/release.yaml', OUTPUT: '{{.CACHE}}/gitops-pins.yaml'}
       - helm template tamoss-gitops charts/gitops -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' -f tests/tadoss/values.yaml > '{{.CACHE}}/tadoss-gitops.yaml'
+      - helm template tamoss-gitops charts/gitops -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' -f tests/tadoss/values.yaml --set tadoss.enabled=false > '{{.CACHE}}/tadoss-disabled.yaml'
       - 'yq ''select(.kind == "CustomResourceDefinition")'' {{.CACHE}}/tadoss-operator.yaml > {{.CACHE}}/schemas/tadoss.yaml'
       - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/tadoss-gitops.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results
       - for: [operator, credentials, instance]
@@ -295,6 +296,10 @@ tasks:
       - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tadoss-config") | .spec.values | .host = "fixture.postgresql.oci.oraclecloud.com" | .caBase64 = "Zml4dHVyZQ=="'' {{.CACHE}}/tadoss-gitops.yaml > {{.CACHE}}/tadoss-config-values.yaml'
       - helm lint deploy/tadoss/config -f '{{.CACHE}}/tadoss-config-values.yaml'
       - helm template tadoss-config deploy/tadoss/config -n auth -f '{{.CACHE}}/tadoss-config-values.yaml' > '{{.CACHE}}/tadoss-config.yaml'
+      - 'yq ''select(.kind == "ConfigMap" and .metadata.name == "tadoss-authentik-blueprint") | .metadata.namespace = "authentik-startup"'' {{.CACHE}}/tadoss-config.yaml > {{.CACHE}}/tadoss-startup-blueprint.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "authentik") | .spec.values'' {{.CACHE}}/tadoss-gitops.yaml > {{.CACHE}}/tadoss-authentik-values.yaml'
+      - helm template authentik authentik --repo https://charts.goauthentik.io --version $(yq -r .dependencies.platform.authentik.chartVersion '{{.CACHE}}/gitops-pins.yaml') -n auth -f '{{.CACHE}}/tadoss-authentik-values.yaml' > '{{.CACHE}}/tadoss-authentik.yaml'
+      - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/tadoss-authentik.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results
       - 'yq ''select(.kind == "HelmRelease") | .spec.values'' {{.CACHE}}/tadoss-credentials-render.yaml > {{.CACHE}}/tadoss-secrets-values.yaml'
       - helm template tadoss-secrets charts/secrets -n tads -f '{{.CACHE}}/tadoss-secrets-values.yaml' > '{{.CACHE}}/tadoss-secrets.yaml'
       - for: [tadoss-gitops, tadoss-instance-render, tadoss-secrets, tadoss-config]

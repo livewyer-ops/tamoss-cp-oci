@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: authentik-startup}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: authentik, namespace: authentik-startup}
+stringData:
+  AUTHENTIK_SECRET_KEY: local-test-only-not-a-secret
+  AUTHENTIK_POSTGRESQL__HOST: authentik-test-db
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: local-test-only
+  AUTHENTIK_BOOTSTRAP_PASSWORD: local-test-only
+  AUTHENTIK_BOOTSTRAP_TOKEN: local-test-only
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: tadoss-oauth, namespace: authentik-startup}
+stringData: {password: local-test-only}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: authentik-test-db, namespace: authentik-startup}
+spec:
+  selector: {app: authentik-test-db}
+  ports: [{port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: authentik-test-db, namespace: authentik-startup}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: authentik-test-db}
+  template:
+    metadata:
+      labels: {app: authentik-test-db}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: certificate-permissions
+          image: ($values.databaseImage)
+          command: [install, -o, postgres, -g, postgres, -m, '600', /input/tls.key, /certs/server.key]
+          volumeMounts:
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: certs, mountPath: /certs}
+      containers:
+        - name: database
+          image: ($values.databaseImage)
+          args: [postgres, -c, ssl=on, -c, ssl_cert_file=/input/tls.crt, -c, ssl_key_file=/certs/server.key]
+          env:
+            - {name: POSTGRES_USER, value: authentik}
+            - {name: POSTGRES_DB, value: authentik}
+            - {name: POSTGRES_PASSWORD, value: local-test-only}
+          volumeMounts:
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: certs, mountPath: /certs, readOnly: true}
+          readinessProbe:
+            exec: {command: [pg_isready, -U, authentik]}
+            periodSeconds: 2
+      volumes:
+        - name: input
+          secret: {secretName: database-tls}
+        - name: certs
+          emptyDir: {}

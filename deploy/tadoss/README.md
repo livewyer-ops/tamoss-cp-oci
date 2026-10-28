@@ -71,9 +71,16 @@ kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n auth get kustomizations
 kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n tads get tadoss,pods,ingress,certificate
 ```
 
-When TADOSS is enabled, Authentik workers apply its mounted OAuth blueprint with
-the native `ak apply_blueprint` startup hook, bounded to 120 seconds. Worker
-readiness waits for the hook, avoiding the hourly blueprint-discovery delay.
+When TADOSS is enabled, Authentik's Helm release waits for its server and workers
+to become ready, then applies the mounted OAuth blueprint through a native
+`ak apply_blueprint` Job. Kubernetes limits the Job to five minutes and two
+retries. A failure keeps the release unready without restarting workers; inspect
+`kubectl -n auth logs -l job-name=tadoss-authentik-blueprint --prefix` using the
+remote kubeconfig. A cold Authentik installation can require a Job retry.
+The Job runs on install and upgrade, so initial enablement does not wait for the
+hourly blueprint scan. Its status and logs remain until the next hook or teardown.
+Only the Job receives the TADOSS blueprint and client secret. Enabling TADOSS
+leaves Authentik's server and worker pod configuration unchanged.
 
 The instance requires its current generation, selected release and both API and
 worker replica counts to be ready. Certificate readiness and working API requests
@@ -85,8 +92,11 @@ Removing the enablement setting is not a database deletion procedure.
 
 `task check` validates the release bundle, Flux configuration, secret permissions,
 database isolation, released migrations on PostgreSQL 16 and TLS rejection cases.
-`task check:management` also tests the published operator's deletion protection
-and repeated cleanup in disposable Kind.
+`task check:management` also tests the published operator's deletion protection,
+repeated cleanup and Authentik startup in disposable Kind. Startup checks use an
+external PostgreSQL database with verified TLS and two replicas each of the
+server and worker. They cover repeat application and recovery after an invalid
+blueprint without pod replacement.
 
 The internal GitOps qualification uses Hurl to create a schema, track and timed
 events linked to the actual TAMOSS ingest source and segment time range. It

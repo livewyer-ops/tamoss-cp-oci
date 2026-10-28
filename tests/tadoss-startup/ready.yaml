@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: authentik-worker, namespace: authentik-startup}
+status: {readyReplicas: 2, updatedReplicas: 2}
+(length($pods[?status.conditions[?type == 'Ready' && status == 'True']])): 4
+(length($pods[].status.containerStatuses[?to_string(restartCount) != '0'][])): 0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: authentik-server, namespace: authentik-startup}
+status: {readyReplicas: 2, updatedReplicas: 2}
