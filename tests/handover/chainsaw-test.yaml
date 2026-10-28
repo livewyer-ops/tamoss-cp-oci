@@ -3,6 +3,7 @@ kind: Test
 metadata:
   name: handover-contracts
 spec:
+  timeouts: {exec: 30s}
   steps:
     - name: render a complete observe-only destination without copied status
       try:

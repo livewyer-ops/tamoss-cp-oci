@@ -2,6 +2,7 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata: {name: gitops-contracts}
 spec:
+  timeouts: {exec: 30s}
   steps:
     - name: validate the rendered controller and credential contracts
       try:

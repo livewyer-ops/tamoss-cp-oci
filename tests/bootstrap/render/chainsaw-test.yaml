@@ -3,6 +3,7 @@ kind: Test
 metadata:
   name: bootstrap-convergence
 spec:
+  timeouts: {exec: 30s}
   bindings:
     - name: directory
       value: (join('/', [$values.root, '.local/tmp/check/bootstrap']))

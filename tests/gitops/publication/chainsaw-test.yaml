@@ -2,6 +2,7 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata: {name: gitops-publication}
 spec:
+  timeouts: {exec: 30s}
   steps:
     - name: publish only generated paths and preserve unrelated staged files
       try:
