@@ -106,8 +106,9 @@ pod UIDs before and after deletion. Kind must exist and remain stopped.
 Capture its infrastructure baseline before the enablement commit; qualification
 compares the OCI resource IDs afterwards and records the applied Git revision.
 These checks passed on OCI with unchanged infrastructure IDs and Kind stopped.
-The OAuth startup hook completed after each Authentik worker timed out once and
-restarted automatically; first-attempt hook completion remains unqualified.
+Git enablement converged without a host reconciliation request. The OAuth Job
+completed on its first attempt, with all four Authentik pod UIDs unchanged and
+zero restarts. TADOSS's four application pods also started with zero restarts.
 These checks require an authorised live environment; local passes alone do not
 establish them.
 

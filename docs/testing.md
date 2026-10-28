@@ -128,7 +128,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 | Public GitOps lifecycle | Fresh bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
 | Combined environment cleanup | Public down completed in one invocation: original Kind startup, current-Git ownership return, application finalisation, empty OCI hardware audit, pending Vault secret deletion and Kind removal passed |
-| Build readiness | Fresh TAMOSS bootstrap completed without a provider restart. Git-enabled TADOSS passed after the OAuth startup-hook correction; each Authentik worker required one automatic restart after its first hook timed out. First-attempt hook completion remains unqualified |
+| Build readiness | Fresh TAMOSS bootstrap completed without a host retry or provider restart. Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs and zero restarts |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
