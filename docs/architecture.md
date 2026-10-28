@@ -19,6 +19,9 @@ and remote bootstrap. Ownership transfer, qualification and cleanup remain expli
 operations. Before handover or teardown, Task irreversibly releases the root's
 configuration authority and confirms its reconciliation is paused. This prevents
 bootstrap settings or child recreation from competing with subsequent operations.
+Both steps are required: the release flag alone can still reapply an observed
+child snapshot. Repeated release keeps an already released root paused, including
+after its inputs change.
 
 ```mermaid
 flowchart LR

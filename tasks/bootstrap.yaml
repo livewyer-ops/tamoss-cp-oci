@@ -161,7 +161,6 @@ tasks:
       - >-
         (test -f '{{.ENV_DIR}}/bootstrap-observed.json' && test ! -s '{{.ENV_DIR}}/bootstrap-observed.json') ||
         yq -e '[.spec.released == true, .status.released == true,
-        .status.observedGeneration == .metadata.generation,
         .metadata.annotations."crossplane.io/paused" == "true",
         ([.status.conditions[] | select(.type == "Synced") | .reason] | join(",") == "ReconcilePaused")] | all'
         '{{.ENV_DIR}}/bootstrap-observed.json' > /dev/null

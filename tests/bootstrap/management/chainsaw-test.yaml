@@ -126,17 +126,20 @@ spec:
         - command:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
-        - patch:
-            resource:
-              apiVersion: tamoss.livewyer.io/v1alpha1
-              kind: TamossBootstrap
-              metadata: {name: bootstrap-check, namespace: tamoss-infra}
-              spec: {released: true}
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossBootstrap
-              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              metadata:
+                name: bootstrap-check
+                namespace: tamoss-infra
+                annotations: {crossplane.io/paused: 'true'}
               (status.observedGeneration == metadata.generation): true
               status: {released: true}
         - assert:
@@ -149,7 +152,7 @@ spec:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: SecretFoundation
               metadata: {name: bootstrap-check, namespace: tamoss-infra, uid: ($foundationUID)}
-    - name: released root cannot restore stale writes or settings
+    - name: released and paused root stays inactive after edits and restart
       try:
         - patch:
             resource:
@@ -167,12 +170,30 @@ spec:
               spec:
                 environment:
                   database: {backupRetentionDays: 3}
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossBootstrap
-              metadata: {name: bootstrap-check, namespace: tamoss-infra}
-              (status.observedGeneration == metadata.generation): true
+              metadata:
+                name: bootstrap-check
+                namespace: tamoss-infra
+                annotations: {crossplane.io/paused: 'true'}
+              (status.observedGeneration < metadata.generation): true
+              status:
+                released: true
+                (conditions[?type == 'Synced'] | [0].reason): ReconcilePaused
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
