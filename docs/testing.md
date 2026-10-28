@@ -118,7 +118,8 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 | TAMOSS application | External DB/S3, trusted TLS, ingest, browser access/playback, replica placement and network policy passed on a fresh deployment |
 | Worker disruption | Replica placement and ordinary worker-drain availability passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Bootstrap root | Dependency convergence, controller restart and release/pause checks passed locally. Live OCI provisioning completed after a host Task crash; resume preserved resource identities. Release/pause survived handover and original Kind restart, and infrastructure deletion left the child absent |
+| Bootstrap root | Fresh uninterrupted OCI bootstrap and repeat passed. Local checks cover dependency convergence, release/pause after input changes, controller restart and child deletion without recreation. An earlier interrupted run resumed with preserved resource identities |
+| Initial Flux convergence | All initial runtime Kustomizations, including TAMOSS, reached Ready before any host reconciliation request. Current-Git refresh and ownership transfer remain explicit operations |
 | Public GitOps lifecycle | Fresh bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
 | Combined environment cleanup | Public down completed in one invocation: original Kind startup, current-Git ownership return, application finalisation, empty OCI hardware audit, pending Vault secret deletion and Kind removal passed |
@@ -128,6 +129,8 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
 
-The live bootstrap-root proof included deliberate interruption and a handover
-comparison correction. It establishes resumed convergence; a fresh uninterrupted
-installation with those changes remains unqualified.
+The fresh bootstrap reused the retained Vault/key and completed without a host
+retry or provider restart. Repeat preserved deployment identity, Git HEAD and
+stopped Kind state. Qualification passed with Kind stopped, including all five
+selected upstream browser tests and 540/540 successful drain samples. Public
+down completed in one invocation and confirmed all 21 hardware categories empty.
