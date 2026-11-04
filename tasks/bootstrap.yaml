@@ -20,7 +20,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: handover
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: reconcile
+      - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
   initialise-runtime:
     requires: {vars: [ENV_DIR, CHECKOUT]}
@@ -39,7 +39,7 @@ tasks:
           ENV_DIR: '{{.ENV_DIR}}'
           CHECKOUT: '{{.CHECKOUT}}'
           MESSAGE: 'feat: initialise environment GitOps configuration'
-          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml]
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
       - task: runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
   provision:
@@ -80,7 +80,6 @@ tasks:
       - task: :tamoss:fetch
       - task: :tadoss:fetch
       - task: :tamoss:release
-      - task: :tamoss:media
       - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - task: :lifecycle:prepare
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -103,7 +102,6 @@ tasks:
           vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:infrastructure-ready
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - cp '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256' '{{.ENV_DIR}}/qualification.sha256'
       - task: :identity:resources
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :gitops:export
@@ -192,14 +190,11 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', GITOPS_VALUES: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'}
       - task: runtime-flux
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=create --timeout=900s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait helmrelease/tamoss-gitops --for=condition=Ready --timeout=900s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait kustomization/infrastructure --for=condition=Ready --timeout=1800s
+      - task: ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
-      - for: [flux-system, tamoss-infra, auth, tams]
-        cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.ITEM}}' wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=300s
       - task: :identity:runtime-composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
@@ -357,11 +352,9 @@ tasks:
       - helm template tamoss-gitops '{{.ROOT_DIR}}/charts/gitops' -n flux-system -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml' -f {{shellQuote .GITOPS_VALUES}} > '{{.ENV_DIR}}/gitops-runtime.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f deploy/gitops/starter/namespaces.yaml
       - helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
-      - for: [flux-system, tamoss-infra, auth, tams]
-        cmd: 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "{{.ITEM}}") | .spec.values'' {{.ENV_DIR}}/gitops-runtime.yaml > {{.ENV_DIR}}/runtime-secrets-{{.ITEM}}.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values'' {{.ENV_DIR}}/gitops-runtime.yaml > {{.ENV_DIR}}/runtime-secrets-flux-system.yaml'
       - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/secrets/runtime-helmfile.yaml.gotmpl sync
-      - for: [flux-system, tamoss-infra, auth, tams]
-        cmd: kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n '{{.ITEM}}' wait externalsecret --all --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait externalsecret/github-app externalsecret/ghcr --for=condition=Ready --timeout=300s
   remove-application:
     requires: {vars: [ENV_DIR]}
     status:
@@ -465,19 +458,26 @@ tasks:
       - helm --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' list -n tamoss-infra -o json | yq -p=json -e '[(tag == "!!seq"), ([.[] | select(.name == "runtime-access")] | length == 0)] | all'
     cmds:
       - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl destroy
-  reconcile:
+  ready:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    preconditions:
+      - sh: >-
+          kubectl kustomize '{{.CHECKOUT}}/{{.PATH_IN_GIT}}' |
+          yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops") |
+          .spec.valuesFrom[1].name | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null
+        msg: Update the environment starter to use content-hashed values references before checking this product revision
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :gitops:current-checkout
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile kustomization environment --with-source --timeout=10m
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' reconcile helmrelease tamoss-gitops --with-source --timeout=15m
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth reconcile kustomization tamoss-operator --with-source --timeout=15m
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth reconcile kustomization tamoss --with-source --timeout=15m
+      - >-
+        KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system
+        --test-dir deploy/gitops/readiness-check --assert-timeout 1800s
+        --set-string revision="$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)"
+        --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name deployment-ready
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss/tamoss -o json |
         yq -p=json -e '.spec.version == load("{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml").release.tag' > /dev/null
@@ -486,7 +486,7 @@ tasks:
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
     cmds:
-      - task: reconcile
+      - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - >-
         yq '.release | {"tag": .tag, "releaseSha256": .releaseSha256, "sourceSha256": .sourceSha256}'

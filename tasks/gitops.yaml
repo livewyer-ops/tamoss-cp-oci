@@ -115,7 +115,7 @@ tasks:
         "externalNames": (load("{{.ENV_DIR}}/resources-current.yaml") | .[] as $r ireduce ({}; .[$r.resourceName] = $r.externalName))}'
         '{{.ENV_DIR}}/environment.yaml' > '{{.CANDIDATE}}/infrastructure/environment.yaml'
       - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml' '{{.CANDIDATE}}/infrastructure/environment.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
-      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/kustomization.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/sources.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/releases.yaml' '{{.CANDIDATE}}/'
+      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/kustomization.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/kustomizeconfig.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/sources.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/releases.yaml' '{{.CANDIDATE}}/'
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/namespaces.yaml' '{{.CANDIDATE}}/'
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/infrastructure.yaml' '{{.CANDIDATE}}/infrastructure/kustomization.yaml'
       - >-

@@ -14,6 +14,7 @@ kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tam
   yq '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get tamossenvironments
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get managed
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n flux-system get kustomization deployment-ready
 kubectl --kubeconfig .local/environment/remote.kubeconfig get nodes
 kubectl --kubeconfig .local/environment/remote.kubeconfig get pods -A
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss,storagebackends,ingestruns
@@ -24,6 +25,10 @@ Expected: three Ready workers, infrastructure Ready and managed resources Synced
 TAMOSS and its external StorageBackend Ready, and public certificates Ready.
 Infrastructure readiness alone does not establish successful ingest. See
 [first login](getting-started.md#access) and [qualification](testing.md#deployed-qualification).
+
+If `deployment-ready` is not Ready, describe that Kustomization for the failing
+dependency, then inspect the named resource's conditions. Flux retries through
+its normal reconciliation intervals.
 
 ## First API request
 

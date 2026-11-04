@@ -17,3 +17,6 @@ kind: Render
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.deletionPolicy): Orphan
 (length(resources[?kind == 'Kustomization' && metadata.name == 'credentials'] | [0].spec.healthChecks)): 9
 (resources[?kind == 'HelmRelease' && metadata.name == 'oci-services'] | [0].spec.values.foundation): false
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 0
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 16
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'OCIRepository'].name): [tamoss-release]

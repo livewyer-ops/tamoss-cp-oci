@@ -9,6 +9,9 @@ spec:
         - command:
             entrypoint: chainsaw
             args: [assert, -r, ../../.local/tmp/check/gitops-list.yaml, -f, render.yaml, --timeout, 1s]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/runtime-seed-list.yaml, -f, seed.yaml, --timeout, 1s]
     - name: export only the initial non-secret configuration
       try:
         - command: &fixture
@@ -22,6 +25,21 @@ spec:
             env: *env
             args: [export]
         - command:
+            entrypoint: kubectl
+            env: *env
+            args: [kustomize, '$DIRECTORY/checkout/clusters/oci-dev', -o, '$DIRECTORY/before.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [eval-all, -e, '[select(.kind != null)] as $r | ($r[] | select(.kind == "HelmRelease")).spec.valuesFrom[1].name == ($r[] | select(.kind == "ConfigMap" and (.metadata.name | test("^tamoss-gitops-values-")))).metadata.name', '$DIRECTORY/before.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[1].name', '$DIRECTORY/before.yaml']
+            outputs:
+              - name: beforeReference
+                value: ($stdout)
+        - command:
             entrypoint: yq
             env: *env
             args: [-e, '.tadoss.enabled == false and .tadoss.release.digest == load(strenv(DIRECTORY) + "/inputs/gitops.yaml").tadoss.bundle.digest', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
@@ -34,6 +52,32 @@ spec:
             env: *env
             args: [-i, '.runtime.adminEmail = "changed@example.invalid"', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
         - command: *export
+        - command:
+            entrypoint: kubectl
+            env: *env
+            args: [kustomize, '$DIRECTORY/checkout/clusters/oci-dev', -o, '$DIRECTORY/after.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[1].name', '$DIRECTORY/after.yaml']
+            check:
+              ($error == null): true
+              ($stdout != $beforeReference): true
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, '.generatorOptions.disableNameSuffixHash = true', '$DIRECTORY/checkout/clusters/oci-dev/kustomization.yaml']
+        - command:
+            entrypoint: task
+            env: *env
+            args: [ready]
+            check:
+              ($error != null): true
+              (contains($stderr, 'content-hashed values references')): true
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, 'del(.generatorOptions.disableNameSuffixHash)', '$DIRECTORY/checkout/clusters/oci-dev/kustomization.yaml']
         - command:
             entrypoint: yq
             env: *env

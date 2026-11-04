@@ -238,6 +238,9 @@ tasks:
         vars: {RELEASE_LOCK: '{{.ROOT_DIR}}/deploy/tamoss/release.yaml', OUTPUT: '{{.CACHE}}/gitops-pins.yaml'}
       - helm lint '{{.CHART}}' -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml'
       - helm template tamoss-gitops '{{.CHART}}' -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' > '{{.CACHE}}/gitops-render.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/runtime-secrets-flux-system.yaml'
+      - TAMOSS_ENV_DIR='{{.CACHE}}' helmfile -f deploy/secrets/runtime-helmfile.yaml.gotmpl template > '{{.CACHE}}/runtime-seed.yaml'
+      - 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/runtime-seed.yaml > {{.CACHE}}/runtime-seed-list.yaml'
       - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-platform-config") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/gitops-platform-config-values.yaml'
       - helm template tamoss-platform-config '{{.ASSETS}}/source/deploy/platform/charts/config' -n tamoss-platform -f '{{.CACHE}}/gitops-platform-config-values.yaml' > '{{.CACHE}}/gitops-platform-config.yaml'
       - mkdir -p '{{.CACHE}}/gitops-defaults/upstream'
@@ -255,6 +258,13 @@ tasks:
         "spec": {"interval": "1m", "url": "https://github.com/livewyer-ops/tamoss",
         "ref": {"commit": load("{{.ASSETS}}/release.json").sourceCommit}}}' > '{{.CACHE}}/gitops-adoption-source.yaml'
       - 'yq ''.metadata.name = "health-only" | .spec.ignore = "/*\n!/README.md\n"'' {{.CACHE}}/gitops-adoption-source.yaml > {{.CACHE}}/gitops-adoption-health-source.yaml'
+      - >-
+        yq 'select(.kind == "Kustomization" and .metadata.name == "deployment-ready") |
+        .metadata.namespace = "flux-check" | .spec.sourceRef.name = "health-only" |
+        .spec.path = "./" | .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s" |
+        .spec.healthChecks = [{"apiVersion": "kustomize.toolkit.fluxcd.io/v1", "kind": "Kustomization", "name": "connection-readiness", "namespace": "flux-check"},
+        {"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease", "name": "authentik-bootstrap", "namespace": "flux-check"}]'
+        '{{.CACHE}}/gitops-render.yaml' > '{{.CACHE}}/gitops-adoption-readiness.yaml'
       - 'yq ''select(.kind == "Kustomization" and .metadata.name == "tamoss-operator")'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/gitops-operator-flux.yaml'
       - flux build kustomization tamoss-operator -n auth --dry-run --in-memory-build --path '{{.ROOT_DIR}}/.local/tmp/tamoss-bundle' --kustomization-file '{{.CACHE}}/gitops-operator-flux.yaml' > '{{.CACHE}}/gitops-operator.yaml'
       - 'yq eval-all -e ''[select(.kind == "Namespace")] | length == 0'' {{.CACHE}}/gitops-operator.yaml > /dev/null'

@@ -1,0 +1,95 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: deployment-readiness-contract}
+spec:
+  timeouts: {exec: 30s}
+  steps:
+    - name: accept current controller observations
+      try:
+        - apply:
+            file: resources.yaml
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - command: &check
+            entrypoint: chainsaw
+            env:
+              - {name: PROJECT_ROOT, value: ($values.root)}
+            args: [test, --namespace, flux-system, --skip-delete, --test-dir, $PROJECT_ROOT/deploy/gitops/readiness-check, --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+    - name: reject old Git observations and recover after the source succeeds
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: environment, namespace: flux-system}
+              status:
+                artifact: {revision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}
+        - command:
+            <<: *check
+            check:
+              ($error != null): true
+              (contains($stdout, 'observe the selected environment revision')): true
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - command: *check
+    - name: reject a new values generation with an old Ready condition
+      try:
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-gitops, namespace: flux-system}
+              spec:
+                valuesFrom:
+                  - {kind: ConfigMap, name: changed-values}
+        - command:
+            <<: *check
+            check: {($error != null): true}
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-gitops, namespace: flux-system}
+              status:
+                observedGeneration: (x_k8s_get($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'flux-system', 'tamoss-gitops').metadata.generation)
+        - command: *check
+    - name: reject stale chart content even when the release is healthy
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: HelmChart
+              metadata: {name: flux-system-tamoss-gitops, namespace: flux-system}
+              status:
+                observedSourceArtifactRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        - command:
+            <<: *check
+            check: {($error != null): true}
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: HelmChart
+              metadata: {name: flux-system-tamoss-gitops, namespace: flux-system}
+              status:
+                observedSourceArtifactRevision: 'main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        - command: *check
+    - name: reject failed source access despite an existing artifact
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: environment, namespace: flux-system}
+              status:
+                conditions:
+                  - {type: Ready, status: 'False', reason: AuthenticationFailed, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
+        - command:
+            <<: *check
+            check: {($error != null): true}

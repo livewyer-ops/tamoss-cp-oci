@@ -37,6 +37,7 @@ repository. Initial export writes one cluster directory containing:
 | `namespaces.yaml` | Runtime namespaces |
 | `flux.yaml` | Controller installation exported by the pinned Flux CLI |
 | `sync.yaml` | Environment Git source and root reconciliation |
+| `kustomizeconfig.yaml` | Connect content-hashed values ConfigMaps to the GitOps HelmRelease |
 | `kustomization.yaml` | Root entry point and watched settings ConfigMap |
 
 Export validates the checkout's origin, branch, path and deployment identity.
@@ -119,8 +120,9 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
 
 1. Validate bounded inputs; create original Kind, retained foundation and persisted
    credentials; provision the infrastructure and export the environment directory.
-2. Publish the initial exported configuration. Install OKE secret delivery and
-   Flux, then verify release adoption and observe-only infrastructure reconciliation.
+2. Publish the initial exported configuration. Install ESO and Git/registry secret
+   delivery in `flux-system`, then seed Flux. Flux installs the other namespace
+   secret releases and applications; verify adoption and observe-only infrastructure.
 3. Compare exact external names, provider configuration, cloud status and ownership
    tags. Set Kind to observation, wait for operations to finish, pause reconciliation
    and persist its non-writing configuration locally.
@@ -145,6 +147,22 @@ Helmfile no longer upgrades them. Once the environment Kustomization owns Flux's
 controller installation, retries also leave those manifests to Flux.
 Bootstrap refreshes Kubernetes API discovery after the infrastructure controllers
 are ready before checking their resources.
+
+Readiness checks observe the expected environment commit, the product source and
+chart revisions, and the current HelmRelease generation before accepting workload
+health. Kustomize changes the values ConfigMap name and HelmRelease reference when
+environment values change. The `deployment-ready` Kustomization checks current
+generations and health, including TADOSS when enabled. Earlier non-secret values
+ConfigMaps remain until cluster teardown because the root deliberately disables
+pruning. Application reconciliation proceeds without a host trigger; ownership
+transfer retains its explicit reconciliation requests.
+
+For an environment exported before hashed values references were introduced,
+copy `starter/kustomizeconfig.yaml` into its Git directory, add it under
+`configurations` in `kustomization.yaml`, and remove `disableNameSuffixHash: true`
+from that file's generator options. Commit these changes with the product pin.
+The readiness command rejects the old reference layout rather than accepting
+potentially stale release health.
 
 Secret deletion scheduling is asynchronous. A Kubernetes Job retries OCI metadata
 reads for up to three minutes, accepting only `PENDING_DELETION` or `DELETED` for

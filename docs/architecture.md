@@ -61,9 +61,15 @@ is retained without write authority, stopped, and later receives current Git/liv
 configuration for deletion. This does not recover lost Kind state.
 
 After the remote Flux seed is submitted, its controllers fetch Git and create
-the runtime releases through their declared dependencies. Bootstrap waits for
-the GitOps HelmRelease to exist and become Ready; it does not force that initial
-source or Kustomization reconciliation.
+the runtime releases through their declared dependencies. The host installs ESO
+and secret delivery only in `flux-system`, allowing Flux to read Git and GHCR.
+Flux installs secret delivery in the application and infrastructure namespaces.
+
+Deployment completion observes the selected Git revision, current product chart
+and HelmRelease generation, then the `deployment-ready` Flux health check.
+That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS.
+Routine `up` and `qualify` readiness checks do not force application reconciliation;
+explicit reconciliation remains at ownership-transfer boundaries.
 
 Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
 the load balancer. Handover compares the address, resource identity and desired

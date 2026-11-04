@@ -52,6 +52,11 @@ Kind restart checks preserve the kubeconfig and reject a mismatched identity. Gi
 publication checks cover repeat pushes, interrupted promotion and unrelated edits. These
 checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
 
+Readiness checks reject stale Git/chart observations and old Ready conditions
+after a values change. Real Flux checks cover delayed dependencies and recovery
+without forced reconciliation. Media-fixture preparation belongs to `qualify`;
+`up` does not prepare test media.
+
 ## OCI storage check
 
 This creates a real private OCI bucket and a temporary Kind cluster. Prepare a
@@ -117,6 +122,9 @@ evidence and continue independent checks as appropriate, while keeping the budge
 and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deployment).
 
 ## Verified coverage and limits
+
+The OCI results below precede the reduced secret seed and revision-aware readiness
+checks. Those changes still require fresh OCI qualification.
 
 | Behaviour | Observed status |
 | --- | --- |
