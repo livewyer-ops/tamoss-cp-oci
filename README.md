@@ -27,7 +27,7 @@ coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md
 [GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
 Flux, Crossplane and External Secrets on OKE. The preceding bootstrap, repeat,
 qualification and teardown have passed, including Kind-off operation. The new
-Flux-managed Kind bootstrap and Vault-delivered adoption bindings require fresh OCI qualification. Release
+Flux-managed Kind bootstrap, the OKE bootstrap Job and Vault-delivered adoption bindings require fresh OCI qualification. Release
 upgrades and package-credential rotation remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
@@ -47,6 +47,8 @@ git clone https://github.com/dodwyer/tamoss-cp-oci.git
 cd tamoss-cp-oci
 aqua install
 export PATH="$(aqua root-dir)/bin:$PATH"
+uv tool install --python 3.12 "oci-cli==$(yq -r .oci.version dependencies.yaml)"
+export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
 task check
 ```
 

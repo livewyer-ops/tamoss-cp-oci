@@ -12,8 +12,9 @@ tasks:
       - sh: test "$(command -v task)" = '{{.TOOL_ROOT}}/bin/task'
         msg: 'Add Aqua shims to PATH: export PATH="$(aqua root-dir)/bin:$PATH"'
     cmds:
-      - for: [kind, kubectl, helm, helmfile, crossplane, yq, chainsaw, vegeta, hurl, flux]
+      - for: [kind, kubectl, helm, helmfile, crossplane, yq, chainsaw, vegeta, hurl, flux, uv]
         cmd: 'test "$(command -v {{.ITEM}})" = "{{.TOOL_ROOT}}/bin/{{.ITEM}}"'
+      - test "$(oci --version)" = "$(yq -r .oci.version '{{.ROOT_DIR}}/dependencies.yaml')"
   privacy:
     cmds:
       - test ! -d scripts
@@ -100,6 +101,7 @@ tasks:
       - task --taskfile tests/bootstrap/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
       - task --taskfile tests/bootstrap/Taskfile.yaml render-native ROOT='{{.ROOT_DIR}}'
       - task --taskfile tests/controller-state/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
+      - task --taskfile tests/oke-bootstrap/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
       - task: secrets
       - task: connection-details
       - task: gitops
@@ -199,7 +201,7 @@ tasks:
     cmds:
       - >-
         yq -n '{"databaseId": "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example", "region": "eu-frankfurt-1",
-        "images": {"oci": load("deploy/oci/compose.yaml").services.oci.image,
+        "images": {"oci": load("dependencies.yaml").oci.image,
         "yq": load("dependencies.yaml").connectionDetails.yqImage,
         "kubectl": load("dependencies.yaml").connectionDetails.kubectlImage}}'
         > '{{.CACHE}}/connection-values.yaml'

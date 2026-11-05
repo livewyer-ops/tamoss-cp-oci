@@ -1,0 +1,7 @@
+        - name: before-complete
+          image: *image
+          command: [kubectl]
+          args: [-n, oke-check, wait, secret/oke-connection, '--for=jsonpath={.metadata.annotations.allow-complete}=true', --timeout=300s]
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *localMounts

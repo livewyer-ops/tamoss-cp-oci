@@ -51,6 +51,8 @@ tasks:
     cmds:
       - mkdir -p -m 700 '{{.DIRECTORY}}/management'
       - cp '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/management/bootstrap.yaml'
+      - 'yq -n ''{"cleanupHours": 1}'' > {{.DIRECTORY}}/management/cost.yaml'
+      - 'yq -n ''{"path": "unused"}'' > {{.DIRECTORY}}/management/gitops.yaml'
       - 'yq ''{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": .metadata, "spec": .spec.environment}'' {{.DIRECTORY}}/root.yaml > {{.DIRECTORY}}/management/environment.yaml'
       - cp "$KUBECONFIG" '{{.DIRECTORY}}/management/management.kubeconfig'
       - task: identity:observe-inputs
@@ -62,6 +64,16 @@ tasks:
     cmds:
       - task: bootstrap:observe
         vars: {ENV_DIR: '{{.DIRECTORY}}/management'}
+  repeat-seed:
+    cmds:
+      - task: bootstrap:seed
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management', CHECKOUT: '{{.DIRECTORY}}/unused-checkout'}
+  reject-replaced-seed:
+    cmds:
+      - cp '{{.DIRECTORY}}/management/identity.yaml' '{{.DIRECTORY}}/management/identity.saved.yaml'
+      - defer: cp '{{.DIRECTORY}}/management/identity.saved.yaml' '{{.DIRECTORY}}/management/identity.yaml'
+      - 'yq -i ''.bootstrapUID = "replaced-root"'' {{.DIRECTORY}}/management/identity.yaml'
+      - task: repeat-seed
   record-composite:
     cmds:
       - task: identity:record-composite

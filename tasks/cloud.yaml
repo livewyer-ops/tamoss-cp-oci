@@ -3,7 +3,11 @@ set: [errexit, nounset, pipefail]
 vars:
   OCI_CONFIG: '{{env "OCI_CLI_CONFIG_FILE" | default (printf "%s/.oci/config" (env "HOME"))}}'
   OCI_PROFILE: '{{env "OCI_CLI_PROFILE" | default "DEFAULT"}}'
-  OCI: docker compose -f '{{.ROOT_DIR}}/deploy/oci/compose.yaml' run --rm -T oci
+  OCI: oci --config-file {{shellQuote .OCI_CONFIG}} --profile {{shellQuote .OCI_PROFILE}} --connection-timeout 10 --read-timeout 30 --max-retries 0
+# Explicit CLI environment also applies to native Chainsaw commands.
+env:
+  OCI_CLI_CONFIG_FILE: '{{.OCI_CONFIG}}'
+  OCI_CLI_PROFILE: '{{.OCI_PROFILE}}'
 tasks:
   profile:
     requires: {vars: [ENV_DIR]}
@@ -15,13 +19,10 @@ tasks:
     silent: true
     vars:
       OCI_KEY_FILE:
-        sh: &keyFile 'OCI_PROFILE={{shellQuote .OCI_PROFILE}} yq -p=ini -oy -r ''(. * (.[strenv(OCI_PROFILE)] // {})).key_file'' {{shellQuote .OCI_CONFIG}}'
+        sh: 'OCI_PROFILE={{shellQuote .OCI_PROFILE}} yq -p=ini -oy -r ''(. * (.[strenv(OCI_PROFILE)] // {})).key_file'' {{shellQuote .OCI_CONFIG}}'
     env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
       OCI_PROFILE: '{{.OCI_PROFILE}}'
       OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     requires:
       vars: [CREDENTIAL_DIR]
     preconditions:
@@ -50,14 +51,7 @@ tasks:
     requires:
       vars: [OCI_TEST_COMPARTMENT_ID]
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       CHECK_NAME: 'tamoss-cp-storage-{{now | unixEpoch}}'
-    env: &storageEnvironment
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     preconditions:
       - sh: test ! -e '{{.STORAGE_DIR}}/values.yaml' && test ! -e '{{.STORAGE_DIR}}/management.kubeconfig'
         msg: A previous storage run is retained; run task check:storage:cleanup before retrying
@@ -102,9 +96,7 @@ tasks:
       - yq -e '[.tenancy, .user, .fingerprint, .region] | all_c((. != null) and (. != ""))' '{{.STORAGE_DIR}}/oci-current.yaml' > /dev/null
   storage-cleanup:
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       CHECK_NAME: {sh: 'yq -e -r .bucketName {{shellQuote .STORAGE_DIR}}/values.yaml'}
-    env: *storageEnvironment
     preconditions:
       - sh: test -s '{{.STORAGE_DIR}}/values.yaml' && test -s '{{.STORAGE_DIR}}/baseline.json'
         msg: No complete storage probe record; retain any Kind state and establish ownership before cleanup
@@ -176,8 +168,6 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for=jsonpath='{.status.bootstrapReady}=true' --timeout=1800s
       - task: observe-owned
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: remote
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   infrastructure-ready:
     requires: {vars: [ENV_DIR]}
     vars:
@@ -191,18 +181,11 @@ tasks:
   inventory:
     requires: {vars: [ENV_DIR, INVENTORY_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       COMPARTMENT: {sh: 'yq -r .spec.compartmentId {{.ENV_DIR}}/environment.yaml'}
       COMMAND_JSON: {sh: 'yq -o=json -I=0 . deploy/oci/inventory.yaml'}
       COMMANDS: {ref: .COMMAND_JSON | fromJson}
       AD_JSON: {sh: 'yq -o=json -I=0 ''[.spec.oke.placements[].availabilityDomain] | unique'' {{.ENV_DIR}}/environment.yaml'}
       ADS: {ref: .AD_JSON | fromJson}
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - mkdir -p -m 700 '{{.INVENTORY_DIR}}'
       - for: {var: COMMANDS}
@@ -235,15 +218,8 @@ tasks:
   prepare-deletion:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       COMPARTMENT: {sh: 'yq -r .spec.compartmentId {{.ENV_DIR}}/environment.yaml'}
       NAMESPACE: {sh: 'yq -r .spec.storage.namespace {{.ENV_DIR}}/environment.yaml'}
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -260,15 +236,9 @@ tasks:
   empty-bucket:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       BUCKET: {sh: 'yq -r .spec.storage.bucket {{.ENV_DIR}}/environment.yaml'}
       NAMESPACE: {sh: 'yq -r .spec.storage.namespace {{.ENV_DIR}}/environment.yaml'}
     env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
       BUCKET_NAME: '{{.BUCKET}}'
     status:
       - 'yq -e ''[.data[] | select(.name == strenv(BUCKET_NAME))] | length == 0'' {{.ENV_DIR}}/buckets.json'
@@ -296,17 +266,10 @@ tasks:
   purge-objects:
     requires: {vars: [ENV_DIR, BUCKET, NAMESPACE]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       UPLOAD_JSON: {sh: 'yq -o=json -I=0 ''.data // []'' {{.ENV_DIR}}/uploads.json'}
       UPLOADS: {ref: .UPLOAD_JSON | fromJson}
       VERSION_JSON: {sh: 'yq -o=json -I=0 ''.data // []'' {{.ENV_DIR}}/versions.json'}
       VERSIONS: {ref: .VERSION_JSON | fromJson}
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -318,14 +281,7 @@ tasks:
   delete-backups:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       COMPARTMENT: {sh: 'yq -r .spec.compartmentId {{.ENV_DIR}}/environment.yaml'}
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -335,16 +291,9 @@ tasks:
   purge-backups:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       BACKUP_JSON:
         sh: 'yq -o=json -I=0 ''[.data.items[] | select(."lifecycle-state" != "DELETED") | select(."db-system-id" as $id | (load_str("{{.ENV_DIR}}/database-ids.txt") | split("\n") | contains([$id])))]'' {{.ENV_DIR}}/backups.json'
       BACKUPS: {ref: .BACKUP_JSON | fromJson}
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -377,16 +326,8 @@ tasks:
     silent: true
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       CLUSTER_ID:
         sh: 'yq -r ''[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | .[0].id // ""'' {{.ENV_DIR}}/owned-current.yaml'
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
-      PROJECT_ROOT: '{{.ROOT_DIR}}'
     status:
       - test -z '{{.CLUSTER_ID}}'
     preconditions:
@@ -401,11 +342,9 @@ tasks:
       - '{{.OCI}} ce cluster create-kubeconfig --cluster-id {{shellQuote .CLUSTER_ID}} --file - --token-version 2.0.0 --kube-endpoint PUBLIC_ENDPOINT > {{.ENV_DIR}}/remote.pending.kubeconfig'
       - >-
         yq -i '.users[].user.exec |=
-        (.command = "docker" |
-        .args = ["compose", "-f", (strenv(PROJECT_ROOT) + "/deploy/oci/compose.yaml"), "run", "--rm", "-T", "oci"] + .args |
-        .env = [{"name": "OCI_CONFIG", "value": strenv(OCI_CONFIG)}, {"name": "OCI_PROFILE", "value": strenv(OCI_PROFILE)},
-        {"name": "OCI_KEY_FILE", "value": strenv(OCI_KEY_FILE)}, {"name": "OCI_UID", "value": strenv(OCI_UID)},
-        {"name": "OCI_GID", "value": strenv(OCI_GID)}])' '{{.ENV_DIR}}/remote.pending.kubeconfig'
+        (.command = "oci" |
+        .env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)},
+        {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}])' '{{.ENV_DIR}}/remote.pending.kubeconfig'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.pending.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{.ENV_DIR}}/remote-uid'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.pending.kubeconfig' config view --minify -o jsonpath='{.clusters[0].cluster.server}' > '{{.ENV_DIR}}/remote-server'
       - 'yq -e ''.remoteUID == null or (.remoteUID == load_str("{{.ENV_DIR}}/remote-uid") and .remoteServer == load_str("{{.ENV_DIR}}/remote-server"))'' {{.ENV_DIR}}/identity.yaml > /dev/null'
@@ -416,35 +355,24 @@ tasks:
   fixture:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       BUCKET: {sh: 'yq -r .environment.storage.bucket {{.ENV_DIR}}/identity.yaml'}
       NAMESPACE: {sh: 'yq -r .environment.storage.namespace {{.ENV_DIR}}/identity.yaml'}
       HASH:
         sh: cut -d ' ' -f 1 '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.sha256'
-    env:
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - '{{.OCI}} os bucket get --namespace-name {{shellQuote .NAMESPACE}} --name {{shellQuote .BUCKET}} > {{.ENV_DIR}}/fixture-bucket.json'
       - 'yq -e ''.data."freeform-tags"."tamoss-deployment-id" == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID // load("{{.ENV_DIR}}/identity.yaml").compositeUID)'' {{.ENV_DIR}}/fixture-bucket.json'
-      - docker compose -f '{{.ROOT_DIR}}/deploy/oci/compose.yaml' run --rm -T -v '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.mp4:/fixture.mp4:ro' oci os object put --namespace-name '{{.NAMESPACE}}' --bucket-name '{{.BUCKET}}' --name 'qualification-input/{{.HASH}}.mp4' --file /fixture.mp4 --content-type video/mp4 --force --verify-checksum > '{{.ENV_DIR}}/fixture-upload.json'
+      - >-
+        {{.OCI}} os object put --namespace-name '{{.NAMESPACE}}' --bucket-name '{{.BUCKET}}'
+        --name 'qualification-input/{{.HASH}}.mp4' --file '{{.ROOT_DIR}}/.local/tmp/check/media/qualification.mp4'
+        --content-type video/mp4 --force --verify-checksum > '{{.ENV_DIR}}/fixture-upload.json'
   secret-inventory:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       COMPARTMENT: {sh: 'yq -r .compartmentId {{.ENV_DIR}}/foundation-record.yaml'}
       VAULT: {sh: 'yq -r .vaultId {{.ENV_DIR}}/foundation-record.yaml'}
-    env: &foundationEnvironment
-      OCI_CONFIG: '{{.OCI_CONFIG}}'
-      OCI_PROFILE: '{{.OCI_PROFILE}}'
-      OCI_KEY_FILE: '{{.OCI_KEY_FILE}}'
-      OCI_UID: {sh: id -u}
-      OCI_GID: {sh: id -g}
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -455,11 +383,9 @@ tasks:
   retire-secrets:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       IDS_JSON: {sh: 'yq -o=json -I=0 ''[.[] | select(."lifecycle-state" == "ACTIVE") | .id]'' {{.ENV_DIR}}/environment-secrets.json'}
       IDS: {ref: .IDS_JSON | fromJson}
       DELETION_TIME: {sh: "date -u -d '+25 hours' +%Y-%m-%dT%H:%M:%SZ"}
-    env: *foundationEnvironment
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -472,12 +398,10 @@ tasks:
   retained-foundation:
     requires: {vars: [ENV_DIR]}
     vars:
-      OCI_KEY_FILE: {sh: *keyFile}
       COMPARTMENT: {sh: 'yq -r .compartmentId {{.ENV_DIR}}/foundation-record.yaml'}
       VAULT: {sh: 'yq -r .vaultId {{.ENV_DIR}}/foundation-record.yaml'}
       KEY: {sh: 'yq -r .keyId {{.ENV_DIR}}/foundation-record.yaml'}
       ENDPOINT: {sh: 'yq -r .managementEndpoint {{.ENV_DIR}}/foundation-record.yaml'}
-    env: *foundationEnvironment
     cmds:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}

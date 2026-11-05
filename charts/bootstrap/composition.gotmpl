@@ -78,6 +78,20 @@ requirements:
     kind: ExternalSecret
     namespace: {{ $xr.metadata.namespace }}
     matchName: database-admin
+{{- if hasKey $p "remoteBootstrap" }}
+  remotePods:
+    apiVersion: v1
+    kind: Pod
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/bootstrap: oke
+      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  remoteCredentials:
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels: {tamoss.livewyer.io/credential: 'true'}
+{{- end }}
 ---
 apiVersion: tamoss.livewyer.io/v1alpha1
 kind: SecretFoundation
@@ -224,12 +238,13 @@ metadata:
 spec:
 {{ $spec | toYaml | indent 2 }}
 {{- end }}
+__REMOTE_BOOTSTRAP__
 ---
 apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 metadata:
   annotations:
-    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady)) | toString | title | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady) $remoteReady) | toString | title | quote }}
 status:
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
@@ -238,4 +253,7 @@ status:
   bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady ($p.credentialsEstablished | default false) }}
   bindingsReady: {{ $bindingsReady }}
   runtimeAccessReady: {{ $accessReady }}
-  released: {{ $p.released }}
+  remoteBootstrapReady: {{ $remoteReady }}
+  remoteBootstrapCompleted: {{ $remoteCompleted }}
+  remoteBootstrapPhase: {{ $remotePhase | quote }}
+  released: {{ and $p.released (eq (len $remotePods) 0) (empty $remoteJob) }}

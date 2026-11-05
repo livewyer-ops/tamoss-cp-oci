@@ -5,6 +5,15 @@ metadata:
   labels:
     rbac.crossplane.io/aggregate-to-crossplane: "true"
 rules:
+  - apiGroups: [batch]
+    resources: [jobs, jobs/status]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [helm.toolkit.fluxcd.io]
     resources: [helmreleases]
     verbs: [get, list, watch, create, update, patch, delete]

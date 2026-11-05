@@ -1,0 +1,306 @@
+{{- $remote := $p.remoteBootstrap | default dict -}}
+{{- $remoteJob := (get .observed.resources "remote-job" | default dict).resource | default dict -}}
+{{- $connection := (get .observed.resources "remote-connection" | default dict).resource | default dict -}}
+{{- $remotePods := dig "remotePods" "items" (list) (.extraResources | default dict) -}}
+{{- $remoteCompleted := dig "status" "remoteBootstrapCompleted" false $xr -}}
+{{- $remoteReady := empty $remote -}}
+{{- $remotePhase := "Disabled" -}}
+{{- if $remote -}}
+{{- $cluster := dig "status" "outputs" "clusterId" "" $environment | default (dig "metadata" "annotations" "tamoss.livewyer.io/cluster-id" "" $connection) -}}
+{{- $vault := dig "status" "vaultId" "" $foundation -}}
+{{- $receipt := dig "data" "complete" "" $connection | b64dec | eq "true" -}}
+{{- $bound := and (ne $cluster "") (eq (dig "metadata" "annotations" "tamoss.livewyer.io/deployment-id" "" $connection) $p.deploymentId) (eq (dig "metadata" "annotations" "tamoss.livewyer.io/cluster-id" "" $connection) $cluster) (eq (dig "data" "clusterID" "" $connection) (b64enc $cluster)) (ne (dig "data" "remoteUID" "" $connection) "") (ne (dig "data" "remoteServer" "" $connection) "") (ne (dig "data" "kubeconfig" "" $connection) "") -}}
+{{- $running := false -}}
+{{- range $remotePods -}}
+{{- if not (has (dig "status" "phase" "" .resource) (list "Succeeded" "Failed")) -}}{{- $running = true -}}{{- end -}}
+{{- end -}}
+{{- $remoteCompleted = or $remoteCompleted (and $receipt $bound (not $running)) -}}
+{{- $remoteReady = and $remoteCompleted $receipt $bound (not $running) -}}
+{{- $remotePhase = "Waiting" -}}
+{{- $deliveries := dig "remoteCredentials" "items" (list) (.extraResources | default dict) -}}
+{{- $delivered := eq (len $deliveries) 11 -}}
+{{- range $deliveries -}}
+{{- $ready := false -}}
+{{- range (dig "status" "conditions" (list) .resource) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
+{{- end -}}
+{{- $delivered = and $delivered $ready -}}
+{{- end -}}
+{{- $retired := false -}}
+{{- range (dig "status" "conditions" (list) $secretRelease) -}}
+{{- if and (eq .type "Ready") (eq .status "True") (eq (dig "status" "observedGeneration" 0 $secretRelease) ($secretRelease.metadata.generation | default 0)) (not (dig "spec" "values" "initialise" true $secretRelease)) -}}{{- $retired = true -}}{{- end -}}
+{{- end -}}
+{{- $eligible := and (dig "status" "bootstrapReady" false $environment) $accessReady $delivered $retired ($p.credentialsEstablished | default false) (ne $vault "") -}}
+{{- $remaining := sub (unixEpoch (toDate "2006-01-02T15:04:05Z07:00" $remote.deadline) | int64) (unixEpoch now | int64) -}}
+{{- if $remoteJob -}}{{- $remotePhase = "Running" -}}{{- end -}}
+{{- range (dig "status" "conditions" (list) $remoteJob) -}}
+{{- if and (eq .type "Failed") (eq .status "True") -}}{{- $remotePhase = "Failed" -}}{{- end -}}
+{{- end -}}
+{{- if and (not $remoteJob) (le $remaining 0) -}}{{- $remotePhase = "DeadlineExceeded" -}}{{- end -}}
+{{- if $remoteCompleted -}}{{- $remotePhase = "InvalidConnection" -}}{{- end -}}
+{{- if $remoteReady -}}{{- $remotePhase = "Succeeded" -}}{{- end -}}
+{{- if $p.released -}}{{- $remotePhase = "Released" -}}{{- end -}}
+{{- if $cluster }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oke-connection
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-connection" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+type: Opaque
+{{- end }}
+{{- if or $remoteJob (and $eligible (gt $remaining 0) (not $remoteCompleted)) }}
+{{- if not $p.released }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oke-bootstrap
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-account" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oke-bootstrap
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-role" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [oke-connection]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oke-bootstrap
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-binding" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: oke-bootstrap}
+subjects:
+  - {kind: ServiceAccount, name: oke-bootstrap, namespace: {{ $xr.metadata.namespace }}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oke-bootstrap
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-seed" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+data:
+  facts.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata: {name: bootstrap-facts, namespace: flux-system}
+    data: {VAULT_ID: {{ $vault | default (dig "spec" "values" "vaultId" "" $accessRelease) | quote }}}
+  kustomization.yaml: |
+    apiVersion: kustomize.config.k8s.io/v1beta1
+    kind: Kustomization
+    namespace: flux-system
+    resources: [sync.yaml, facts.yaml]
+    secretGenerator:
+      - name: github-app
+        files: [githubAppID, githubAppInstallationID, githubAppPrivateKey]
+    generatorOptions:
+      disableNameSuffixHash: true
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oke-bootstrap
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-job" }}
+    gotemplating.fn.crossplane.io/ready: {{ $remoteReady | toString | title | quote }}
+  labels:
+    tamoss.livewyer.io/bootstrap: oke
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+spec:
+{{- if $remoteJob }}
+{{ $remoteJob.spec | toYaml | indent 2 }}
+{{- else }}
+  completions: 1
+  parallelism: 1
+  backoffLimit: 6
+  activeDeadlineSeconds: {{ min 1800 $remaining }}
+  podReplacementPolicy: Failed
+  template:
+    metadata:
+      labels:
+        tamoss.livewyer.io/bootstrap: oke
+        tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+    spec:
+      serviceAccountName: oke-bootstrap
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets: [{name: ghcr}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: retrieve
+          image: &image {{ $remote.image | quote }}
+          command: [oci]
+          args: [--auth, api_key, --connection-timeout, '10', --read-timeout, '30', --max-retries, '0', ce, cluster, create-kubeconfig, --cluster-id, {{ $cluster | quote }}, --file, /work/remote.kubeconfig, --token-version, 2.0.0, --kube-endpoint, PUBLIC_ENDPOINT]
+          env: &environment
+            - {name: HOME, value: /tmp}
+            - {name: OCI_CLI_AUTH, value: api_key}
+            - {name: OCI_CLI_REGION, value: {{ $p.environment.region | quote }}}
+            - {name: OCI_CLI_USER, value: {{ $p.vaultAuth.user | quote }}}
+            - {name: OCI_CLI_TENANCY, value: {{ $p.vaultAuth.tenancy | quote }}}
+            - {name: OCI_CLI_KEY_FILE, value: /oci/privatekey}
+            - name: OCI_CLI_FINGERPRINT
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: fingerprint}}
+            - {name: CLUSTER_ID, value: {{ $cluster | quote }}}
+            - {name: DEPLOYMENT_ID, value: {{ $p.deploymentId | quote }}}
+            - {name: NAMESPACE, value: {{ $xr.metadata.namespace | quote }}}
+          securityContext: &security
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources: &resources
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts: &remoteMounts
+            - {name: work, mountPath: /work}
+            - {name: temporary, mountPath: /tmp}
+            - {name: oci, mountPath: /oci, readOnly: true}
+        - name: expected-identity
+          image: *image
+          command: [/bin/sh, -ec]
+          args: ['kubectl -n "$NAMESPACE" get secret oke-connection -o json > /work/expected.json']
+          env: *environment
+          securityContext: *security
+          resources: *resources
+          volumeMounts: &localMounts
+            - {name: temporary, mountPath: /tmp}
+            - {name: work, mountPath: /work}
+            - {name: local-access, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+        - name: remote-identity
+          image: *image
+          command: [/bin/sh, -ec]
+          args: ['kubectl --kubeconfig /work/remote.kubeconfig --request-timeout=30s get namespace kube-system -o json > /work/cluster.json']
+          env: *environment
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *remoteMounts
+        - name: validate
+          image: *image
+          command: [/bin/sh, -ec]
+          args:
+            - >-
+              yq -n -e -o=json 'load("/work/expected.json") as $e | load("/work/remote.kubeconfig") as $k |
+              load("/work/cluster.json").metadata.uid as $uid |
+              select($e.metadata.annotations."tamoss.livewyer.io/deployment-id" == strenv(DEPLOYMENT_ID)) |
+              select($e.metadata.annotations."tamoss.livewyer.io/cluster-id" == strenv(CLUSTER_ID)) |
+              select($k.users[0].user.exec.command == "oci" and ($k.users[0].user.exec.args | contains([strenv(CLUSTER_ID)]))) |
+              select($k.clusters[0].cluster."certificate-authority-data" != null and $k.clusters[0].cluster."insecure-skip-tls-verify" != true) |
+              select($uid != null and $uid != "") |
+              select($e.data.remoteUID == null or (($e.data.remoteUID | @base64d) == $uid and ($e.data.remoteServer | @base64d) == $k.clusters[0].cluster.server)) |
+              select($e.data.complete != "dHJ1ZQ==") |
+              [{"op":"test","path":"/metadata/resourceVersion","value":$e.metadata.resourceVersion},
+              {"op":"add","path":"/data","value":{
+              "clusterID":(strenv(CLUSTER_ID) | @base64), "remoteUID":($uid | @base64),
+              "remoteServer":($k.clusters[0].cluster.server | @base64),
+              "kubeconfig":(load_str("/work/remote.kubeconfig") | @base64), "complete":"ZmFsc2U="}}] | select(length == 2)'
+              > /work/identity-patch.json
+          env: *environment
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *localMounts
+        - name: record-identity
+          image: *image
+          command: [kubectl]
+          args: [-n, {{ $xr.metadata.namespace | quote }}, patch, secret, oke-connection, --type=json, --patch-file=/work/identity-patch.json]
+          env: [{name: HOME, value: /tmp}]
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *localMounts
+        - name: install-flux
+          image: *image
+          command: [flux]
+          args: [--kubeconfig, /work/remote.kubeconfig, install, --version, {{ $remote.fluxVersion | quote }}, --timeout=10m]
+          env: *environment
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *remoteMounts
+        - name: seed
+          image: *image
+          command: [kubectl]
+          args: [--kubeconfig, /work/remote.kubeconfig, apply, --server-side, -k, /seed]
+          env: *environment
+          securityContext: *security
+          resources: *resources
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: temporary, mountPath: /tmp}
+            - {name: oci, mountPath: /oci, readOnly: true}
+            - {name: seed, mountPath: /seed, readOnly: true}
+      containers:
+        - name: complete
+          image: *image
+          command: [kubectl]
+          env: [{name: HOME, value: /tmp}]
+          args:
+            - -n
+            - {{ $xr.metadata.namespace | quote }}
+            - patch
+            - secret
+            - oke-connection
+            - --type=json
+            - -p
+            - {{ list (dict "op" "test" "path" "/metadata/annotations/tamoss.livewyer.io~1deployment-id" "value" $p.deploymentId) (dict "op" "test" "path" "/data/clusterID" "value" (b64enc $cluster)) (dict "op" "add" "path" "/data/complete" "value" (b64enc "true")) | toJson | quote }}
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *localMounts
+      volumes:
+        - name: work
+          emptyDir: {medium: Memory, sizeLimit: 8Mi}
+        - name: temporary
+          emptyDir: {medium: Memory, sizeLimit: 32Mi}
+        - name: oci
+          secret:
+            secretName: oci-vault-bootstrap
+            defaultMode: 288
+            items: [{key: privatekey, path: privatekey}]
+        - name: local-access
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{key: ca.crt, path: ca.crt}]
+              - downwardAPI:
+                  items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]
+        - name: seed
+          projected:
+            sources:
+              - configMap: {name: {{ $remote.seedConfigMap }}}
+              - configMap: {name: oke-bootstrap}
+              - secret:
+                  name: github-app
+                  items:
+                    - {key: githubAppID, path: githubAppID}
+                    - {key: githubAppInstallationID, path: githubAppInstallationID}
+                    - {key: githubAppPrivateKey, path: githubAppPrivateKey}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -8,7 +8,7 @@ directory and the original Kind cluster until teardown is verified.
 
 ## Workstation prerequisites
 
-The deployment has been exercised from Linux. Other workstation platforms remain
+The bootstrap tooling image targets Linux amd64. Other workstation platforms remain
 unverified. Install Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar,
 gzip, unzip and Docker with the Compose plugin. Docker must be running and
 accessible to your user; local checks run containers and management checks create
@@ -20,6 +20,7 @@ Install [Aqua](https://aquaproj.github.io/docs/install/), then follow the
 
 ```bash
 export PATH="$(aqua root-dir)/bin:$PATH"
+export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
 docker info
 docker compose version
 task --list
@@ -69,8 +70,8 @@ chmod 600 ~/.oci/config /absolute/path/to/oci_api_key.pem
 
 `OCI_CLI_CONFIG_FILE` and `OCI_CLI_PROFILE` select another config/profile for
 Task commands. Their defaults are `~/.oci/config` and `DEFAULT`. The profile's
-region must match the environment. The pinned [OCI CLI container](operations.md#native-oci-cli)
-can validate access without installing another CLI on the workstation.
+region must match the environment. Install the pinned [native OCI CLI](operations.md#native-oci-cli)
+through Aqua-managed uv before running the deployment or checks.
 
 ## Environment inputs
 
@@ -112,10 +113,10 @@ After the [native OCI CLI setup](operations.md#native-oci-cli), inspect the
 selected region's worker options and service networks:
 
 ```bash
-docker compose -f deploy/oci/compose.yaml run --rm -T oci ce node-pool-options get \
+oci ce node-pool-options get \
   --node-pool-option-id all \
   --compartment-id "$(yq -r .spec.compartmentId .local/environment/environment.yaml)"
-docker compose -f deploy/oci/compose.yaml run --rm -T oci network service list
+oci network service list
 ```
 
 Choose an image compatible with the selected Kubernetes version and worker
@@ -219,8 +220,10 @@ task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
 
 `up` records identity, prepares the environment Git configuration and records a
 cloud inventory baseline. Its Kind seed starts Crossplane provisioning and Vault
-credential persistence. As soon as OKE and its IAM grants are usable, it seeds
-remote Flux. Controllers deliver generated bindings through Vault and verify observe-only OKE
+credential persistence. Task verifies persisted credentials and retires staging
+inputs. Once OKE, its workers and IAM grants are usable, a Crossplane-owned Job
+in Kind retrieves the connection, installs Flux and seeds remote GitOps.
+Controllers deliver generated bindings through Vault and verify observe-only OKE
 adoption before transferring write authority. It waits for TAMOSS readiness, then
 stops original Kind. Ongoing changes come from Git.
 

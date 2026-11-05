@@ -1,0 +1,43 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: bootstrap-retry-guards}
+spec:
+  steps:
+    - name: preserve active absent and completed Jobs
+      try:
+        - command:
+            entrypoint: task
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=active]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=absent]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=completed]
+    - name: refuse released foreign and expired retries before API access
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=released]
+            check:
+              ($error != null): true
+              (contains($stderr, 'released or completed')): true
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=foreign]
+            check:
+              ($error != null): true
+              (contains($stderr, 'original bootstrap Job ownership')): true
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=expired]
+            check:
+              ($error != null): true
+              (contains($stderr, 'original bootstrap deadline')): true

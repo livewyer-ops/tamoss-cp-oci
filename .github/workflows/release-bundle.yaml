@@ -44,6 +44,8 @@ jobs:
       - name: Verify the release and prepare the allowlisted bundle
         run: |
           export PATH="$(aqua root-dir)/bin:$PATH"
+          uv tool install --python 3.12 "oci-cli==$(yq -r .oci.version dependencies.yaml)"
+          export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
           task check
       - name: Authenticate the publisher
         env:

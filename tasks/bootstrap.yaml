@@ -88,7 +88,7 @@ tasks:
       - task: :lifecycle:baseline
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: seed
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: foundation
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: secrets
@@ -102,13 +102,23 @@ tasks:
       - task: :cloud:bootstrap-ready
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
   seed:
-    requires: {vars: [ENV_DIR]}
+    requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
       NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
-      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
     status:
       - 'yq -e ''.bootstrapUID != null'' {{.ENV_DIR}}/identity.yaml > /dev/null'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{.NAME}} -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").bootstrapUID' > /dev/null
+    cmds:
+      - task: seed-new
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  seed-new:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+      CLEANUP_SECONDS: {sh: 'yq -r ".cleanupHours * 3600" {{shellQuote .ENV_DIR}}/cost.yaml'}
+      EXPIRY: {sh: 'date -d "$(yq -r .spec.expiresAt {{shellQuote .ENV_DIR}}/environment.yaml)" +%s'}
+      DEADLINE: {sh: 'date -u -d "@$(({{.EXPIRY}} - {{.CLEANUP_SECONDS}}))" +%Y-%m-%dT%H:%M:%SZ'}
     preconditions:
       - sh: 'yq -e ''.bootstrapUID == null'' {{.ENV_DIR}}/identity.yaml > /dev/null'
         msg: Existing bootstrap identity is unavailable; restore the original Kind state
@@ -128,12 +138,18 @@ tasks:
         "spec": {"deploymentId": load("{{.ENV_DIR}}/identity.yaml").deploymentUID,
         "released": false, "credentialsEstablished": (load("{{.ENV_DIR}}/identity.yaml").credentialsEstablished == true),
         "vaultAuth": (load("{{.ENV_DIR}}/identity.yaml").oci | {"user": .user, "tenancy": .tenancy}),
-        "foundationName": $f.metadata.name, "foundation": $f.spec, "environment": $e.spec}}'
+        "foundationName": $f.metadata.name, "foundation": $f.spec, "environment": $e.spec,
+        "remoteBootstrap": {"image": load("{{.ROOT_DIR}}/dependencies.yaml").bootstrapTools.image,
+        "fluxVersion": "{{.FLUX_VERSION}}", "seedConfigMap": "oke-bootstrap-input", "deadline": "{{.DEADLINE}}"}}}'
         > '{{.ENV_DIR}}/bootstrap.yaml'
       - task: :management:render
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - >-
+        kubectl create configmap oke-bootstrap-input -n tamoss-infra
+        --from-file=sync.yaml={{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml
+        --dry-run=client -o yaml | yq '.immutable = true' > '{{.ENV_DIR}}/oke-bootstrap-input.yaml'
       - cp deploy/management/kustomization.yaml '{{.ENV_DIR}}/kustomization.yaml'
-      - 'yq -i ''.resources += ["provider", "secrets"]'' {{.ENV_DIR}}/kustomization.yaml'
+      - 'yq -i ''.resources += ["provider", "secrets", "oke-bootstrap-input.yaml"]'' {{.ENV_DIR}}/kustomization.yaml'
       - flux --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' install --version='{{.FLUX_VERSION}}' --components=source-controller,helm-controller --timeout=5m
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -k '{{.ENV_DIR}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-bootstrap-instance --for=condition=Ready --timeout=1200s
@@ -199,8 +215,10 @@ tasks:
     cmds:
       - task: :gitops:current-checkout
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: runtime-flux
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: remote-bootstrap
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: connection
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:infrastructure-ready
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:resources
@@ -237,35 +255,93 @@ tasks:
       - task: :transfer:stop-kind
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.handoverComplete = true'' {{.ENV_DIR}}/identity.yaml'
-  runtime-flux:
-    silent: true
-    requires: {vars: [ENV_DIR, CHECKOUT]}
+  remote-bootstrap:
+    requires: {vars: [ENV_DIR]}
     vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
-      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
-      FLUX_OWNER: {sh: 'test -s {{shellQuote .ENV_DIR}}/remote.kubeconfig && kubectl --kubeconfig {{shellQuote .ENV_DIR}}/remote.kubeconfig -n flux-system get deployment/kustomize-controller --ignore-not-found -o ''jsonpath={.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}'''}
-    status:
-      - test '{{.FLUX_OWNER}}' = environment
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+      DEPLOYMENT: {sh: 'yq -r .deploymentUID {{.ENV_DIR}}/identity.yaml'}
     cmds:
-      - task: :identity:local-owner
+      - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :identity:remote
+      - task: observe
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - mkdir -p -m 700 '{{.ENV_DIR}}/runtime-seed'
-      - install -m 600 /dev/null '{{.ENV_DIR}}/runtime-seed/github-app.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get jobs -l 'tamoss.livewyer.io/bootstrap=oke,tamoss.livewyer.io/deployment-id={{.DEPLOYMENT}}' -o json > '{{.ENV_DIR}}/bootstrap-jobs.json'
+      - task: retry-remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for=jsonpath='{.status.remoteBootstrapReady}=true' --timeout=1800s
+  retry-remote:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - 'yq -e ''load("{{.ENV_DIR}}/bootstrap-observed.json").status.remoteBootstrapCompleted == true or ([.items[].status.conditions[] | select(.type == "Failed" and .status == "True")] | length == 0)'' {{.ENV_DIR}}/bootstrap-jobs.json > /dev/null'
+    cmds:
+      - task: replace-remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  replace-remote:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      REPORT: '{{.ENV_DIR}}/reports/bootstrap-{{now | unixEpoch}}'
+    preconditions:
+      - sh: 'yq -e ''.spec.released != true and .status.remoteBootstrapCompleted != true'' {{.ENV_DIR}}/bootstrap-observed.json > /dev/null'
+        msg: A released or completed bootstrap cannot be retried
+      - sh: >-
+          yq -e 'load("{{.ENV_DIR}}/bootstrap-observed.json").metadata.uid as $uid |
+          [.items | length == 1, (.items[0].metadata.ownerReferences | map(.uid) | contains([$uid]))] | all'
+          '{{.ENV_DIR}}/bootstrap-jobs.json' > /dev/null
+        msg: Retry requires the original bootstrap Job ownership
+      - sh: test "$(date -d "$(yq -r .spec.remoteBootstrap.deadline '{{.ENV_DIR}}/bootstrap-observed.json')" +%s)" -gt "$(date -u +%s)"
+        msg: The original bootstrap deadline has passed; proceed with teardown
+      - sh: >-
+          kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json |
+          yq -p=json -e '.data.complete != "dHJ1ZQ=="' > /dev/null
+        msg: A recorded successful seed must not be replayed
+    cmds:
+      - task: :lifecycle:time-window
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - mkdir -p -m 700 '{{.REPORT}}'
+      - cp '{{.ENV_DIR}}/bootstrap-jobs.json' '{{.REPORT}}/jobs.json'
+      - cmd: kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra logs -l job-name=oke-bootstrap --all-containers=true --prefix=true --max-log-requests=7 > '{{.REPORT}}/pods.log' 2>&1
+        ignore_error: true
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get events -o json > '{{.REPORT}}/events.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete job oke-bootstrap --cascade=foreground --wait=true --timeout=180s
+  connection:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    env:
+      OCI_CLI_CONFIG_FILE: '{{.OCI_CONFIG}}'
+      OCI_CLI_PROFILE: '{{.OCI_PROFILE}}'
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - install -m 600 /dev/null '{{.ENV_DIR}}/oke-connection.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json > '{{.ENV_DIR}}/oke-connection.json'
       - >-
-        kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret/github-app -o json |
-        yq -p=json '{"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-        "metadata": {"name": "github-app", "namespace": "flux-system"}, "data": .data}'
-        > '{{.ENV_DIR}}/runtime-seed/github-app.yaml'
-      - defer: rm -f '{{.ENV_DIR}}/runtime-seed/github-app.yaml'
+        yq -p=json -e 'load("{{.ENV_DIR}}/identity.yaml") as $i |
+        select(.metadata.annotations."tamoss.livewyer.io/deployment-id" == $i.deploymentUID) |
+        (.data.clusterID | @base64d) as $id |
+        [.data.complete == "dHJ1ZQ==", .metadata.annotations."tamoss.livewyer.io/cluster-id" == $id,
+        ($i.clusterID == null or $i.clusterID == $id),
+        (load("{{.ENV_DIR}}/owned-current.yaml") | map(.id) | contains([$id])),
+        ($i.remoteUID == null or ($i.remoteUID == (.data.remoteUID | @base64d) and $i.remoteServer == (.data.remoteServer | @base64d)))] | all'
+        '{{.ENV_DIR}}/oke-connection.json' > /dev/null
+      - install -m 600 /dev/null '{{.ENV_DIR}}/remote.pending.kubeconfig'
+      - yq -p=json -r '.data.kubeconfig | @base64d' '{{.ENV_DIR}}/oke-connection.json' > '{{.ENV_DIR}}/remote.pending.kubeconfig'
       - >-
-        yq -n '{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "bootstrap-facts", "namespace": "flux-system"},
-        "data": {"VAULT_ID": load("{{.ENV_DIR}}/foundation-record.yaml").vaultId}}' > '{{.ENV_DIR}}/runtime-seed/facts.yaml'
-      - cp '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml' '{{.ENV_DIR}}/runtime-seed/sync.yaml'
-      - 'yq -n ''{"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": ["github-app.yaml", "facts.yaml", "sync.yaml"]}'' > {{.ENV_DIR}}/runtime-seed/kustomization.yaml'
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' install --version='{{.FLUX_VERSION}}' --timeout=10m
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/runtime-seed'
+        yq -e 'load("{{.ENV_DIR}}/oke-connection.json").data as $d |
+        [.users[0].user.exec.command == "oci", (.users[0].user.exec.args | contains([($d.clusterID | @base64d)])),
+        .clusters[0].cluster.server == ($d.remoteServer | @base64d),
+        .clusters[0].cluster."insecure-skip-tls-verify" != true] | all'
+        '{{.ENV_DIR}}/remote.pending.kubeconfig' > /dev/null
+      - >-
+        yq -i '.users[].user.exec.env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)},
+        {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}]' '{{.ENV_DIR}}/remote.pending.kubeconfig'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.pending.kubeconfig' get namespace kube-system -o json |
+        yq -p=json -e '.metadata.uid == (load("{{.ENV_DIR}}/oke-connection.json").data.remoteUID | @base64d)' > /dev/null
+      - >-
+        yq -i 'load("{{.ENV_DIR}}/oke-connection.json").data as $d |
+        .clusterID = ($d.clusterID | @base64d) | .remoteUID = ($d.remoteUID | @base64d) |
+        .remoteServer = ($d.remoteServer | @base64d)' '{{.ENV_DIR}}/identity.yaml'
+      - mv '{{.ENV_DIR}}/remote.pending.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig'
   foundation:
     requires: {vars: [ENV_DIR]}
     vars:
@@ -456,7 +532,7 @@ tasks:
       - task: :identity:management
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - kind delete cluster --name 'tamoss-cp-{{.NAME}}'
-      - rm -f '{{.ENV_DIR}}/management.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig'
+      - rm -f '{{.ENV_DIR}}/management.kubeconfig' '{{.ENV_DIR}}/remote.kubeconfig' '{{.ENV_DIR}}/remote.pending.kubeconfig' '{{.ENV_DIR}}/oke-connection.json'
       - echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{.ENV_DIR}}/retained-foundation.yaml'
   remove-access:
     requires: {vars: [ENV_DIR]}

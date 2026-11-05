@@ -20,7 +20,7 @@ tasks:
         "calicoCommit": ($d.artifacts[] | select(.path == "calico/calico-policy-only.yaml") | .url | split("/")[5])},
         "packages": load("{{.ROOT_DIR}}/charts/packages/values.yaml"),
         "externalSecrets": load("{{.ROOT_DIR}}/deploy/secrets/controller-values.yaml"),
-        "connectionImages": {"oci": load("{{.ROOT_DIR}}/deploy/oci/compose.yaml").services.oci.image,
+        "connectionImages": {"oci": load("{{.ROOT_DIR}}/dependencies.yaml").oci.image,
         "yq": $d.connectionDetails.yqImage, "kubectl": $d.connectionDetails.kubectlImage},
         "release": {"tag": load("{{.RELEASE_LOCK}}").tag,
         "releaseSha256": load("{{.RELEASE_LOCK}}").releaseSha256,

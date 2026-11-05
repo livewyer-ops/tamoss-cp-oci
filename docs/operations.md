@@ -63,7 +63,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Preflight rejection | Placeholder inputs, matching OCI region/profile, file permissions, current UTC cost date and cleanup window |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
-| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
+| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`, `remoteBootstrapPhase`; inspect child conditions and HelmReleases |
+| OKE Flux seed failed | Kind `tamoss-infra/oke-bootstrap` Job and init-container logs; preserve the Job and `oke-connection` Secret |
 | Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
@@ -110,13 +111,32 @@ and missing established credentials before retrying. Once teardown starts, use
 `down` to finish it.
 
 During initial provisioning, Flux and Crossplane continue reconciling if
-Task exits. Resume `up` to complete credential retirement, remote seed
-or handover. Preserve `bootstrap.yaml`, `management-values.yaml` and the recorded
+Task exits. After credential retirement, Kind's `oke-bootstrap` Job can retrieve
+the remote connection, install Flux and seed GitOps without the Task process.
+Resume `up` to observe completion and perform handover. Preserve
+`bootstrap.yaml`, `management-values.yaml` and the recorded
 bootstrap UID alongside the existing environment identity. Do not manually unpause a released root during
 operations or deletion; `down` verifies and preserves the paused boundary.
 Keep `tamoss-bootstrap-instance` suspended after handover. Restarting Kind must
 not reinstall its original bootstrap intent. Teardown refreshes controller/API
 releases from current Git while leaving that instance suspended.
+
+The Job allows six retries and at most thirty minutes, capped by the original
+deployment's cleanup cutoff. A repeat `up` archives a terminal failure's Job,
+logs and events before replacing that original Job, provided time remains.
+An active, completed or released bootstrap is never replaced by this retry.
+Do not delete `oke-connection`: its completion record prevents replay, and its
+cluster identity prevents a retry seeding a different cluster. Inspect progress
+without exposing the connection data:
+
+```bash
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossbootstrap
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get job oke-bootstrap
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra logs job/oke-bootstrap --all-containers=true
+```
+
+The new Job contract applies to new environments. Use an existing environment's
+recorded product commit for its operations and teardown.
 
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
 overwrites them, continue independent checks where appropriate, and keep enough
@@ -135,20 +155,29 @@ establish that database migrations can be reversed.
 
 ## Native OCI CLI
 
-The repository pins OCI CLI in [Compose](../deploy/oci/compose.yaml). In the shell
-used for read-only inspection, select the appropriate existing OCI profile and
-prepare its config/key mounts:
+Aqua supplies `uv`; install the OCI CLI version recorded in `dependencies.yaml`
+into its isolated Python environment:
 
 ```bash
-export OCI_CONFIG="${OCI_CLI_CONFIG_FILE:-$HOME/.oci/config}"
-export OCI_PROFILE="${OCI_CLI_PROFILE:-DEFAULT}"
-export OCI_KEY_FILE="$(yq -p=ini -oy -r '(. * (.[strenv(OCI_PROFILE)] // {})).key_file' "$OCI_CONFIG")"
-export OCI_UID="$(id -u)" OCI_GID="$(id -g)"
-docker compose -f deploy/oci/compose.yaml run --rm -T oci os ns get
+uv tool install --python 3.12 "oci-cli==$(yq -r .oci.version dependencies.yaml)"
+export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
+export OCI_CLI_CONFIG_FILE="${OCI_CLI_CONFIG_FILE:-$HOME/.oci/config}"
+export OCI_CLI_PROFILE="${OCI_CLI_PROFILE:-DEFAULT}"
+oci os ns get
 ```
 
-Expected: the Object Storage namespace. The container mounts only the selected
-config and signing key, read-only. This does not grant additional IAM access.
+Expected: the Object Storage namespace. Commands use the selected local profile
+and signing key. The bootstrap Job mounts its Kind-held key read-only and uses
+the same pinned OCI CLI version. This does not grant additional IAM access.
+
+The Job's [tooling image](../deploy/oke-bootstrap/Dockerfile) contains the pinned
+OCI CLI, Flux, kubectl and yq. To change its tools, update the selections in
+`dependencies.yaml` and run the [publication workflow](../.github/workflows/bootstrap-tools.yaml)
+on the product repository's default branch. The workflow uses `GITHUB_TOKEN` to
+publish and `GHCR_READ_TOKEN` to verify private package ownership. Record the
+published digest in `bootstrapTools.image` before selecting that product commit
+for a new environment. Its persisted GHCR read credential must have access to
+this package as well as the release assets.
 
 ## Posted billing
 
@@ -162,8 +191,8 @@ Enter the start and exclusive end dates at UTC midnight for the period to inspec
 ```bash
 read -r -p 'Usage start (YYYY-MM-DDT00:00:00Z): ' COST_START
 read -r -p 'Usage end, exclusive (YYYY-MM-DDT00:00:00Z): ' COST_END
-COST_TENANCY="$(yq -p=ini -oy -r '(. * (.[strenv(OCI_PROFILE)] // {})).tenancy' "$OCI_CONFIG")"
-docker compose -f deploy/oci/compose.yaml run --rm -T oci \
+COST_TENANCY="$(yq -p=ini -oy -r '(. * (.[strenv(OCI_CLI_PROFILE)] // {})).tenancy' "$OCI_CLI_CONFIG_FILE")"
+oci \
   usage-api usage-summary request-summarized-usages \
   --tenant-id "$COST_TENANCY" \
   --time-usage-started "$COST_START" --time-usage-ended "$COST_END" \

@@ -33,12 +33,12 @@ spec:
                   storageTier: Standard
             timeout: 5m
         - command:
-            entrypoint: docker
+            entrypoint: oci
             env: &bucket
               - {name: PROJECT_ROOT, value: ($values.root)}
               - {name: OBJECT_NAMESPACE, value: ($values.objectNamespace)}
               - {name: BUCKET_NAME, value: ($values.bucketName)}
-            args: [compose, -f, $PROJECT_ROOT/deploy/oci/compose.yaml, run, --rm, -T, oci, os, bucket, get, --namespace-name, $OBJECT_NAMESPACE, --name, $BUCKET_NAME]
+            args: [ os, bucket, get, --namespace-name, $OBJECT_NAMESPACE, --name, $BUCKET_NAME]
             check:
               ($error == null): true
               (json_parse($stdout).data."public-access-type"): NoPublicAccess
@@ -57,9 +57,9 @@ spec:
               - $STORAGE_DIRECTORY/values.yaml
               - sync
         - command:
-            entrypoint: docker
+            entrypoint: oci
             env: *bucket
-            args: [compose, -f, $PROJECT_ROOT/deploy/oci/compose.yaml, run, --rm, -T, oci, os, bucket, get, --namespace-name, $OBJECT_NAMESPACE, --name, $BUCKET_NAME]
+            args: [ os, bucket, get, --namespace-name, $OBJECT_NAMESPACE, --name, $BUCKET_NAME]
             check:
               ($error == null): true
               (json_parse($stdout).data.id): ($bucketID)

@@ -1,0 +1,7 @@
+        - name: before-seed
+          image: *image
+          command: [kubectl]
+          args: [-n, oke-check, wait, secret/oke-connection, '--for=jsonpath={.metadata.annotations.allow-seed}=true', --timeout=300s]
+          securityContext: *security
+          resources: *resources
+          volumeMounts: *localMounts

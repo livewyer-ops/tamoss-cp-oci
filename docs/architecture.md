@@ -21,13 +21,23 @@ separately; application readiness remains the responsibility of the OKE controll
 The root also composes HelmReleases for secret delivery and runtime IAM, deriving
 their values from observed Vault/key and OKE IDs. Flux owns their Helm operations.
 
-Task still supplies the initial credential imports, OCI access, Git publication
-and remote bootstrap. Ownership transfer, qualification and cleanup remain explicit
+Once OKE and its workers, runtime IAM and persisted credentials are ready, the
+root creates the `oke-bootstrap` Job in Kind. Its pinned OCI CLI retrieves the
+OKE kubeconfig; native init containers validate cluster identity, install Flux
+and apply the GitOps seed. Kubernetes owns retries and the execution deadline.
+The database can continue provisioning during this work. A restricted local
+ServiceAccount records the connection and successful seed in `oke-connection`;
+it cannot read other Secrets through the API. The OCI signing key stays in Kind.
+
+Task still supplies the initial credential imports, verifies persistence and
+retires staging credentials, publishes Git, and reads the completed connection.
+Ownership transfer, qualification and cleanup remain explicit
 operations. Before handover or teardown, Task freezes the bootstrap-instance
 HelmRelease and excludes an in-flight Helm action. It then irreversibly releases the root's
 configuration authority and confirms its reconciliation is paused. This prevents
 bootstrap settings or child recreation from competing with subsequent operations.
-Release and pause are both required: the release flag alone can still reapply an observed
+Release also removes the bootstrap Job and waits for its Pods to disappear before
+ownership transfer or teardown. Release and pause are both required: the release flag alone can still reapply an observed
 child snapshot. Repeated release keeps an already released root paused, including
 after its inputs change.
 
@@ -35,6 +45,8 @@ after its inputs change.
 flowchart LR
     Inputs[Private environment inputs] --> Kind[Kind / Flux / Crossplane / ESO]
     Kind --> OCI[OKE, networking, PostgreSQL and bucket]
+    Kind --> Job[OKE bootstrap Job]
+    Job --> Flux
     Kind --> Vault[Retained OCI Vault/key]
     Git[Desired environment Git configuration]
     Kind --> Bindings[Immutable adoption bindings in Vault]
@@ -71,11 +83,17 @@ is retained without write authority, stopped, and later receives current Git/liv
 configuration for deletion. This does not recover lost Kind state.
 
 After the remote Flux seed is submitted, its controllers fetch Git and create
-the runtime releases through their declared dependencies. The host seeds Flux with
+the runtime releases through their declared dependencies. The Kind Job seeds Flux with
 the already persisted, read-only Git App credential and the Vault identifier.
 Flux installs ESO and infrastructure controllers independently of database outputs.
 ESO takes ownership of the seeded credential and delivers GHCR credentials and
 adoption bindings. This lets OKE bootstrap while PostgreSQL is still provisioning.
+
+The connection record contains the deployment ID, OCI cluster ID, remote
+namespace UID, API server and kubeconfig. Completion prevents the Job being
+recreated after it has been removed. Subsequent operations use Git and the OKE
+controllers. The host uses the pinned native OCI CLI for renewable kubeconfig
+tokens, inventory, qualification and cleanup.
 
 Deployment completion observes the selected Git revision, current product chart
 and HelmRelease generation, then the `deployment-ready` Flux health check.

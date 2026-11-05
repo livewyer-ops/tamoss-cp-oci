@@ -1,0 +1,121 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  ROOT: '{{.ROOT}}'
+  DIRECTORY: '{{.ROOT}}/.local/tmp/check/oke-bootstrap'
+  CORE: {sh: 'yq -r ''"xpkg.crossplane.io/crossplane/crossplane:v" + .crossplane.version'' {{.ROOT}}/dependencies.yaml'}
+  IMAGE: {sh: 'yq -r .bootstrapTools.image {{.ROOT}}/dependencies.yaml'}
+  FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT}}/aqua.yaml'}
+includes:
+  bootstrap: {taskfile: ../../tasks/bootstrap.yaml, internal: true}
+tasks:
+  render:
+    cmds:
+      - mkdir -p -m 700 '{{.DIRECTORY}}'
+      - >-
+        yq '.spec.remoteBootstrap = {"image": "{{.IMAGE}}", "fluxVersion": "{{.FLUX_VERSION}}",
+        "seedConfigMap": "oke-bootstrap-input", "deadline": "2099-01-01T00:00:00Z"}'
+        '{{.ROOT}}/.local/tmp/check/bootstrap/native-retired-root.yaml' > '{{.DIRECTORY}}/root.yaml'
+      - >-
+        yq 'select(.kind != "TamossBootstrap") |
+        with(select(.kind == "HelmRelease"); .metadata.generation = 2 | .status.observedGeneration = 2 | .status.conditions = [{"type": "Ready", "status": "True"}]) |
+        with(select(.kind == "SecretFoundation"); .status = {"vaultId": "ocid1.vault.oc1.fixture", "keyId": "ocid1.key.oc1.fixture", "conditions": [{"type": "Ready", "status": "True"}]}) |
+        with(select(.kind == "TamossEnvironment"); .status.bootstrapReady = true | .status.outputs.clusterId = "ocid1.cluster.oc1.fixture")'
+        '{{.ROOT}}/.local/tmp/check/bootstrap/native-retired.yaml' > '{{.DIRECTORY}}/observed.yaml'
+      - cp '{{.ROOT}}/.local/tmp/check/controller-state/policies.yaml' '{{.DIRECTORY}}/required.yaml'
+      - >-
+        yq 'select(.kind == "ExternalSecret") | .status.conditions = [{"type": "Ready", "status": "True"}]'
+        '{{.ROOT}}/.local/tmp/check/bootstrap/native-deliveries.yaml' >> '{{.DIRECTORY}}/required.yaml'
+      - task: render-case
+        vars: {CASE: ready}
+      - 'yq eval-all -e ''[select(.kind == "Job")] | length == 1'' {{.DIRECTORY}}/ready.yaml'
+      - 'yq -e ''select(.kind == "Job") | [.spec.parallelism == 1, .spec.completions == 1, .spec.activeDeadlineSeconds == 1800, .spec.podReplacementPolicy == "Failed", .spec.template.spec.automountServiceAccountToken == false] | all'' {{.DIRECTORY}}/ready.yaml'
+      - 'yq -e ''select(.kind == "Role") | [(.rules | length == 1), (.rules[0].resources | join(",") == "secrets"), (.rules[0].resourceNames | join(",") == "oke-connection"), (.rules[0].verbs | join(",") == "get,patch")] | all'' {{.DIRECTORY}}/ready.yaml'
+      - for: [credentials, access, retired, expired, released, completed]
+        task: blocked
+        vars: {CASE: '{{.ITEM}}'}
+      - 'yq ''select(.metadata.annotations."crossplane.io/composition-resource-name" | test("^remote-"))'' {{.DIRECTORY}}/ready.yaml > {{.DIRECTORY}}/resources.yaml'
+      - crossplane resource validate '{{.ROOT}}/.local/tmp/check/bootstrap/api.yaml' '{{.DIRECTORY}}/resources.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT}}/.local/tmp/check/crossplane' --error-on-missing-schemas --skip-success-results
+      - chainsaw test --no-cluster --test-dir '{{.ROOT}}/tests/oke-bootstrap/retry' --set-string root='{{.ROOT}}' --report-format JUNIT-TEST --report-path '{{.ROOT}}/.local/reports' --report-name oke-bootstrap-retry
+  guarded-retry:
+    cmds:
+      - mkdir -p '{{.DIRECTORY}}/retry'
+      - >-
+        yq -n -o=json '{"metadata": {"uid": "original"}, "spec": {"released": ("{{.CASE}}" == "released"),
+        "remoteBootstrap": {"deadline": "2020-01-01T00:00:00Z"}},
+        "status": {"remoteBootstrapCompleted": ("{{.CASE}}" == "completed")}}' > '{{.DIRECTORY}}/retry/bootstrap-observed.json'
+      - >-
+        yq -n -o=json '{"items": [{"metadata": {"ownerReferences": [{"uid": "original"}]},
+        "status": {"conditions": [{"type": "Failed", "status": "True"}]}}]} |
+        with(select("{{.CASE}}" == "active"); .items[0].status.conditions = []) |
+        with(select("{{.CASE}}" == "absent"); .items = []) |
+        with(select("{{.CASE}}" == "foreign"); .items[0].metadata.ownerReferences[0].uid = "different")'
+        > '{{.DIRECTORY}}/retry/bootstrap-jobs.json'
+      - task: bootstrap:retry-remote
+        vars: {ENV_DIR: '{{.DIRECTORY}}/retry'}
+  blocked:
+    cmds:
+      - cp '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/{{.CASE}}-root.yaml'
+      - cp '{{.DIRECTORY}}/observed.yaml' '{{.DIRECTORY}}/{{.CASE}}-observed.yaml'
+      - >-
+        yq -i 'with(select("{{.CASE}}" == "credentials"); .spec.credentialsEstablished = false) |
+        with(select("{{.CASE}}" == "expired"); .spec.remoteBootstrap.deadline = "2020-01-01T00:00:00Z") |
+        with(select("{{.CASE}}" == "released"); .spec.released = true) |
+        with(select("{{.CASE}}" == "completed"); .status.remoteBootstrapCompleted = true)'
+        '{{.DIRECTORY}}/{{.CASE}}-root.yaml'
+      - >-
+        yq -i 'with(select("{{.CASE}}" == "access" and .metadata.name == "runtime-access"); .status.conditions[0].status = "False") |
+        with(select("{{.CASE}}" == "retired" and .metadata.name == "tamoss-secrets"); .status.observedGeneration = 1)'
+        '{{.DIRECTORY}}/{{.CASE}}-observed.yaml'
+      - task: render-case
+        vars: {CASE: '{{.CASE}}', ROOT_FILE: '{{.DIRECTORY}}/{{.CASE}}-root.yaml', OBSERVED: '{{.DIRECTORY}}/{{.CASE}}-observed.yaml'}
+      - 'yq eval-all -e ''[select(.kind == "Job")] | length == 0'' {{.DIRECTORY}}/{{.CASE}}.yaml'
+  render-case:
+    vars:
+      ROOT_FILE: '{{.ROOT_FILE | default (printf "%s/root.yaml" .DIRECTORY)}}'
+      OBSERVED: '{{.OBSERVED | default (printf "%s/observed.yaml" .DIRECTORY)}}'
+    cmds:
+      - crossplane composition render '{{.ROOT_FILE}}' '{{.ROOT}}/.local/tmp/check/bootstrap/native-composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.OBSERVED}}' --required-resources='{{.DIRECTORY}}/required.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/{{.CASE}}.yaml'
+  check:
+    requires: {vars: [MANAGEMENT_NAME]}
+    vars:
+      TARGET: 'tamoss-oke-check-{{now | unixEpoch}}'
+    cmds:
+      - >-
+        docker build -t tamoss-bootstrap-tools:check
+        --build-arg OCI_IMAGE="$(yq -r .oci.image '{{.ROOT}}/dependencies.yaml')"
+        --build-arg FLUX_IMAGE="$(yq -r .bootstrapTools.fluxImage '{{.ROOT}}/dependencies.yaml')"
+        --build-arg KUBECTL_IMAGE="$(yq -r .connectionDetails.kubectlImage '{{.ROOT}}/dependencies.yaml')"
+        --build-arg YQ_IMAGE="$(yq -r .connectionDetails.yqImage '{{.ROOT}}/dependencies.yaml')"
+        '{{.ROOT}}/deploy/oke-bootstrap'
+      - defer: kind delete cluster --name '{{.TARGET}}'
+      - defer: rm -f '{{.DIRECTORY}}/target.kubeconfig' '{{.DIRECTORY}}/internal.kubeconfig' '{{.DIRECTORY}}/fixture-secret.yaml'
+      - kind create cluster --name '{{.TARGET}}' --config '{{.ROOT}}/deploy/management/kind.yaml' --kubeconfig '{{.DIRECTORY}}/target.kubeconfig' --wait 120s
+      - install -m 600 /dev/null '{{.DIRECTORY}}/internal.kubeconfig'
+      - kind get kubeconfig --name '{{.TARGET}}' --internal > '{{.DIRECTORY}}/internal.kubeconfig'
+      - >-
+        yq -i '.users[0].user.exec = {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "oci",
+        "args": ["ce", "cluster", "generate-token", "--cluster-id", "ocid1.cluster.oc1.fixture"], "interactiveMode": "Never"}'
+        '{{.DIRECTORY}}/internal.kubeconfig'
+      - kind load docker-image tamoss-bootstrap-tools:check --name '{{.MANAGEMENT_NAME}}'
+      - task: prepare
+      - chainsaw test --test-dir '{{.ROOT}}/tests/oke-bootstrap/management' --set-string root='{{.ROOT}}' --set-string directory='{{.DIRECTORY}}' --exec-timeout 180s --assert-timeout 600s --report-format JUNIT-TEST --report-path '{{.ROOT}}/.local/reports' --report-name oke-bootstrap
+  prepare:
+    cmds:
+      - kubectl create secret generic fixture-kubeconfig -n oke-check --from-file=kubeconfig='{{.DIRECTORY}}/internal.kubeconfig' --dry-run=client -o yaml > '{{.DIRECTORY}}/fixture-secret.yaml'
+      - kubectl create configmap oke-bootstrap-input -n oke-check --from-file=sync.yaml='{{.ROOT}}/tests/oke-bootstrap/sync.yaml' --dry-run=client -o yaml > '{{.DIRECTORY}}/input.yaml'
+      - >-
+        yq '.spec.pipeline[0].input.inline.template |= (split("__REMOTE_BOOTSTRAP__") | join(load_str("{{.ROOT}}/charts/bootstrap/remote.gotmpl"))) |
+        .spec.pipeline[0].input.inline.template |= sub("image: &image .*", "image: &image tamoss-bootstrap-tools:check") |
+        .spec.pipeline[0].input.inline.template |= sub("command: \\[oci\\]", "command: [cp]") |
+        .spec.pipeline[0].input.inline.template |= sub("args: \\[--auth, api_key,.*", "args: [/fixture/kubeconfig, /work/remote.kubeconfig]") |
+        .spec.pipeline[0].input.inline.template |= sub("- \\{name: oci, mountPath: /oci, readOnly: true\\}", "- {name: oci, mountPath: /oci, readOnly: true}\n            - {name: fixture, mountPath: /fixture, readOnly: true}") |
+        .spec.pipeline[0].input.inline.template |= sub("volumes:", "volumes:\n        - name: fixture\n          secret: {secretName: fixture-kubeconfig}") |
+        .spec.pipeline[0].input.inline.template |= sub("        - name: seed\n          image:", load_str("{{.ROOT}}/tests/oke-bootstrap/before-seed.gotmpl") + "        - name: seed\n          image:") |
+        .spec.pipeline[0].input.inline.template |= sub("      containers:", load_str("{{.ROOT}}/tests/oke-bootstrap/before-complete.gotmpl") + "      containers:")'
+        '{{.ROOT}}/tests/oke-bootstrap/composition.yaml' > '{{.DIRECTORY}}/composition.yaml'
+      - >-
+        yq '.metadata.name = "oke-check" | .metadata.namespace = "oke-check" |
+        .spec.crossplane.compositionRef.name = "oke-bootstrap-check"'
+        '{{.DIRECTORY}}/root.yaml' > '{{.DIRECTORY}}/management-root.yaml'
+      - 'yq ''del(.spec.vaultAuth) | .metadata.name = "missing-auth"'' {{.DIRECTORY}}/management-root.yaml > {{.DIRECTORY}}/missing-auth.yaml'

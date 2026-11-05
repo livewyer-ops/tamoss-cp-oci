@@ -35,6 +35,13 @@ cluster. It tests provider package health, real API admission, required database
 CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
 include partial installs and retention of state when the cloud audit fails.
 
+The OKE bootstrap test adds a second disposable Kind cluster. Crossplane creates
+the production Job with a fixture replacing OCI kubeconfig retrieval. The Job
+installs Flux and submits the seed on that target. The tests exercise prerequisite
+gating, restricted Secret permissions, interruption around the seed, completion
+recording and replay prevention. The fixture uses Kind certificates; this does
+not qualify OCI token authentication or cloud IAM propagation.
+
 Authentik startup checks use the selected release's chart and image with an
 external PostgreSQL database and verified TLS. They require bounded OAuth setup
 with no server or worker restarts, then first-attempt repeat application and
@@ -136,7 +143,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 ## Verified coverage and limits
 
-The Flux-managed Kind bootstrap and Vault-delivered adoption bindings require
+The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption bindings require
 a fresh OCI run. The live results below describe the preceding bootstrap.
 
 The reduced secret seed and revision-aware readiness checks passed a resumed OCI

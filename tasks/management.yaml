@@ -56,10 +56,9 @@ tasks:
     cmds:
       - defer: kind delete cluster --name '{{.CHECK_NAME}}'
       - defer: rm -f '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig'
-      - defer: rm -f '{{.ROOT_DIR}}/.local/tmp/check/flux-bootstrap/environment/management.kubeconfig' '{{.ROOT_DIR}}/.local/tmp/check/flux-bootstrap/restart/management.kubeconfig'
+      - defer: rm -f '{{.ROOT_DIR}}/.local/tmp/check/flux-bootstrap/environment/management.kubeconfig' '{{.ROOT_DIR}}/.local/tmp/check/flux-bootstrap/restart/management.kubeconfig' '{{.ROOT_DIR}}/.local/tmp/check/bootstrap/management/management.kubeconfig'
       - kind create cluster --name '{{.CHECK_NAME}}' --config deploy/management/kind.yaml --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --wait 120s
       - defer: rm -rf '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-identity'
-      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/runtime-bootstrap --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-identity' --set-string kubeconfig='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name runtime-bootstrap
       - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' apply --server-side -f '{{.ROOT_DIR}}/.local/tmp/check/schemas/flux.yaml'
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/deployment-readiness --set-string root='{{.ROOT_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name deployment-readiness
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' task -t tests/flux-bootstrap/Taskfile.yaml install ROOT='{{.ROOT_DIR}}'
@@ -86,6 +85,7 @@ tasks:
       - kubectl --kubeconfig '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io compositeresourcedefinition/tamossbootstraps.tamoss.livewyer.io --for=condition=Established --timeout=120s
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --exec-timeout 180s --assert-timeout 180s --test-dir tests/bootstrap/management --set-string root='{{.ROOT_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name bootstrap-controller
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --skip-delete --test-dir tests/flux-bootstrap --set-string root='{{.ROOT_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name flux-bootstrap
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' task -t tests/oke-bootstrap/Taskfile.yaml check ROOT='{{.ROOT_DIR}}' MANAGEMENT_NAME='{{.CHECK_NAME}}'
   install:
     requires:
       vars: [MANAGEMENT_KUBECONFIG]
