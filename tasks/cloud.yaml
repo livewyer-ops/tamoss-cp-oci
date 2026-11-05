@@ -23,7 +23,7 @@ tasks:
       OCI_UID: {sh: id -u}
       OCI_GID: {sh: id -g}
     requires:
-      vars: [CREDENTIAL_DIR, MANAGEMENT_KUBECONFIG]
+      vars: [CREDENTIAL_DIR]
     preconditions:
       - sh: test -f '{{.OCI_CONFIG}}' && test -z "$(find '{{.OCI_CONFIG}}' -perm /077 -print)"
         msg: OCI config must have owner-only permissions
@@ -35,7 +35,6 @@ tasks:
         msg: Selected OCI profile is missing
     cmds:
       - mkdir -p -m 700 '{{.CREDENTIAL_DIR}}'
-      - defer: rm -f '{{.CREDENTIAL_DIR}}/credentials.json'
       - install -m 600 /dev/null '{{.CREDENTIAL_DIR}}/credentials.json'
       - >-
         yq -p=ini -o=json
@@ -45,8 +44,8 @@ tasks:
         "private_key": load_str(strenv(OCI_KEY_FILE)), "private_key_password": .pass_phrase}
         | with_entries(select(.value != null))'
         {{shellQuote .OCI_CONFIG}} > '{{.CREDENTIAL_DIR}}/credentials.json'
-      - cp deploy/credentials/kustomization.yaml deploy/credentials/namespace.yaml environments/example/provider.yaml '{{.CREDENTIAL_DIR}}/'
-      - kubectl --kubeconfig '{{.MANAGEMENT_KUBECONFIG}}' apply --server-side -k '{{.CREDENTIAL_DIR}}'
+      - cp deploy/credentials/kustomization.yaml deploy/credentials/namespace.yaml '{{.CREDENTIAL_DIR}}/'
+      - 'yq -i ''.resources = []'' {{.CREDENTIAL_DIR}}/kustomization.yaml'
   storage-run:
     requires:
       vars: [OCI_TEST_COMPARTMENT_ID]
@@ -81,10 +80,14 @@ tasks:
       - kind create cluster --name '{{.CHECK_NAME}}' --config deploy/management/kind.yaml --kubeconfig '{{.STORAGE_DIR}}/management.kubeconfig' --wait 120s
       - task: :management:install
         vars: {MANAGEMENT_KUBECONFIG: '{{.STORAGE_DIR}}/management.kubeconfig'}
+      - defer: rm -f '{{.STORAGE_DIR}}/credentials/credentials.json'
       - task: credentials
         vars:
           CREDENTIAL_DIR: '{{.STORAGE_DIR}}/credentials'
           MANAGEMENT_KUBECONFIG: '{{.STORAGE_DIR}}/management.kubeconfig'
+      - cp environments/example/provider.yaml '{{.STORAGE_DIR}}/credentials/'
+      - 'yq -i ''.resources += ["namespace.yaml", "provider.yaml"]'' {{.STORAGE_DIR}}/credentials/kustomization.yaml'
+      - kubectl --kubeconfig '{{.STORAGE_DIR}}/management.kubeconfig' apply --server-side -k '{{.STORAGE_DIR}}/credentials'
       - KUBECONFIG='{{.STORAGE_DIR}}/management.kubeconfig' chainsaw test --skip-delete --exec-timeout 600s --test-dir tests/storage --values '{{.STORAGE_DIR}}/values.yaml' --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.STORAGE_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name storage
       - task: storage-cleanup
       - echo 'Storage lifecycle check passed and cleanup was verified.'

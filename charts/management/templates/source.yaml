@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: tamoss-infra}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 1m
+  url: {{ required "product.url is required" .Values.product.url | quote }}
+  ref: {commit: {{ required "product.commit is required" .Values.product.commit | quote }}}
+  provider: github
+  secretRef:
+    name: {{ ternary "github-app" "github-app-input" .Values.credentialsEstablished }}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata: {name: crossplane, namespace: tamoss-infra}
+spec: {interval: 1h, url: 'https://charts.crossplane.io/stable'}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata: {name: external-secrets, namespace: tamoss-infra}
+spec: {interval: 1h, url: 'https://charts.external-secrets.io'}

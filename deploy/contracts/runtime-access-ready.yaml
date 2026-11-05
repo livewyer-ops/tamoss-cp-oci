@@ -1,0 +1,6 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: runtime-access, namespace: tamoss-infra}
+(status.observedGeneration == metadata.generation): true
+status:
+  (conditions[?type == 'Ready'] | [0].status): 'True'

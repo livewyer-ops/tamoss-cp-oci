@@ -112,8 +112,9 @@ tasks:
       - task: assert-quiesced
         vars: {FILE: '{{.ENV_DIR}}/management-resources.json'}
       - 'yq -e ''(.spec.managementPolicies | join(",")) == "Observe" or (.spec.managementPolicies | join(",")) == "*"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
-      - 'yq -i ''.providerWrites = true'' {{.ENV_DIR}}/runtime-access.yaml'
-      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl sync
+      - 'yq -i ''.runtimeWritesEnabled = true'' {{.ENV_DIR}}/identity.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch helmrelease/runtime-access --type=merge -p '{"spec":{"values":{"providerWrites":true}}}'
+      - KUBECONFIG='{{.ENV_DIR}}/management.kubeconfig' chainsaw assert -f '{{.ROOT_DIR}}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
   stop-kind:
     requires: {vars: [ENV_DIR]}
@@ -183,14 +184,16 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', KUBECONFIG: '{{.ENV_DIR}}/remote.kubeconfig', COMPOSITE: '{{.ENV_DIR}}/runtime-composite.json', OUTPUT: '{{.ENV_DIR}}/remote-resources.json'}
       - task: assert-quiesced
         vars: {FILE: '{{.ENV_DIR}}/remote-resources.json'}
-      - 'yq -i ''.providerWrites = false'' {{.ENV_DIR}}/runtime-access.yaml'
-      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -f deploy/management/runtime-access.yaml.gotmpl sync
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch helmrelease/runtime-access --type=merge -p '{"spec":{"values":{"providerWrites":false}}}'
+      - KUBECONFIG='{{.ENV_DIR}}/management.kubeconfig' chainsaw assert -f '{{.ROOT_DIR}}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
+      - 'yq -i ''.runtimeWritesEnabled = false'' {{.ENV_DIR}}/identity.yaml'
       - cp '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml' '{{.ENV_DIR}}/gitops-current-values.yaml'
-      - task: :management:install
+      - task: :management:refresh
         vars:
-          MANAGEMENT_KUBECONFIG: '{{.ENV_DIR}}/management.kubeconfig'
+          ENV_DIR: '{{.ENV_DIR}}'
           GITOPS_VALUES: '{{.ENV_DIR}}/gitops-current-values.yaml'
+          PRODUCT_COMMIT: '{{.PRODUCT_COMMIT}}'
       - 'yq ''.spec.managementPolicies = ["Observe"] | del(.metadata.annotations."crossplane.io/paused")'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > {{.ENV_DIR}}/environment.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{.NAME}} crossplane.io/paused- --overwrite
@@ -242,9 +245,9 @@ tasks:
         yq -p=json -e 'length == 0 or (.spec.managementPolicies | join(",") == "Observe,Delete")' > /dev/null) ||
         (kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} -o json |
         yq -p=json -e '[.spec.adoption == null, ((.spec.managementPolicies // ["*"]) | join(",") == "*")] | all' > /dev/null &&
-        (test ! -f '{{.ENV_DIR}}/runtime-access.yaml' || yq -e '.providerWrites == false' '{{.ENV_DIR}}/runtime-access.yaml' > /dev/null)) ||
+        yq -e '.runtimeWritesEnabled != true' '{{.ENV_DIR}}/identity.yaml' > /dev/null) ||
         (yq -e '.teardownStarted == true and .compositeUID == null and .gitopsEstablished != true' '{{.ENV_DIR}}/identity.yaml' > /dev/null &&
-        (test ! -f '{{.ENV_DIR}}/runtime-access.yaml' || yq -e '.providerWrites == false' '{{.ENV_DIR}}/runtime-access.yaml' > /dev/null) &&
+        yq -e '.runtimeWritesEnabled != true' '{{.ENV_DIR}}/identity.yaml' > /dev/null &&
         kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{.NAME}} --ignore-not-found -o json |
         yq -p=json -e 'length == 0' > /dev/null)
     cmds:

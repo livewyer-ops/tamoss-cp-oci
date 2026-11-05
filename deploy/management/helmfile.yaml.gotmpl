@@ -1,7 +1,4 @@
 {{- $selection := dict "dependencies" (readFile "../../dependencies.yaml" | fromYaml) "packages" (readFile "../../charts/packages/values.yaml" | fromYaml) -}}
-{{- with env "TAMOSS_GITOPS_VALUES" -}}
-{{- $selection = readFile . | fromYaml -}}
-{{- end -}}
 {{- $packages := mergeOverwrite (deepCopy $selection.packages) (dict "family" false "services" false "foundation" false "okeWorkloadIdentity" (dict "region" "")) -}}
 repositories:
   - name: crossplane-stable
@@ -37,24 +34,3 @@ releases:
     chart: ../../charts/environment
     labels:
       stage: api
-  - name: tamoss-secret-foundation-api
-    namespace: crossplane-system
-    chart: ../../charts/secret-foundation
-    labels:
-      stage: foundation-api
-  - name: oci-foundation
-    namespace: crossplane-system
-    chart: ../../charts/packages
-    labels:
-      stage: foundation-providers
-    values:
-      - {{ $packages | toJson }}
-      - foundation: true
-  - name: tamoss-bootstrap-api
-    namespace: crossplane-system
-    chart: ../../charts/bootstrap
-    labels:
-      stage: bootstrap-api
-    values:
-      - environmentDefinition: {{ readFile "../../charts/environment/definition.yaml" | quote }}
-        foundationDefinition: {{ readFile "../../charts/secret-foundation/definition.yaml" | quote }}

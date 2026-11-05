@@ -33,7 +33,24 @@ spec:
                   message: Bootstrap creates a new environment; ownership return uses the existing child directly
                 - rule: self.environment.database.credentialsSecret == "database-admin"
                   message: Bootstrap requires the scoped database-admin delivery
+                - rule: has(self.vaultAuth) == has(oldSelf.vaultAuth)
+                  message: Bootstrap credential ownership cannot change
               properties:
+                credentialsEstablished:
+                  type: boolean
+                  default: false
+                  x-kubernetes-validations:
+                    - rule: '!oldSelf || self'
+                      message: Established credentials cannot be regenerated
+                vaultAuth:
+                  type: object
+                  required: [user, tenancy]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Bootstrap Vault identity is immutable
+                  properties:
+                    user: {type: string, pattern: '^ocid1\.user\.'}
+                    tenancy: {type: string, pattern: '^ocid1\.tenancy\.'}
                 released:
                   type: boolean
                   default: false
@@ -65,4 +82,5 @@ spec:
                 foundationReady: {type: boolean}
                 credentialsReady: {type: boolean}
                 infrastructureReady: {type: boolean}
+                runtimeAccessReady: {type: boolean}
                 released: {type: boolean}

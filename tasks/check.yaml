@@ -98,6 +98,7 @@ tasks:
       - chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render
       - task: handover
       - task --taskfile tests/bootstrap/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
+      - task --taskfile tests/bootstrap/Taskfile.yaml render-native ROOT='{{.ROOT_DIR}}'
       - task: secrets
       - task: connection-details
       - task: gitops
@@ -178,7 +179,8 @@ tasks:
         cmd: 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/{{.ITEM}}.yaml > {{.CACHE}}/{{.ITEM}}-list.yaml'
       - chainsaw test --no-cluster --test-dir tests/secrets --report-format JUNIT-TEST --report-path .local/reports --report-name secrets
       - mkdir -p '{{.CACHE}}/secret-retirement'
-      - cp tests/secrets/values.yaml '{{.CACHE}}/secret-retirement/secret-store.yaml'
+      - 'yq ''{"deploymentUID": .deploymentId, "oci": .oracle.auth}'' tests/secrets/values.yaml > {{.CACHE}}/secret-retirement/identity.yaml'
+      - 'yq ''.oracle | {"region": .region, "vaultId": .vault, "compartmentId": .compartment}'' tests/secrets/values.yaml > {{.CACHE}}/secret-retirement/foundation-record.yaml'
       - TAMOSS_ENV_DIR='{{.CACHE}}/secret-retirement' helmfile -f deploy/secrets/retirement-helmfile.yaml.gotmpl template > '{{.CACHE}}/secret-retirement.yaml'
       - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/secret-retirement.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results
       - >-
@@ -280,10 +282,18 @@ tasks:
       - 'yq ''select(.kind == "Tamoss")'' {{.CACHE}}/gitops-instance.yaml > {{.CACHE}}/gitops-tamoss.yaml'
       - 'yq -e ''[.spec.version == load("deploy/tamoss/release.yaml").tag, .spec.backends.db.external.host == "fixture.postgresql.oci.oraclecloud.com", .spec.ingest.sources[0].s3.pathStyle == true] | all'' {{.CACHE}}/gitops-tamoss.yaml'
       - 'yq ''.packages.providerVersion = "v0.0.0" | .packages.okeWorkloadIdentity.region = "eu-frankfurt-1"'' {{.CACHE}}/gitops-pins.yaml > {{.CACHE}}/management-return-values.yaml'
-      - TAMOSS_GITOPS_VALUES='{{.CACHE}}/management-return-values.yaml' helmfile -f deploy/management/helmfile.yaml.gotmpl -l stage=services template > '{{.CACHE}}/management-return-render.yaml'
+      - >-
+        helm template management charts/management -f '{{.CACHE}}/management-return-values.yaml'
+        --set product.url=https://github.com/example/fixture --set-string product.commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        --set-file environmentDefinition=charts/environment/definition.yaml
+        --set-file foundationDefinition=charts/secret-foundation/definition.yaml
+        --set-file secretBootstrapFile=deploy/secrets/bootstrap-values.yaml |
+        yq 'select(.kind == "HelmRelease" and .metadata.name == "oci-services") | .spec.values'
+        > '{{.CACHE}}/management-return-packages.yaml'
+      - helm template packages charts/packages -f '{{.CACHE}}/management-return-packages.yaml' > '{{.CACHE}}/management-return-render.yaml'
       - >-
         yq eval-all -e '[select(.kind == "Provider") | select(.spec.runtimeConfigRef == null) |
-        select(.spec.package | test(":v0.0.0$"))] | length == 4'
+        select(.spec.package | test(":v0.0.0$"))] | length == 6'
         '{{.CACHE}}/management-return-render.yaml' > /dev/null
       - rm -rf '{{.CACHE}}/gitops-export-test' '{{.CACHE}}/gitops-export-test-publication'
       - chainsaw test --no-cluster --test-dir tests/gitops --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.CACHE}}/gitops-export-test' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops

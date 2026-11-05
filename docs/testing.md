@@ -43,6 +43,11 @@ Bootstrap checks use the real Crossplane and ESO controllers with fixture child
 compositions that create no cloud resources. They cover dependency readiness,
 controller restart with unchanged child identities, rejection of a replaced root,
 preservation of current settings after release and the pause before deletion.
+Flux installs the Kind controller releases from a local chart artefact. Further
+checks cover chart failure/recovery, controller-derived secret/IAM releases,
+irreversible credential retirement and a suspended instance across controller
+restarts and original Kind stop/start. Fixture sources and a Kubernetes secret backend replace GitHub App
+authentication and OCI Vault; these checks do not qualify those external services.
 
 External Secrets uses a local Kubernetes backend; the database connection Job
 uses fixture retrieval. Tests cover persisted-value reuse and refresh, missing
@@ -123,6 +128,9 @@ evidence and continue independent checks as appropriate, while keeping the budge
 and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deployment).
 
 ## Verified coverage and limits
+
+The Flux-managed Kind bootstrap has local controller coverage and still requires
+a fresh OCI run. The live results below describe the preceding bootstrap.
 
 The reduced secret seed and revision-aware readiness checks passed a resumed OCI
 deployment, repeat invocation and qualification with Kind stopped. The first cold

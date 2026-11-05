@@ -2,30 +2,36 @@
 
 [Overview](../README.md) | [Getting started](getting-started.md) | [Operations](operations.md) | [Testing](testing.md)
 
-Kind bootstraps Crossplane, the retained OCI Vault/key and the OKE environment.
+Flux in Kind installs Crossplane and External Secrets from a private seed.
+Crossplane creates the retained OCI Vault/key and the OKE environment.
 Flux, Crossplane and External Secrets on OKE take over ongoing reconciliation.
 The original Kind stops after verified ownership transfer and is retained for
 teardown. Git owns desired configuration after the initial export.
 
 Kind receives a `TamossBootstrap` composite containing the foundation and
-environment inputs. Crossplane creates the retained foundation, then creates the
+environment inputs. Flux installs providers, functions and composition APIs,
+then the bootstrap instance, using release dependencies and native retries.
+Crossplane creates the retained foundation, then creates the
 infrastructure child once the foundation is Ready and ESO has delivered this
 deployment's database credential. Those dependencies reconcile without a running
 Task process. The root reports foundation, credential and infrastructure readiness
 separately; application readiness remains the responsibility of the OKE controllers.
+The root also composes HelmReleases for secret delivery and runtime IAM, deriving
+their values from observed Vault/key and OKE IDs. Flux owns their Helm operations.
 
 Task still supplies the initial credential imports, OCI access, Git publication
 and remote bootstrap. Ownership transfer, qualification and cleanup remain explicit
-operations. Before handover or teardown, Task irreversibly releases the root's
+operations. Before handover or teardown, Task freezes the bootstrap-instance
+HelmRelease and excludes an in-flight Helm action. It then irreversibly releases the root's
 configuration authority and confirms its reconciliation is paused. This prevents
 bootstrap settings or child recreation from competing with subsequent operations.
-Both steps are required: the release flag alone can still reapply an observed
+Release and pause are both required: the release flag alone can still reapply an observed
 child snapshot. Repeated release keeps an already released root paused, including
 after its inputs change.
 
 ```mermaid
 flowchart LR
-    Inputs[Private environment inputs] --> Kind[Kind / Crossplane]
+    Inputs[Private environment inputs] --> Kind[Kind / Flux / Crossplane / ESO]
     Kind --> OCI[OKE, networking, PostgreSQL and bucket]
     Kind --> Vault[Retained OCI Vault/key]
     Kind --> Git[Environment Git repository]
@@ -49,7 +55,7 @@ remain unqualified.
 | Account administrator | Dedicated compartment, scoped OCI identities, policies and signing/storage keys |
 | Crossplane | Kind initially owns the environment; OKE takes the same provider bindings after verified handover |
 | OKE cloud controller | Load balancer created by the ingress `LoadBalancer` Service |
-| Flux | Platform Helm releases, HA/OCI overlays, controllers and TAMOSS declarations |
+| Flux | Kind bootstrap releases; OKE platform releases, HA/OCI overlays, controllers and TAMOSS declarations |
 | TAMOSS operator | Application workloads, runtime images, schema migrations, StorageBackend and IngestRun Jobs |
 | Database bootstrap Job | Separate TAMOSS and Authentik databases and login roles |
 | Operator of this environment | Spending deadline, qualification, retained records and verified cleanup |
@@ -69,7 +75,7 @@ Deployment completion observes the selected Git revision, current product chart
 and HelmRelease generation, then the `deployment-ready` Flux health check.
 That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS.
 Routine `up` and `qualify` readiness checks do not force application reconciliation;
-explicit reconciliation remains at ownership-transfer boundaries.
+ownership promotion also observes normal Flux reconciliation at the published revision.
 
 Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
 the load balancer. Handover compares the address, resource identity and desired
@@ -143,7 +149,10 @@ provider bindings. The environment repository contains neither TAMOSS source nor
 secret payloads. See [secret delivery](../deploy/gitops/README.md#inputs-and-secret-delivery).
 
 After persistence is verified, bootstrap disables initial credential creation and
-removes staging inputs. A missing established value must fail secret delivery
+removes staging inputs. The bootstrap instance records `credentialsEstablished`
+irreversibly; its secret HelmRelease then removes generators and PushSecrets.
+The Kind product source switches to the delivered Git credential before its
+import Secret is removed. A missing established value must fail secret delivery
 without silently generating a replacement. Secret retirement remains an explicit
 operation with a separate check of OCI's asynchronous deletion state.
 

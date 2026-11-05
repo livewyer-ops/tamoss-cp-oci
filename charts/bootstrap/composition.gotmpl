@@ -1,5 +1,8 @@
 {{- $xr := .observed.composite.resource -}}
 {{- $p := $xr.spec -}}
+{{- $secretDefaults := fromJson __SECRET_VALUES__ -}}
+{{- $secretRelease := (get .observed.resources "secrets" | default dict).resource | default dict -}}
+{{- $accessRelease := (get .observed.resources "runtime-access" | default dict).resource | default dict -}}
 {{- $foundation := (get .observed.resources "foundation" | default dict).resource | default dict -}}
 {{- $environment := (get .observed.resources "environment" | default dict).resource | default dict -}}
 {{- if and $environment (ne (index $environment.metadata.annotations "tamoss.livewyer.io/deployment-id") $p.deploymentId) -}}
@@ -26,6 +29,10 @@
 {{- range (dig "status" "conditions" (list) $environment) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
 {{- end -}}
+{{- $accessReady := not (hasKey $p "vaultAuth") -}}
+{{- range (dig "status" "conditions" (list) $accessRelease) -}}
+{{- if and (eq .type "Ready") (eq .status "True") (eq (dig "status" "observedGeneration" 0 $accessRelease) ($accessRelease.metadata.generation | default 0)) -}}{{- $accessReady = true -}}{{- end -}}
+{{- end -}}
 apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
 kind: ExtraResources
 requirements:
@@ -45,6 +52,83 @@ metadata:
     gotemplating.fn.crossplane.io/ready: {{ $foundationReady | toString | title | quote }}
 spec:
 {{ $p.foundation | toYaml | indent 2 }}
+{{- if hasKey $p "vaultAuth" }}
+{{- $vault := dig "status" "vaultId" "" $foundation | default (dig "spec" "values" "oracle" "vault" "" $secretRelease) -}}
+{{- $key := dig "status" "keyId" "" $foundation | default (dig "spec" "values" "oracle" "encryptionKey" "" $secretRelease) -}}
+{{- if and $vault $key }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tamoss-secrets
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "secrets" }}
+    gotemplating.fn.crossplane.io/ready: {{ $credentialsReady | toString | title | quote }}
+spec:
+  interval: 1m
+  timeout: 5m
+  releaseName: tamoss-secrets
+  install:
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  chart:
+    spec:
+      chart: ./charts/secrets
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  values:
+{{ $secretDefaults | toYaml | indent 4 }}
+    deploymentId: {{ $p.deploymentId | quote }}
+    initialise: {{ not ($p.credentialsEstablished | default false) }}
+    oracle:
+      region: {{ $p.foundation.region | quote }}
+      vault: {{ $vault | quote }}
+      encryptionKey: {{ $key | quote }}
+      compartment: {{ $p.foundation.compartmentId | quote }}
+      principalType: UserPrincipal
+      auth:
+        user: {{ $p.vaultAuth.user | quote }}
+        tenancy: {{ $p.vaultAuth.tenancy | quote }}
+        secretRef:
+          privatekey: {name: oci-vault-bootstrap, key: privatekey}
+          fingerprint: {name: oci-vault-bootstrap, key: fingerprint}
+{{- end }}
+{{- $cluster := dig "status" "outputs" "clusterId" "" $environment | default (dig "spec" "values" "clusterId" "" $accessRelease) -}}
+{{- if and $vault $cluster }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: runtime-access
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "runtime-access" }}
+    gotemplating.fn.crossplane.io/ready: {{ $accessReady | toString | title | quote }}
+spec:
+  interval: 1m
+  timeout: 5m
+  releaseName: runtime-access
+  install:
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  chart:
+    spec:
+      chart: ./charts/runtime-access
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  values:
+    deploymentId: {{ $p.deploymentId | quote }}
+    compartmentId: {{ $p.environment.compartmentId | quote }}
+    providerConfigName: {{ $p.environment.providerConfigName | quote }}
+    clusterId: {{ $cluster | quote }}
+    vaultId: {{ $vault | quote }}
+    bucket: {{ $p.environment.storage.bucket | quote }}
+    providerWrites: false
+{{- end }}
+{{- end }}
 {{- if or $environment (and (not $p.released) $foundationReady $credentialsReady) }}
 {{- $spec := $p.environment -}}
 {{- if $p.released -}}
@@ -68,10 +152,11 @@ apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 metadata:
   annotations:
-    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $infrastructureReady) | toString | title | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $infrastructureReady $accessReady) | toString | title | quote }}
 status:
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
   credentialsReady: {{ $credentialsReady }}
   infrastructureReady: {{ $infrastructureReady }}
+  runtimeAccessReady: {{ $accessReady }}
   released: {{ $p.released }}

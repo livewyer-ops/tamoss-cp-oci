@@ -9,7 +9,44 @@ includes:
   bootstrap: {taskfile: ../../tasks/bootstrap.yaml, internal: true}
   identity: {taskfile: ../../tasks/identity.yaml, internal: true}
   transfer: {taskfile: ../../tasks/transfer.yaml, internal: true}
+  management: {taskfile: ../../tasks/management.yaml, internal: true}
 tasks:
+  render-native:
+    cmds:
+      - >-
+        helm template bootstrap '{{.ROOT}}/charts/bootstrap'
+        --set-file environmentDefinition='{{.ROOT}}/charts/environment/definition.yaml'
+        --set-file foundationDefinition='{{.ROOT}}/charts/secret-foundation/definition.yaml'
+        --set-file secretBootstrapFile='{{.ROOT}}/deploy/secrets/bootstrap-values.yaml' |
+        yq 'select(.kind == "Composition")' > '{{.DIRECTORY}}/native-composition.yaml'
+      - 'yq ''.spec.vaultAuth = {"user": "ocid1.user.oc1.fixture", "tenancy": "ocid1.tenancy.oc1.fixture"}'' {{.DIRECTORY}}/root.yaml > {{.DIRECTORY}}/native-root.yaml'
+      - >-
+        yq 'with(select(.kind == "TamossEnvironment"); .status.outputs.clusterId = "ocid1.cluster.oc1.fixture")'
+        '{{.DIRECTORY}}/ready-observed.yaml' > '{{.DIRECTORY}}/native-observed.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/native-root.yaml' '{{.DIRECTORY}}/native-composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/native-observed.yaml' --required-resources='{{.ROOT}}/tests/bootstrap/credentials.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/native.yaml'
+      - >-
+        yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") |
+        [.spec.values.initialise == true, (.spec.values.deliveries | length == 11),
+        .spec.values.oracle.vault == "ocid1.vault.oc1.fixture", .spec.values.oracle.encryptionKey == "ocid1.key.oc1.fixture"] | all'
+        '{{.DIRECTORY}}/native.yaml'
+      - >-
+        yq -e 'select(.kind == "HelmRelease" and .metadata.name == "runtime-access") |
+        [.spec.values.providerWrites == false, .spec.values.clusterId == "ocid1.cluster.oc1.fixture",
+        .spec.values.vaultId == "ocid1.vault.oc1.fixture"] | all' '{{.DIRECTORY}}/native.yaml'
+      - 'yq ''select(.kind != "TamossBootstrap") | del(.status)'' {{.DIRECTORY}}/native.yaml > {{.DIRECTORY}}/native-lost-status.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/native-root.yaml' '{{.DIRECTORY}}/native-composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/native-lost-status.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/native-recovering.yaml'
+      - 'yq ''select(.kind == "HelmRelease")'' {{.DIRECTORY}}/native.yaml > {{.DIRECTORY}}/native-releases.yaml'
+      - 'yq ''select(.kind == "HelmRelease")'' {{.DIRECTORY}}/native-recovering.yaml > {{.DIRECTORY}}/native-recovering-releases.yaml'
+      - for: [native-releases, native-recovering-releases]
+        cmd: 'yq -i ''del(.metadata.annotations."gotemplating.fn.crossplane.io/ready")'' {{.DIRECTORY}}/{{.ITEM}}.yaml'
+      - diff -u '{{.DIRECTORY}}/native-releases.yaml' '{{.DIRECTORY}}/native-recovering-releases.yaml'
+      - 'yq ''.spec.credentialsEstablished = true'' {{.DIRECTORY}}/native-root.yaml > {{.DIRECTORY}}/native-retired-root.yaml'
+      - crossplane composition render '{{.DIRECTORY}}/native-retired-root.yaml' '{{.DIRECTORY}}/native-composition.yaml' '{{.ROOT}}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{.DIRECTORY}}/native-lost-status.yaml' --crossplane-image={{.CORE}} > '{{.DIRECTORY}}/native-retired.yaml'
+      - 'yq -e ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | .spec.values.initialise == false'' {{.DIRECTORY}}/native-retired.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | .spec.values'' {{.DIRECTORY}}/native-retired.yaml > {{.DIRECTORY}}/native-secret-values.yaml'
+      - helm template tamoss-secrets '{{.ROOT}}/charts/secrets' -n tamoss-infra -f '{{.DIRECTORY}}/native-secret-values.yaml' > '{{.DIRECTORY}}/native-deliveries.yaml'
+      - 'yq eval-all -e ''[select(.kind == "PushSecret" or .kind == "Password")] | length == 0'' {{.DIRECTORY}}/native-deliveries.yaml'
+      - 'yq eval-all -e ''[select(.kind == "ExternalSecret")] | length == 11'' {{.DIRECTORY}}/native-deliveries.yaml'
   prepare-management:
     cmds:
       - mkdir -p -m 700 '{{.DIRECTORY}}/management'

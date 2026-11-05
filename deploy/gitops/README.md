@@ -8,14 +8,17 @@ passed with Kind stopped and unchanged OCI resource IDs; see the
 
 [Overview](../../README.md) | [Architecture](../../docs/architecture.md) | [Operations](../../docs/operations.md) | [Testing](../../docs/testing.md)
 
-Kind creates the environment and its retained OCI Vault/key. Flux, Crossplane
-and External Secrets on OKE then take responsibility for ongoing operations.
+Flux in Kind installs Crossplane, External Secrets and the bootstrap declaration.
+Crossplane creates the environment and its retained OCI Vault/key, and declares
+the secret-delivery and runtime-access HelmReleases from observed cloud IDs.
+Flux, Crossplane and External Secrets on OKE then take responsibility for operations.
 The original Kind is stopped after ownership transfer and retained for teardown.
 TAMOSS source, charts, profiles and release assets remain read-only.
 
-Live OCI checks passed bootstrap/repeat, workload authentication, persisted secret
+The preceding bootstrap passed live OCI checks for repeat, workload authentication, persisted secret
 delivery, private Git/GHCR pulls, ownership transfer in both directions, Kind-off
-application operation and interrupted/resumed teardown. A supported TAMOSS upgrade
+application operation and interrupted/resumed teardown. The Flux-managed Kind
+bootstrap still requires fresh OCI qualification. A supported TAMOSS upgrade
 and package-read credential rotation/revocation remain unqualified. See
 [verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
 The public `up`, `qualify` and `down` commands sequence this workflow. The
@@ -92,8 +95,10 @@ PEM and Docker JSON files retain their native formats.
 
 Kind's ESO uses the configured OCI user principal. Password generators and
 `PushSecret` with `IfNotExists` persist initial credentials; all consumers use
-ExternalSecret readback. After readback succeeds, bootstrap removes creation
-resources and imported Kubernetes staging Secrets. Missing established Vault
+ExternalSecret readback. After readback succeeds, bootstrap records irreversible
+credential establishment and switches Kind's product source to the delivered
+GitHub App Secret. It verifies source access and removal of creation resources
+before deleting imported Kubernetes staging Secrets. Missing established Vault
 secrets fail visibly. Original local input files remain under the operator's
 control.
 
@@ -118,13 +123,16 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
 
 ## Lifecycle stages
 
-1. Validate bounded inputs; create original Kind, retained foundation and persisted
-   credentials; provision the infrastructure and export the environment directory.
+1. Validate bounded inputs; create original Kind, install pinned Flux and apply
+   the private seed. Flux and Crossplane reconcile controllers, retained foundation,
+   persisted credentials, infrastructure and runtime access. Verify credential
+   retirement and export the environment directory.
 2. Publish the initial exported configuration. Install ESO and Git/registry secret
    delivery in `flux-system`, then seed Flux. Flux installs the other namespace
    secret releases and applications; verify adoption and observe-only infrastructure.
 3. Compare exact external names, provider configuration, cloud status and ownership
-   tags. Set Kind to observation, wait for operations to finish, pause reconciliation
+   tags. Stop in-flight Helm actions and suspend the bootstrap instance release
+   before releasing and pausing its root. Set Kind to observation, wait for operations to finish, pause reconciliation
    and persist its non-writing configuration locally.
 4. Prepare the Git promotion, grant runtime provider writes and publish the policy
    change. Verify OKE reconciliation and TAMOSS readiness, then stop original Kind.
@@ -133,7 +141,8 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
 6. For teardown, restart original Kind and verify the current published checkout.
    Suspend Flux reconciliation, quiesce OKE's provider resources and revoke its write
    grants. Refresh Kind's controllers/API from the current product and Git selections,
-   retaining Kind's API-key authentication. Return current configuration to Kind in observe-only mode; compare both
+   retaining Kind's API-key authentication and suspended bootstrap instance.
+   Return current configuration to Kind in observe-only mode; compare both
    inventories before granting deletion authority.
 7. Finalise TAMOSS while its operator is available. Keep parent reconciliation
    suspended and resume each application declaration for deletion. Remove releases and
@@ -154,8 +163,8 @@ health. Kustomize changes the values ConfigMap name and HelmRelease reference wh
 environment values change. The `deployment-ready` Kustomization checks current
 generations and health, including TADOSS when enabled. Earlier non-secret values
 ConfigMaps remain until cluster teardown because the root deliberately disables
-pruning. Application reconciliation proceeds without a host trigger; ownership
-transfer retains its explicit reconciliation requests.
+pruning. Application and handover reconciliation proceed without a host trigger;
+ownership transfer retains explicit identity, quiescence and single-writer checks.
 
 For an environment exported before hashed values references were introduced,
 copy `starter/kustomizeconfig.yaml` into its Git directory, add it under

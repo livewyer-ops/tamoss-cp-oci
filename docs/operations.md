@@ -62,7 +62,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | --- | --- |
 | Preflight rejection | Placeholder inputs, matching OCI region/profile, file permissions, current UTC cost date and cleanup window |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
-| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `infrastructureReady`; inspect the foundation and `database-admin` ExternalSecret |
+| Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
+| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `infrastructureReady`, `runtimeAccessReady`; inspect child conditions and HelmReleases |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
@@ -106,11 +107,14 @@ configuration or its ownership-policy change. Resolve input/ownership mismatches
 and missing established credentials before retrying. Once teardown starts, use
 `down` to finish it.
 
-During initial provisioning, the root and its children continue reconciling if
-Task exits. Resume `up` to complete any remaining credential import, remote seed
-or handover. Preserve `bootstrap.yaml` and the recorded bootstrap UID alongside
-the existing environment identity. Do not manually unpause a released root during
+During initial provisioning, Flux and Crossplane continue reconciling if
+Task exits. Resume `up` to complete credential retirement, remote seed
+or handover. Preserve `bootstrap.yaml`, `management-values.yaml` and the recorded
+bootstrap UID alongside the existing environment identity. Do not manually unpause a released root during
 operations or deletion; `down` verifies and preserves the paused boundary.
+Keep `tamoss-bootstrap-instance` suspended after handover. Restarting Kind must
+not reinstall its original bootstrap intent. Teardown refreshes controller/API
+releases from current Git while leaving that instance suspended.
 
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
 overwrites them, continue independent checks where appropriate, and keep enough

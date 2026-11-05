@@ -25,8 +25,9 @@ managed-database failover and regional recovery are outside the verified
 coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
 
 [GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
-Flux, Crossplane and External Secrets on OKE. Public bootstrap, repeat,
-qualification and teardown have passed, including Kind-off operation. Release
+Flux, Crossplane and External Secrets on OKE. The preceding bootstrap, repeat,
+qualification and teardown have passed, including Kind-off operation. The new
+Flux-managed Kind bootstrap requires fresh OCI qualification. Release
 upgrades and package-credential rotation remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services

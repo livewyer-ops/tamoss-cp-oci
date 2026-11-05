@@ -1,0 +1,47 @@
+{{- $packages := mergeOverwrite (deepCopy .Values.packages) (dict "family" false "services" false "foundation" false "okeWorkloadIdentity" (dict "region" "")) -}}
+{{- $releases := list
+  (dict "name" "crossplane" "repository" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" dict "needs" list)
+  (dict "name" "external-secrets" "repository" "external-secrets" "chart" "external-secrets" "version" .Values.dependencies.externalSecrets.version "values" .Values.externalSecrets "needs" list)
+  (dict "name" "oci-family" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "crossplane"))
+  (dict "name" "oci-services" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true "foundation" true)) "needs" (list "oci-family"))
+  (dict "name" "tamoss-environment-api" "chart" "./charts/environment" "values" dict "needs" (list "crossplane"))
+  (dict "name" "tamoss-secret-foundation-api" "chart" "./charts/secret-foundation" "values" dict "needs" (list "crossplane"))
+  (dict "name" "tamoss-bootstrap-api" "chart" "./charts/bootstrap" "values" (dict "environmentDefinition" .Values.environmentDefinition "foundationDefinition" .Values.foundationDefinition "secretBootstrapFile" .Values.secretBootstrapFile) "needs" (list "crossplane")) -}}
+{{- range $releases }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ .name }}
+  namespace: tamoss-infra
+  labels: {tamoss.livewyer.io/bootstrap-controller: 'true'}
+spec:
+  interval: 1m
+  timeout: 10m
+  releaseName: {{ .name }}
+  targetNamespace: {{ ternary "external-secrets" "crossplane-system" (eq .name "external-secrets") }}
+  storageNamespace: {{ ternary "external-secrets" "crossplane-system" (eq .name "external-secrets") }}
+  install:
+    createNamespace: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+{{ with .needs }}
+  dependsOn:
+{{ range . }}
+    - name: {{ . }}
+{{ end }}
+{{ end }}
+  chart:
+    spec:
+      chart: {{ .chart }}
+{{ if .repository }}
+      version: {{ .version | quote }}
+      sourceRef: {kind: HelmRepository, name: {{ .repository }}}
+{{ else }}
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+{{ end }}
+  values:
+{{ .values | toYaml | indent 4 }}
+{{ end }}

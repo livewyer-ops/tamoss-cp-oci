@@ -246,10 +246,18 @@ spec:
         - command: *remove
     - name: runtime access cleanup distinguishes installed releases from failed discovery
       try:
-        - command:
-            entrypoint: helm
-            env: *paths
-            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, install, runtime-access, $PROJECT_ROOT/tests/lifecycle/platform-release, -n, tamoss-infra]
+        - apply:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: runtime-access, namespace: tamoss-infra}
+              spec:
+                suspend: true
+                interval: 1m
+                chart:
+                  spec:
+                    chart: ./tests/lifecycle/platform-release
+                    sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
         - command:
             entrypoint: task
             env: *paths
@@ -257,9 +265,9 @@ spec:
             check:
               ($error != null): true
         - command: &removeRuntimeFixture
-            entrypoint: helm
+            entrypoint: kubectl
             env: *paths
-            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, uninstall, runtime-access, -n, tamoss-infra, --ignore-not-found]
+            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, delete, helmrelease/runtime-access, -n, tamoss-infra, --ignore-not-found]
         - command: &runtimeStatus
             entrypoint: task
             env: *paths
