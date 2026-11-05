@@ -52,9 +52,10 @@ Kind restart checks preserve the kubeconfig and reject a mismatched identity. Gi
 publication checks cover repeat pushes, interrupted promotion and unrelated edits. These
 checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
 
-Readiness checks reject stale Git/chart observations and old Ready conditions
-after a values change. Real Flux checks cover delayed dependencies and recovery
-without forced reconciliation. Media-fixture preparation belongs to `qualify`;
+Readiness checks wait for initial source revisions, reject stale Git/chart
+observations and old Ready conditions after a values change. Real Flux checks
+cover delayed dependencies and recovery without forced reconciliation.
+Media-fixture preparation belongs to `qualify`;
 `up` does not prepare test media.
 
 ## OCI storage check

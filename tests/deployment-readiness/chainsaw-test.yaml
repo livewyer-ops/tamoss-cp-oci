@@ -16,6 +16,46 @@ spec:
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
             args: [test, --namespace, flux-system, --skip-delete, --test-dir, $PROJECT_ROOT/deploy/gitops/readiness-check, --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+    - name: wait for the first source and applied revisions
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: environment, namespace: flux-system}
+              status: {artifact: null}
+        - command: &waiting
+            <<: *check
+            check:
+              ($error != null): true
+              (contains($stdout, 'Internal error')): false
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: environment, namespace: flux-system}
+              status: {lastAppliedRevision: null}
+        - command: *waiting
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: tamoss-product, namespace: flux-system}
+              status: {artifact: null}
+        - command: *waiting
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - command: *check
     - name: reject old Git observations and recover after the source succeeds
       try:
         - patch:

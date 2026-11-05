@@ -13,7 +13,7 @@ spec:
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               status:
-                (ends_with(artifact.revision, $values.revision)): true
+                (ends_with(artifact.revision || '', $values.revision)): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
             resource:
@@ -23,7 +23,7 @@ spec:
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               status:
-                (ends_with(lastAppliedRevision, $values.revision)): true
+                (ends_with(lastAppliedRevision || '', $values.revision)): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: observe the selected product and its chart
       try:
@@ -34,7 +34,7 @@ spec:
               metadata: {name: tamoss-product, namespace: flux-system}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (ends_with(status.artifact.revision, spec.ref.commit)): true
+              (ends_with(status.artifact.revision || '', spec.ref.commit)): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
