@@ -124,27 +124,24 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 ## Verified coverage and limits
 
-The OCI results below precede the reduced secret seed and revision-aware readiness
-checks. Those changes still require fresh OCI qualification.
+The reduced secret seed and revision-aware readiness checks passed a resumed OCI
+deployment, repeat invocation and qualification with Kind stopped. The first cold
+invocation exposed a readiness assertion error when a Git source had no artifact
+yet. The correction passed a real-API regression and live resume; a fresh
+uninterrupted build with that correction remains unqualified.
 
 | Behaviour | Observed status |
 | --- | --- |
-| TAMOSS application | External DB/S3, trusted TLS, ingest, browser access/playback, replica placement and network policy passed on a fresh deployment |
-| Worker disruption | Replica placement and ordinary worker-drain availability passed |
+| TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
+| Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Bootstrap root | Fresh uninterrupted OCI bootstrap and repeat passed. Local checks cover dependency convergence, release/pause after input changes, controller restart and child deletion without recreation. An earlier interrupted run resumed with preserved resource identities |
+| Bootstrap root | Earlier uninterrupted OCI bootstrap passed. The current readiness correction passed resume and repeat with preserved resource identities. Local checks cover dependency convergence, release/pause after input changes, controller restart and child deletion without recreation |
 | Initial Flux convergence | All initial runtime Kustomizations, including TAMOSS, reached Ready before any host reconciliation request. Current-Git refresh and ownership transfer remain explicit operations |
-| Public GitOps lifecycle | Fresh bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
-| Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media, persistence after verified pod replacement and unchanged OCI resource IDs passed with Kind stopped |
-| Combined environment cleanup | Public down completed in one invocation: original Kind startup, current-Git ownership return, application finalisation, empty OCI hardware audit, pending Vault secret deletion and Kind removal passed |
-| Build readiness | Fresh TAMOSS bootstrap completed without a host retry or provider restart. Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs and zero restarts |
+| Public GitOps lifecycle | Resumed bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
+| Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media and persistence after four verified pod replacements passed with Kind stopped; all 34 OCI resource IDs were unchanged |
+| Combined environment cleanup | Public down completed after checking out the environment's pinned product commit: original Kind startup, current-Git ownership return, application finalisation, all 21 hardware categories empty, pending Vault secret deletion and Kind removal passed |
+| Build readiness | The reduced seed converged through Flux without a provider restart. Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs and zero restarts |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
-
-The fresh bootstrap reused the retained Vault/key and completed without a host
-retry or provider restart. Repeat preserved deployment identity, Git HEAD and
-stopped Kind state. Qualification passed with Kind stopped, including all five
-selected upstream browser tests and 540/540 successful drain samples. Public
-down completed in one invocation and confirmed all 21 hardware categories empty.

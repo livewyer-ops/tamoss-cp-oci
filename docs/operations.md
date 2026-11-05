@@ -183,7 +183,12 @@ invoice or a live resource inventory.
 ## Destroy the environment
 
 **Destruction deletes managed application data**, including media, the database
-and its backups. Keep the original environment directory and credentials:
+and its backups. Keep the original environment directory and credentials.
+
+Run from the product commit selected by `tamoss-product` in the environment's
+`sources.yaml`. If the product checkout has moved, save local edits and check out
+that commit before running `down`. Ownership return rejects a different product
+commit before freezing Flux or deleting cloud resources.
 
 ```bash
 task down ENV_DIR=.local/environment CHECKOUT=.local/gitops
