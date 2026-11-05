@@ -4,7 +4,7 @@ resources: [namespaces.yaml, sources.yaml, releases.yaml]
 configurations: [kustomizeconfig.yaml]
 configMapGenerator:
   - name: tamoss-gitops-values
-    namespace: flux-system
+    namespace: tamoss-infra
     files: [values.yaml]
 generatorOptions:
   labels:

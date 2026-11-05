@@ -64,13 +64,12 @@ spec:
                       type: object
                       minProperties: 23
                       maxProperties: 23
+                      required: [vcn, internet, nat, service, public-routes, private-routes, api-security, api-subnet, workers-security, workers-subnet, pods-security, pods-subnet, database-security, database-subnet, loadBalancer-security, loadBalancer-subnet, cluster, worker-0, worker-1, worker-2, database, bucket, public-ip]
                       additionalProperties:
                         type: string
                         minLength: 1
                         maxLength: 2048
                       x-kubernetes-validations:
-                        - rule: 'self.all(k, k in ["vcn", "internet", "nat", "service", "public-routes", "private-routes", "api-security", "api-subnet", "workers-security", "workers-subnet", "pods-security", "pods-subnet", "database-security", "database-subnet", "loadBalancer-security", "loadBalancer-subnet", "cluster", "worker-0", "worker-1", "worker-2", "database", "bucket", "public-ip"])'
-                          message: External names must cover exactly the environment composition resources
                         - rule: 'self.all(k, k == "bucket" || self[k].startsWith("ocid1."))'
                           message: Non-bucket external names must be OCI resource IDs
                 region:
@@ -207,6 +206,10 @@ spec:
             status:
               type: object
               properties:
+                bindingsReady:
+                  type: boolean
+                bootstrapReady:
+                  type: boolean
                 outputs:
                   type: object
                   properties:

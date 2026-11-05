@@ -1,0 +1,121 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: controller-delivered-bindings}
+spec:
+  timeouts: {assert: 120s, exec: 120s}
+  steps:
+    - name: submit consumers before their persisted bindings exist
+      try:
+        - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-t, $ROOT/tests/controller-state/Taskfile.yaml, prepare-management, ROOT=$ROOT]
+        - apply: {file: ../../../.local/tmp/check/controller-state/backend.yaml}
+        - apply: {file: ../../../.local/tmp/check/controller-state/store.yaml}
+        - apply: {file: composition.yaml}
+        - apply: {file: ../../../.local/tmp/check/controller-state/source.yaml}
+        - patch: {file: ../../../.local/tmp/check/controller-state/source.yaml, subresource: status}
+        - apply: {file: ../../../.local/tmp/check/controller-state/push.yaml}
+        - apply: {file: ../../../.local/tmp/check/controller-state/binding-kustomization.yaml}
+        - apply: {file: ../../../.local/tmp/check/controller-state/infrastructure-kustomization.yaml}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: binding-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - error:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: observed-bindings, namespace: binding-check}
+    - name: converge after the snapshot arrives without further applies or reconcile requests
+      try:
+        - apply: {file: ../../../.local/tmp/check/controller-state/input.yaml}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: binding-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: adoption-bindings, namespace: binding-check}
+              (data == x_k8s_get($client, 'v1', 'Secret', 'binding-check', 'adoption-bindings-input').data): true
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: observed-bindings, namespace: binding-check}
+              data:
+                (vcn == base64_decode(x_k8s_get($client, 'v1', 'Secret', 'binding-check', 'adoption-bindings-input').data.VCN)): true
+    - name: reject a changed persisted binding without replacing the adopted resource
+      bindings:
+        - name: originalUID
+          value: (x_k8s_get($client, 'v1', 'ConfigMap', 'binding-check', 'observed-bindings').metadata.uid)
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-adoption-bindings, namespace: binding-backend}
+              stringData: {VCN: ocid1.vcn.oc1.changed}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: binding-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: observed-bindings, namespace: binding-check, uid: ($originalUID)}
+              data:
+                (vcn == base64_decode(x_k8s_get($client, 'v1', 'Secret', 'binding-check', 'adoption-bindings-input').data.VCN)): true
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-adoption-bindings, namespace: binding-backend}
+              data: (x_k8s_get($client, 'v1', 'Secret', 'binding-check', 'adoption-bindings-input').data)
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: binding-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: retain the snapshot when persistence is retired
+      try:
+        - delete:
+            ref: {apiVersion: external-secrets.io/v1alpha1, kind: PushSecret, name: adoption-bindings, namespace: binding-check}
+        - delete:
+            ref: {apiVersion: v1, kind: Secret, name: adoption-bindings-input, namespace: binding-check}
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-adoption-bindings, namespace: binding-backend}
+        - delete:
+            ref: {apiVersion: v1, kind: Secret, name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-adoption-bindings, namespace: binding-backend}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: adoption-bindings, namespace: binding-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: binding-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'

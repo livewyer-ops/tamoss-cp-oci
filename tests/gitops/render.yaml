@@ -18,5 +18,5 @@ kind: Render
 (length(resources[?kind == 'Kustomization' && metadata.name == 'credentials'] | [0].spec.healthChecks)): 9
 (resources[?kind == 'HelmRelease' && metadata.name == 'oci-services'] | [0].spec.values.foundation): false
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 0
-(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 16
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 17
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'OCIRepository'].name): [tamoss-release]

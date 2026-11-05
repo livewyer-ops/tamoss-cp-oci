@@ -139,8 +139,11 @@ tasks:
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' suspend kustomization environment
-      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' suspend helmrelease tamoss-gitops
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get
+        kustomization/environment --ignore-not-found -o name |
+        xargs --no-run-if-empty kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system patch
+        --type=merge -p '{"spec":{"suspend":true}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=0
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait pod -l 'app in (kustomize-controller,helm-controller)' --for=delete --timeout=180s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get kustomizations.kustomize.toolkit.fluxcd.io,helmreleases.helm.toolkit.fluxcd.io -A -l 'tamoss.livewyer.io/deployment-id={{.DEPLOYMENT}}' -o yaml > '{{.ENV_DIR}}/gitops-controllers.yaml'
@@ -194,7 +197,13 @@ tasks:
           ENV_DIR: '{{.ENV_DIR}}'
           GITOPS_VALUES: '{{.ENV_DIR}}/gitops-current-values.yaml'
           PRODUCT_COMMIT: '{{.PRODUCT_COMMIT}}'
-      - 'yq ''.spec.managementPolicies = ["Observe"] | del(.metadata.annotations."crossplane.io/paused")'' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > {{.ENV_DIR}}/environment.yaml'
+      - task: :bootstrap:bindings
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - >-
+        yq '.spec.adoption = load("{{.ENV_DIR}}/adoption.yaml") | .spec.managementPolicies = ["Observe"] |
+        del(.metadata.annotations."crossplane.io/paused")'
+        {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > '{{.ENV_DIR}}/environment.yaml'
+      - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml' '{{.ENV_DIR}}/environment.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{.NAME}} crossplane.io/paused- --overwrite
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{.NAME}}' crossplane.io/paused- --overwrite

@@ -9,5 +9,5 @@ rules:
     resources: [helmreleases]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [external-secrets.io]
-    resources: [externalsecrets]
-    verbs: [get, list, watch]
+    resources: [externalsecrets, pushsecrets]
+    verbs: [get, list, watch, create, update, patch, delete]

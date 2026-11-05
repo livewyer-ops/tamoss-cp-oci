@@ -1,0 +1,27 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: tamoss-gitops, namespace: tamoss-infra}
+spec:
+  interval: 5m
+  timeout: 10m
+  releaseName: tamoss-gitops
+  install:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  chart:
+    spec:
+      chart: ./charts/gitops
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  valuesFrom:
+    - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
+    - {kind: ConfigMap, name: '${VALUES_CONFIGMAP}', valuesKey: values.yaml}
+  values:
+    vaultId: ${VAULT_ID}
+    databaseId: ${DATABASE_ID}
+    runtime:
+      publicIp: ${PUBLIC_IP}
+      loadBalancerSubnetId: ${LOAD_BALANCER_SUBNET_ID}

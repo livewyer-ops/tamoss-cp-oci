@@ -9,7 +9,22 @@ includes:
   application: {taskfile: ../../tasks/application.yaml, internal: true}
   lifecycle: {taskfile: ../../tasks/lifecycle.yaml, internal: true}
   cloud: {taskfile: ../../tasks/cloud.yaml, internal: true}
+  transfer: {taskfile: ../../tasks/transfer.yaml, internal: true}
 tasks:
+  prepare-partial-runtime:
+    cmds:
+      - >-
+        yq -n '{"apiVersion": "kustomize.toolkit.fluxcd.io/v1", "kind": "Kustomization",
+        "metadata": {"name": "environment", "namespace": "flux-system",
+        "labels": {"tamoss.livewyer.io/deployment-id": load("{{.ENV_DIR}}/identity.yaml").deploymentUID}},
+        "spec": {"interval": "1m", "path": "./", "prune": false,
+        "sourceRef": {"kind": "GitRepository", "name": "not-created"}}}' > '{{.ENV_DIR}}/partial-runtime.yaml'
+      - kubectl apply --server-side -f '{{.ENV_DIR}}/partial-runtime.yaml'
+      - 'yq -n ''[{"id": "ocid1.cluster.oc1.fixture"}]'' > {{.ENV_DIR}}/owned-current.yaml'
+  freeze-runtime:
+    cmds:
+      - task: transfer:freeze-runtime
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   prepare:
     cmds:
       - mkdir -p -m 700 '{{.ENV_DIR}}'

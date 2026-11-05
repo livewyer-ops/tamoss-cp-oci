@@ -6,15 +6,17 @@ Flux in Kind installs Crossplane and External Secrets from a private seed.
 Crossplane creates the retained OCI Vault/key and the OKE environment.
 Flux, Crossplane and External Secrets on OKE take over ongoing reconciliation.
 The original Kind stops after verified ownership transfer and is retained for
-teardown. Git owns desired configuration after the initial export.
+teardown. Git holds desired configuration before provisioning; Vault holds the
+generated adoption bindings.
 
 Kind receives a `TamossBootstrap` composite containing the foundation and
 environment inputs. Flux installs providers, functions and composition APIs,
 then the bootstrap instance, using release dependencies and native retries.
-Crossplane creates the retained foundation, then creates the
-infrastructure child once the foundation is Ready and ESO has delivered this
-deployment's database credential. Those dependencies reconcile without a running
-Task process. The root reports foundation, credential and infrastructure readiness
+Crossplane submits the retained foundation and infrastructure together. Networking,
+OKE, the bucket and public IP can progress while Vault is unavailable. The database
+provider requires the persisted credential through its Secret reference before it
+can create the database. Those dependencies reconcile without a running
+Task process. The root reports foundation, credential, bootstrap and infrastructure readiness
 separately; application readiness remains the responsibility of the OKE controllers.
 The root also composes HelmReleases for secret delivery and runtime IAM, deriving
 their values from observed Vault/key and OKE IDs. Flux owns their Helm operations.
@@ -34,12 +36,14 @@ flowchart LR
     Inputs[Private environment inputs] --> Kind[Kind / Flux / Crossplane / ESO]
     Kind --> OCI[OKE, networking, PostgreSQL and bucket]
     Kind --> Vault[Retained OCI Vault/key]
-    Kind --> Git[Environment Git repository]
+    Git[Desired environment Git configuration]
+    Kind --> Bindings[Immutable adoption bindings in Vault]
     Git --> Flux[Flux on OKE]
     Release[Verified TAMOSS assets] --> Flux
     Flux --> Runtime[Crossplane and External Secrets on OKE]
     Runtime --> OCI
     Vault --> Runtime
+    Bindings --> Runtime
     Flux --> Operator[TAMOSS operator]
     Operator --> App[API, worker, UI, Console and ingest]
 ```
@@ -67,9 +71,11 @@ is retained without write authority, stopped, and later receives current Git/liv
 configuration for deletion. This does not recover lost Kind state.
 
 After the remote Flux seed is submitted, its controllers fetch Git and create
-the runtime releases through their declared dependencies. The host installs ESO
-and secret delivery only in `flux-system`, allowing Flux to read Git and GHCR.
-Flux installs secret delivery in the application and infrastructure namespaces.
+the runtime releases through their declared dependencies. The host seeds Flux with
+the already persisted, read-only Git App credential and the Vault identifier.
+Flux installs ESO and infrastructure controllers independently of database outputs.
+ESO takes ownership of the seeded credential and delivers GHCR credentials and
+adoption bindings. This lets OKE bootstrap while PostgreSQL is still provisioning.
 
 Deployment completion observes the selected Git revision, current product chart
 and HelmRelease generation, then the `deployment-ready` Flux health check.
@@ -108,8 +114,18 @@ remained unchanged across enablement. See the [qualification limits](testing.md#
 | [TAMOSS release lock](../deploy/tamoss/release.yaml) | Verified release record and matching source archive |
 | [TAMOSS integration](../deploy/tamoss/README.md) | Platform settings, instance overlays, database bootstrap and qualification assets |
 
-Crossplane observations become `outputs.json` and initialise the environment Git
-configuration. Flux derives sslip.io hostnames from the reserved IP. A bounded
+Once all cloud resources are ready, Kind's Crossplane creates an immutable snapshot
+of the deployment identity, creation UID and all 23 provider bindings. ESO persists
+it with `IfNotExists`; bootstrap compares the readback with the original snapshot.
+OKE's ESO delivers that record to the infrastructure Kustomization. Missing or
+changed bindings block adoption instead of creating replacement infrastructure.
+
+OKE Crossplane produces the `tamoss-infra/tamoss-runtime` ConfigMap from its own
+observations. The runtime Kustomization supplies these values to the application
+release. Both integration HelmReleases and their values ConfigMaps reside in
+`tamoss-infra`; Flux controllers and sources remain in `flux-system`.
+Local `outputs.json` remains an inspection and qualification record.
+Flux derives sslip.io hostnames from the reserved IP. A bounded
 OCI CLI Job obtains the current database hostname and CA. Make subsequent desired
 changes in the environment repository; repeating `up` preserves them.
 
@@ -144,13 +160,15 @@ See the [coverage limits](testing.md#verified-coverage-and-limits).
 
 Owner-only credential inputs remain in the private environment directory. Kind
 creates or adopts a separately retained OCI Vault/key. External Secrets persists initial values, reads them back and delivers them
-to OKE using scoped workload identities. Git contains non-secret configuration and
-provider bindings. The environment repository contains neither TAMOSS source nor
+to OKE using scoped workload identities. Git contains desired configuration and
+binding references. The environment repository contains neither TAMOSS source nor
 secret payloads. See [secret delivery](../deploy/gitops/README.md#inputs-and-secret-delivery).
 
 After persistence is verified, bootstrap disables initial credential creation and
 removes staging inputs. The bootstrap instance records `credentialsEstablished`
-irreversibly; its secret HelmRelease then removes generators and PushSecrets.
+irreversibly; its secret HelmRelease then removes credential generators and PushSecrets.
+The separate adoption-binding PushSecret remains until infrastructure deletion
+and the direct cloud audit finish.
 The Kind product source switches to the delivered Git credential before its
 import Secret is removed. A missing established value must fail secret delivery
 without silently generating a replacement. Secret retirement remains an explicit

@@ -1,0 +1,9 @@
+deploymentId: ''
+region: ''
+vaultId: ''
+databaseAdministrator: postgres
+tadoss:
+  enabled: false
+dependencies: {}
+packages: {}
+externalSecrets: {}

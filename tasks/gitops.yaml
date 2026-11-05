@@ -60,8 +60,9 @@ tasks:
           test ! -e {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml ||
           (test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml &&
           test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml &&
+          test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/runtime/release.yaml &&
           kubectl kustomize {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}} > /dev/null)
-        msg: Existing Git configuration is incomplete; restore it from Git before continuing
+        msg: Existing Git configuration is incomplete or uses an older layout; use its deployed product revision for teardown
   initialise-checkout:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
@@ -76,27 +77,21 @@ tasks:
     preconditions:
       - sh: test ! -e {{shellQuote .DESTINATION}} || test -s {{shellQuote .DESTINATION}}/values.yaml
         msg: The destination already exists; review it rather than overwriting user files
-      - sh: 'yq -e ''.creationCompositeUID != null and .deploymentUID != null'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
-        msg: Record the deployment and original composite identity before export
+      - sh: 'yq -e ''.deploymentUID != null'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+        msg: Record the deployment identity before preparing Git
     cmds:
-      - >-
-        yq -e '[length == 23, ([.[].resourceName] | unique | length == 23),
-        ([.[] | (.externalName | tag == "!!str" and length > 0)] | all)] | all'
-        '{{.ENV_DIR}}/resources-current.yaml' > /dev/null
-      - mkdir -p -m 700 '{{.CANDIDATE}}/infrastructure'
+      - mkdir -p -m 700 '{{.CANDIDATE}}/infrastructure' '{{.CANDIDATE}}/runtime'
       - task: pins
         vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml', OUTPUT: '{{.CANDIDATE}}/pins.yaml'}
       - >-
         yq -n 'load("{{.ENV_DIR}}/environment.yaml").spec as $e |
-        load("{{.ENV_DIR}}/outputs.json") as $o |
         load("{{.ENV_DIR}}/settings.yaml") as $s |
         load("{{.ENV_DIR}}/gitops.yaml") as $g |
         {"deploymentId": load("{{.ENV_DIR}}/identity.yaml").deploymentUID,
-        "region": $e.region, "vaultId": load("{{.ENV_DIR}}/foundation-record.yaml").vaultId,
-        "databaseId": $o.databaseId, "databaseAdministrator": $e.database.administrator,
+        "region": $e.region, "databaseAdministrator": $e.database.administrator,
         "release": {"bundleURL": $g.bundle.url, "digest": $g.bundle.digest},
-        "runtime": {"publicIp": $o.publicIp, "loadBalancerSubnetId": $o.loadBalancerSubnetId,
-        "bucket": $e.storage.bucket, "objectEndpoint": $o.objectEndpoint,
+        "runtime": {"bucket": $e.storage.bucket,
+        "objectEndpoint": ("https://" + $e.storage.namespace + ".compat.objectstorage." + $e.region + ".oci.customer-oci.com"),
         "acmeEmail": $s.acmeEmail, "adminEmail": $s.adminEmail}} * load("{{.CANDIDATE}}/pins.yaml")'
         > '{{.CANDIDATE}}/values.yaml'
       - >-
@@ -104,20 +99,28 @@ tasks:
         .tadoss.release.bundleURL = load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle.url |
         .tadoss.release.digest = load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle.digest)'
         '{{.CANDIDATE}}/values.yaml'
-      - helm lint '{{.ROOT_DIR}}/charts/gitops' -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml' -f '{{.CANDIDATE}}/values.yaml'
+      # Validate desired values before cloud IDs exist; these lint overrides are never exported.
+      - >-
+        helm lint '{{.ROOT_DIR}}/charts/gitops'
+        -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml'
+        -f '{{.CANDIDATE}}/values.yaml'
+        --set vaultId=ocid1.vault.oc1.validation,databaseId=ocid1.postgresqldbsystem.oc1.validation
+        --set runtime.publicIp=203.0.113.1,runtime.loadBalancerSubnetId=ocid1.subnet.oc1.validation
       - >-
         yq 'load("{{.ENV_DIR}}/identity.yaml") as $id |
         {"apiVersion": .apiVersion, "kind": .kind,
         "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
         "annotations": {"tamoss.livewyer.io/deployment-id": $id.deploymentUID}}, "spec": (.spec | del(.crossplane))} |
         .spec.managementPolicies = ["Observe"] |
-        .spec.adoption = {"deploymentId": $id.deploymentUID, "creationCompositeUID": $id.creationCompositeUID,
-        "externalNames": (load("{{.ENV_DIR}}/resources-current.yaml") | .[] as $r ireduce ({}; .[$r.resourceName] = $r.externalName))}'
+        .spec.adoption = {"deploymentId": "${DEPLOYMENT_ID}", "creationCompositeUID": "${CREATION_COMPOSITE_UID}",
+        "externalNames": (load("{{.ROOT_DIR}}/charts/environment/definition.yaml").spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.adoption.properties.externalNames.required |
+        .[] as $key ireduce ({}; .[$key] = ("${" + ($key | upcase | sub("-"; "_")) + "}")))}'
         '{{.ENV_DIR}}/environment.yaml' > '{{.CANDIDATE}}/infrastructure/environment.yaml'
-      - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml' '{{.CANDIDATE}}/infrastructure/environment.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/kustomization.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/kustomizeconfig.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/sources.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/releases.yaml' '{{.CANDIDATE}}/'
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/namespaces.yaml' '{{.CANDIDATE}}/'
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/infrastructure.yaml' '{{.CANDIDATE}}/infrastructure/kustomization.yaml'
+      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/runtime.yaml' '{{.CANDIDATE}}/runtime/release.yaml'
+      - 'yq ''.resources = ["release.yaml"]'' {{.ROOT_DIR}}/deploy/gitops/starter/infrastructure.yaml > {{.CANDIDATE}}/runtime/kustomization.yaml'
       - >-
         yq -i 'with(select(.metadata.name == "tamoss-upstream"); .spec.ref.commit = load("{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/release.json").sourceCommit) |
         with(select(.metadata.name == "tamoss-product"); .spec.url = load("{{.ENV_DIR}}/gitops.yaml").product.url |
@@ -125,10 +128,16 @@ tasks:
       - >-
         yq -i 'with(select(.metadata.name == "infrastructure"); .spec.path = "./{{.PATH_IN_GIT}}/infrastructure" |
         .spec.healthChecks[0].name = load("{{.ENV_DIR}}/environment.yaml").metadata.name) |
-        with(select(.kind == "HelmRelease"); .spec.commonMetadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId)'
+        with(select(.metadata.name == "runtime"); .spec.path = "./{{.PATH_IN_GIT}}/runtime") |
+        with(select(.kind == "HelmRelease" or .kind == "Kustomization"); .spec.commonMetadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId)'
         '{{.CANDIDATE}}/releases.yaml'
+      - 'yq -i ''.spec.commonMetadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId'' {{.CANDIDATE}}/runtime/release.yaml'
       - flux create source git environment --url={{shellQuote .URL}} --branch={{shellQuote .BRANCH}} --secret-ref=github-app --provider=github --export > '{{.CANDIDATE}}/sync.yaml'
       - flux create kustomization environment --source=GitRepository/environment --path='./{{.PATH_IN_GIT}}' --prune=false --interval=1m --export >> '{{.CANDIDATE}}/sync.yaml'
+      - >-
+        yq -i '.metadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId |
+        with(select(.kind == "Kustomization"); .spec.postBuild.substituteFrom = [{"kind": "ConfigMap", "name": "bootstrap-facts"}])'
+        '{{.CANDIDATE}}/sync.yaml'
       - flux install --version='{{.FLUX_VERSION}}' --export | yq 'select(.kind != "Namespace")' > '{{.CANDIDATE}}/flux.yaml'
       - 'yq -i ''.resources += ["sync.yaml", "flux.yaml"]'' {{.CANDIDATE}}/kustomization.yaml'
       - 'yq -i ''.labels = [{"pairs": {"tamoss.livewyer.io/deployment-id": load("{{.CANDIDATE}}/values.yaml").deploymentId}}]'' {{.CANDIDATE}}/kustomization.yaml'
@@ -145,7 +154,7 @@ tasks:
       - task: export-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - test -z "$(git -C {{shellQuote .CHECKOUT}} status --porcelain -- '{{.PATH_IN_GIT}}')"
-      - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' > /dev/null
+      - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' '{{.PATH_IN_GIT}}/runtime/release.yaml' > /dev/null
       - git -C {{shellQuote .CHECKOUT}} fetch origin {{shellQuote .BRANCH}}
       - test "$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)" = "$(git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD)"
   publish:

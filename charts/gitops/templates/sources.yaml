@@ -9,7 +9,7 @@ spec:
   ref: {digest: {{ .Values.release.digest | quote }}}
   provider: generic
   secretRef: {name: ghcr}
-{{ range $name, $url := dict "crossplane" "https://charts.crossplane.io/stable" "external-secrets" "https://charts.external-secrets.io" "jetstack" "https://charts.jetstack.io" "traefik" "https://traefik.github.io/charts" "authentik" "https://charts.goauthentik.io" }}
+{{ range $name, $url := dict "jetstack" "https://charts.jetstack.io" "traefik" "https://traefik.github.io/charts" "authentik" "https://charts.goauthentik.io" }}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository

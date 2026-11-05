@@ -34,12 +34,6 @@ tasks:
           yq -e '.spec.managementPolicies | join(",") == "Observe"' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null
         msg: Initial publication requires observe-only infrastructure; write authority follows verified handover
     cmds:
-      - task: :gitops:publish
-        vars:
-          ENV_DIR: '{{.ENV_DIR}}'
-          CHECKOUT: '{{.CHECKOUT}}'
-          MESSAGE: 'feat: initialise environment GitOps configuration'
-          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
       - task: runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
   provision:
@@ -83,6 +77,14 @@ tasks:
       - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - task: :lifecycle:prepare
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :gitops:export
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: :gitops:publish
+        vars:
+          ENV_DIR: '{{.ENV_DIR}}'
+          CHECKOUT: '{{.CHECKOUT}}'
+          MESSAGE: 'feat: initialise environment GitOps configuration'
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, runtime/release.yaml, runtime/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
       - task: :lifecycle:baseline
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: seed
@@ -97,12 +99,8 @@ tasks:
       - defer:
           task: :identity:resources
           vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :cloud:infrastructure-ready
+      - task: :cloud:bootstrap-ready
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :identity:resources
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :gitops:export
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
   seed:
     requires: {vars: [ENV_DIR]}
     vars:
@@ -201,12 +199,14 @@ tasks:
     cmds:
       - task: :gitops:current-checkout
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: runtime-access
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: runtime-secrets
-        vars: {ENV_DIR: '{{.ENV_DIR}}', GITOPS_VALUES: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'}
       - task: runtime-flux
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: :cloud:infrastructure-ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: :identity:resources
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: bindings
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null
@@ -238,27 +238,34 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.handoverComplete = true'' {{.ENV_DIR}}/identity.yaml'
   runtime-flux:
+    silent: true
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
       FLUX_OWNER: {sh: 'test -s {{shellQuote .ENV_DIR}}/remote.kubeconfig && kubectl --kubeconfig {{shellQuote .ENV_DIR}}/remote.kubeconfig -n flux-system get deployment/kustomize-controller --ignore-not-found -o ''jsonpath={.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}'''}
     status:
       - test '{{.FLUX_OWNER}}' = environment
-    cmds:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/flux.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait deployment --all --for=condition=Available --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml'
-  runtime-access:
-    requires: {vars: [ENV_DIR]}
     cmds:
       - task: :identity:local-owner
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait helmrelease/runtime-access --for=create --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait helmrelease/runtime-access --for=condition=Ready --timeout=600s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Ready --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s
+      - mkdir -p -m 700 '{{.ENV_DIR}}/runtime-seed'
+      - install -m 600 /dev/null '{{.ENV_DIR}}/runtime-seed/github-app.yaml'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret/github-app -o json |
+        yq -p=json '{"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+        "metadata": {"name": "github-app", "namespace": "flux-system"}, "data": .data}'
+        > '{{.ENV_DIR}}/runtime-seed/github-app.yaml'
+      - defer: rm -f '{{.ENV_DIR}}/runtime-seed/github-app.yaml'
+      - >-
+        yq -n '{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "bootstrap-facts", "namespace": "flux-system"},
+        "data": {"VAULT_ID": load("{{.ENV_DIR}}/foundation-record.yaml").vaultId}}' > '{{.ENV_DIR}}/runtime-seed/facts.yaml'
+      - cp '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml' '{{.ENV_DIR}}/runtime-seed/sync.yaml'
+      - 'yq -n ''{"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": ["github-app.yaml", "facts.yaml", "sync.yaml"]}'' > {{.ENV_DIR}}/runtime-seed/kustomization.yaml'
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' install --version='{{.FLUX_VERSION}}' --timeout=10m
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -k '{{.ENV_DIR}}/runtime-seed'
   foundation:
     requires: {vars: [ENV_DIR]}
     vars:
@@ -322,8 +329,8 @@ tasks:
     cmds:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-secrets --for=create --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=600s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret --all --for=condition=Ready --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get externalsecret -o json > '{{.ENV_DIR}}/credentials-observed.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret -l tamoss.livewyer.io/credential=true --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get externalsecret -l tamoss.livewyer.io/credential=true -o json > '{{.ENV_DIR}}/credentials-observed.json'
       - 'yq -e ''.items | length == 11'' {{.ENV_DIR}}/credentials-observed.json > /dev/null'
       - 'yq -i ''.credentialsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get configmap/tamoss-bootstrap-instance -o yaml > '{{.ENV_DIR}}/credential-retirement.yaml'
@@ -339,25 +346,20 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/credential-retirement.yaml' -f '{{.ENV_DIR}}/credential-source.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for=jsonpath='{.spec.credentialsEstablished}=true' --timeout=300s
       - KUBECONFIG='{{.ENV_DIR}}/management.kubeconfig' chainsaw assert -f '{{.ROOT_DIR}}/deploy/contracts/credentials-established.yaml' --timeout=600s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait pushsecret --all --for=delete --timeout=120s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait pushsecret -l tamoss.livewyer.io/credential-staging=true --for=delete --timeout=120s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait password.generators.external-secrets.io --all --for=delete --timeout=120s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete secret github-app-input ghcr-input s3-input --ignore-not-found
-  runtime-secrets:
-    requires: {vars: [ENV_DIR, GITOPS_VALUES]}
-    status:
-      - 'test "{{.FLUX_HELM}}" = deployment.apps/helm-controller || yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
-    vars:
-      FLUX_HELM: {sh: "test -s '{{.ENV_DIR}}/remote.kubeconfig' && kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get deployment/helm-controller --ignore-not-found -o name"}
-      KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .ENV_DIR}}/tamoss-release.yaml'}
+  bindings:
+    requires: {vars: [ENV_DIR]}
     cmds:
-      - task: :identity:remote
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - helm template tamoss-gitops '{{.ROOT_DIR}}/charts/gitops' -n flux-system -f '{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/source/deploy/platform/values/defaults.yaml' -f {{shellQuote .GITOPS_VALUES}} > '{{.ENV_DIR}}/gitops-runtime.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' apply --server-side -f deploy/gitops/starter/namespaces.yaml
-      - helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/secrets/helmfile.yaml.gotmpl sync
-      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values'' {{.ENV_DIR}}/gitops-runtime.yaml > {{.ENV_DIR}}/runtime-secrets-flux-system.yaml'
-      - TAMOSS_ENV_DIR='{{.ENV_DIR}}' helmfile --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -f deploy/secrets/runtime-helmfile.yaml.gotmpl sync
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait externalsecret/github-app externalsecret/ghcr --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=create --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=condition=Ready --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret/adoption-bindings -o json > '{{.ENV_DIR}}/bindings-observed.json'
+      - >-
+        yq -p=json -e 'select(.data.SCHEMA_VERSION == "MQ==") | .data.ADOPTION_YAML | @base64d | from_yaml |
+        select(.deploymentId == load("{{.ENV_DIR}}/identity.yaml").deploymentUID and
+        .creationCompositeUID == load("{{.ENV_DIR}}/identity.yaml").creationCompositeUID and (.externalNames | length == 23))'
+        '{{.ENV_DIR}}/bindings-observed.json' > '{{.ENV_DIR}}/adoption.yaml'
   remove-application:
     requires: {vars: [ENV_DIR]}
     status:
@@ -365,7 +367,7 @@ tasks:
         yq -e '.applicationRemoved == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
         yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{.ENV_DIR}}/owned-current.yaml' > /dev/null ||
         (CRD="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD") ||
-        (RELEASE="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get helmrelease/tamoss-gitops --ignore-not-found -o name)" && test -z "$RELEASE")
+        (ROOT="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/environment --ignore-not-found -o name)" && test -z "$ROOT")
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -441,6 +443,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :cloud:audit
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete pushsecret/adoption-bindings --ignore-not-found --wait=true --timeout=120s
       - task: remove-access
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=delete --timeout=300s
@@ -472,8 +475,8 @@ tasks:
     preconditions:
       - sh: >-
           kubectl kustomize '{{.CHECKOUT}}/{{.PATH_IN_GIT}}' |
-          yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops") |
-          .spec.valuesFrom[1].name | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null
+          yq -e 'select(.kind == "Kustomization" and .metadata.name == "runtime") |
+          .spec.postBuild.substitute.VALUES_CONFIGMAP | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null
         msg: Update the environment starter to use content-hashed values references before checking this product revision
     cmds:
       - task: :identity:remote
@@ -506,7 +509,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get configmap/database-connection -o json |
-        yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml").databaseId) |
+        yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{.ENV_DIR}}/outputs.json").databaseId) |
         {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}'
         > '{{.ENV_DIR}}/database-connection.json'
       - task: :qualification:run

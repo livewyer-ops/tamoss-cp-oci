@@ -70,3 +70,11 @@ metadata:
   namespace: secret-check
 stringData:
   githubAppID: 'fixture-original'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: git-auth
+  namespace: secret-check
+stringData:
+  githubAppID: 'fixture-original'

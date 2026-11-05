@@ -15,6 +15,7 @@ task check
 | --- | --- |
 | TAMOSS release | Published metadata/checksums, matching source, immutable bundle and selected upstream browser-test collection |
 | Infrastructure | Initial/partial/ready composition rendering, schema validation, immutable inputs and deletion dependencies |
+| Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; Git preparation without cloud outputs |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
@@ -56,6 +57,12 @@ Job tests exercise asynchronous secret retirement, deadlines and failed retrieva
 Kind restart checks preserve the kubeconfig and reject a mismatched identity. Git
 publication checks cover repeat pushes, interrupted promotion and unrelated edits. These
 checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
+
+Binding-delivery checks submit Flux consumers before the snapshot exists, then
+observe ESO persistence, delivery and Crossplane convergence without forcing
+reconciliation. They reject changed bindings and retain the persisted record when
+its PushSecret is removed. Credential tests verify that ESO adopts a seeded Git
+Secret without replacing its UID.
 
 Readiness checks wait for initial source revisions, reject stale Git/chart
 observations and old Ready conditions after a values change. Real Flux checks
@@ -129,7 +136,7 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 ## Verified coverage and limits
 
-The Flux-managed Kind bootstrap has local controller coverage and still requires
+The Flux-managed Kind bootstrap and Vault-delivered adoption bindings require
 a fresh OCI run. The live results below describe the preceding bootstrap.
 
 The reduced secret seed and revision-aware readiness checks passed a resumed OCI

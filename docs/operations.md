@@ -63,7 +63,9 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Preflight rejection | Placeholder inputs, matching OCI region/profile, file permissions, current UTC cost date and cleanup window |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
-| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `infrastructureReady`, `runtimeAccessReady`; inspect child conditions and HelmReleases |
+| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
+| Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
+| Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
@@ -200,8 +202,8 @@ task down ENV_DIR=.local/environment CHECKOUT=.local/gitops
 
 `down` starts the original Kind and waits for API readiness before checking its
 identity. It verifies the published environment checkout, freezes Flux, quiesces
-OKE providers and revokes their write grants. Current configuration and exact
-provider bindings return to Kind before it receives deletion authority.
+OKE providers and revokes their write grants. Current Git configuration and exact
+provider bindings from Vault return to Kind before it receives deletion authority.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
 releases and the load balancer, empties the owned bucket (including versions and
@@ -212,7 +214,8 @@ provider credentials remain until direct OCI inventory matches the baseline.
 | --- | --- |
 | Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
 
-Environment secrets are scheduled for deletion. A bounded Kubernetes Job waits
+After the cloud audit, teardown retires the binding PushSecret and schedules
+environment secrets for deletion. A bounded Kubernetes Job waits
 for OCI to report `PENDING_DELETION` or `DELETED`; a timeout retains Kind and the
 Job for diagnosis. `retained-foundation.yaml` records the owner, Vault/key and
 scheduled deletion times. The compartment still contains that foundation.

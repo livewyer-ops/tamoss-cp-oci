@@ -1,18 +1,25 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
-metadata: {name: tamoss-gitops, namespace: flux-system}
+metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
 spec:
   interval: 5m
   timeout: 10m
-  releaseName: tamoss-gitops
+  releaseName: tamoss-gitops-bootstrap
+  install:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
   chart:
     spec:
-      chart: ./charts/gitops
+      chart: ./charts/gitops-bootstrap
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-product}
+      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
   valuesFrom:
-    - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
     - {kind: ConfigMap, name: tamoss-gitops-values, valuesKey: values.yaml}
+  values:
+    vaultId: ${VAULT_ID}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -26,17 +33,39 @@ spec:
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: infrastructure, namespace: flux-system}
+metadata: {name: infrastructure, namespace: tamoss-infra}
 spec:
   interval: 5m
   timeout: 15m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: GitRepository, name: environment}
+  sourceRef: {kind: GitRepository, name: environment, namespace: flux-system}
   path: REPLACE
-  dependsOn: [{name: infrastructure-controllers}]
+  dependsOn: [{name: adoption-bindings}]
+  postBuild:
+    substituteFrom: [{kind: Secret, name: adoption-bindings}]
   healthChecks:
     - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossEnvironment, name: REPLACE, namespace: tamoss-infra}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: runtime, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 15m
+  prune: false
+  deletionPolicy: Orphan
+  sourceRef: {kind: GitRepository, name: environment, namespace: flux-system}
+  path: REPLACE
+  dependsOn: [{name: infrastructure}, {name: platform-defaults, namespace: flux-system}]
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: tamoss-runtime}]
+    substitute:
+      VAULT_ID: ${VAULT_ID}
+      VALUES_CONFIGMAP: tamoss-gitops-values
+  healthChecks:
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-gitops, namespace: tamoss-infra}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

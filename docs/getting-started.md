@@ -217,9 +217,10 @@ task check
 task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
-`up` records identity and a cloud inventory baseline, creates Kind, installs
-Crossplane, persists credentials in Vault and provisions OCI. It publishes the
-initial environment configuration, installs Flux and verifies observe-only OKE
+`up` records identity, prepares the environment Git configuration and records a
+cloud inventory baseline. Its Kind seed starts Crossplane provisioning and Vault
+credential persistence. As soon as OKE and its IAM grants are usable, it seeds
+remote Flux. Controllers deliver generated bindings through Vault and verify observe-only OKE
 adoption before transferring write authority. It waits for TAMOSS readiness, then
 stops original Kind. Ongoing changes come from Git.
 
@@ -227,6 +228,7 @@ stops original Kind. Ongoing changes come from Git.
 | --- | --- |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Cloud IDs and endpoints | `outputs.json` |
+| Verified Vault adoption record | `adoption.yaml` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and baseline records | `resources.yaml`, `owned-cloud.yaml`, `inventory-before/` |
 | Live qualification reports | `reports/` |

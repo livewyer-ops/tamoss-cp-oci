@@ -75,6 +75,32 @@ spec:
             entrypoint: mv
             env: *paths
             args: [$CHECK_DIRECTORY/remote.saved.kubeconfig, $CHECK_DIRECTORY/remote.kubeconfig]
+    - name: freeze a partial seed before the application release exists
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare-partial-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - command:
+            <<: *absentApplication
+            check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, freeze-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: environment, namespace: flux-system}
+              spec: {suspend: true}
+      finally:
+        - delete:
+            ref: {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: environment, namespace: flux-system}
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '[]', $CHECK_DIRECTORY/owned-current.yaml]
     - name: reject stale local configuration after write authority is relinquished
       try:
         - apply:

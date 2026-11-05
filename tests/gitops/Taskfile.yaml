@@ -34,7 +34,7 @@ tasks:
           ENV_DIR: '{{.DIRECTORY}}/inputs'
           CHECKOUT: '{{.DIRECTORY}}/checkout'
           MESSAGE: 'feat: publish fixture'
-          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, runtime/release.yaml, runtime/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
   promotion:
     cmds:
       - task: gitops:promotion-checkout

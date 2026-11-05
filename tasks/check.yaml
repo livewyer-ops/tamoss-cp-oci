@@ -99,6 +99,7 @@ tasks:
       - task: handover
       - task --taskfile tests/bootstrap/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
       - task --taskfile tests/bootstrap/Taskfile.yaml render-native ROOT='{{.ROOT_DIR}}'
+      - task --taskfile tests/controller-state/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
       - task: secrets
       - task: connection-details
       - task: gitops
@@ -240,8 +241,10 @@ tasks:
         vars: {RELEASE_LOCK: '{{.ROOT_DIR}}/deploy/tamoss/release.yaml', OUTPUT: '{{.CACHE}}/gitops-pins.yaml'}
       - helm lint '{{.CHART}}' -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml'
       - helm template tamoss-gitops '{{.CHART}}' -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' > '{{.CACHE}}/gitops-render.yaml'
+      - helm lint charts/gitops-bootstrap -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml'
+      - helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' >> '{{.CACHE}}/gitops-render.yaml'
       - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/runtime-secrets-flux-system.yaml'
-      - TAMOSS_ENV_DIR='{{.CACHE}}' helmfile -f deploy/secrets/runtime-helmfile.yaml.gotmpl template > '{{.CACHE}}/runtime-seed.yaml'
+      - helm template tamoss-secrets charts/secrets -n flux-system -f '{{.CACHE}}/runtime-secrets-flux-system.yaml' > '{{.CACHE}}/runtime-seed.yaml'
       - 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/runtime-seed.yaml > {{.CACHE}}/runtime-seed-list.yaml'
       - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-platform-config") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/gitops-platform-config-values.yaml'
       - helm template tamoss-platform-config '{{.ASSETS}}/source/deploy/platform/charts/config' -n tamoss-platform -f '{{.CACHE}}/gitops-platform-config-values.yaml' > '{{.CACHE}}/gitops-platform-config.yaml'
@@ -306,7 +309,9 @@ tasks:
       - task: :gitops:pins
         vars: {RELEASE_LOCK: '{{.ROOT_DIR}}/deploy/tamoss/release.yaml', OUTPUT: '{{.CACHE}}/gitops-pins.yaml'}
       - helm template tamoss-gitops charts/gitops -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' -f tests/tadoss/values.yaml > '{{.CACHE}}/tadoss-gitops.yaml'
+      - helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' -f tests/tadoss/values.yaml >> '{{.CACHE}}/tadoss-gitops.yaml'
       - helm template tamoss-gitops charts/gitops -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' -f tests/tadoss/values.yaml --set tadoss.enabled=false > '{{.CACHE}}/tadoss-disabled.yaml'
+      - helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' --set tadoss.enabled=false >> '{{.CACHE}}/tadoss-disabled.yaml'
       - 'yq ''select(.kind == "CustomResourceDefinition")'' {{.CACHE}}/tadoss-operator.yaml > {{.CACHE}}/schemas/tadoss.yaml'
       - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/tadoss-gitops.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results
       - for: [operator, credentials, instance]

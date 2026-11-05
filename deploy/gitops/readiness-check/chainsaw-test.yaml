@@ -25,6 +25,18 @@ spec:
               status:
                 (ends_with(lastAppliedRevision || '', $values.revision)): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: observe the runtime revision before accepting existing releases
+      try:
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: runtime, namespace: tamoss-infra}
+              (spec.suspend != `true`): true
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (ends_with(lastAppliedRevision || '', $values.revision)): true
+                (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: observe the selected product and its chart
       try:
         - assert:
@@ -41,7 +53,7 @@ spec:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: HelmChart
-              metadata: {name: flux-system-tamoss-gitops, namespace: flux-system}
+              metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
@@ -53,10 +65,10 @@ spec:
             resource:
               apiVersion: helm.toolkit.fluxcd.io/v2
               kind: HelmRelease
-              metadata: {name: tamoss-gitops, namespace: flux-system}
+              metadata: {name: tamoss-gitops, namespace: tamoss-infra}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'flux-system', 'flux-system-tamoss-gitops').status.artifact.revision): true
+              (status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'flux-system', 'tamoss-infra-tamoss-gitops').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:

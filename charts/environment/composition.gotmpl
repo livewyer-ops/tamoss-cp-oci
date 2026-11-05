@@ -242,10 +242,81 @@ spec:
       name: {{ printf "%s-%s" $n $by | lower }}
 {{- end }}
 
+{{/* Preserve the exact creation bindings independently of mutable runtime values. */}}
+{{- $snapshot := (get $observed "adoption-bindings" | default dict).resource | default dict -}}
+{{- $externalNames := dict -}}
+{{- $complete := eq (len $resources) 23 -}}
+{{- range $key, $definition := $resources -}}
+{{- $resource := (get $observed $key | default dict).resource | default dict -}}
+{{- $externalName := index ($resource.metadata.annotations | default dict) "crossplane.io/external-name" | default "" -}}
+{{- $ready := false -}}
+{{- range (dig "status" "conditions" (list) $resource) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
+{{- end -}}
+{{- $complete = and $complete $ready (ne $externalName "") -}}
+{{- $_ := set $externalNames $key $externalName -}}
+{{- end -}}
+{{- if and (not $adoption) (or $snapshot $complete) }}
+{{- $record := dict "deploymentId" $deploymentId "creationCompositeUID" $creationUID "externalNames" $externalNames -}}
+{{- $data := dict "SCHEMA_VERSION" (b64enc "1") "DEPLOYMENT_ID" (b64enc $deploymentId) "CREATION_COMPOSITE_UID" (b64enc $creationUID) "ADOPTION_YAML" (b64enc (toYaml $record)) -}}
+{{- range $key, $value := $externalNames -}}
+{{- $_ := set $data (upper (replace "-" "_" $key)) (b64enc $value) -}}
+{{- end -}}
+{{- if $snapshot -}}
+{{- if and $complete (ne (toJson $data) (toJson $snapshot.data)) -}}{{- fail "Established adoption bindings differ from observed infrastructure" -}}{{- end -}}
+{{- $data = $snapshot.data -}}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adoption-bindings-input
+  namespace: {{ $ns }}
+  annotations:
+    {{ setResourceNameAnnotation "adoption-bindings" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+type: Opaque
+immutable: true
+data:
+{{ $data | toYaml | indent 2 }}
+{{- end }}
+
+{{- $runtime := (get $observed "runtime-values" | default dict).resource | default dict -}}
+{{- $bootstrapReady := true -}}
+{{- range $key := list "cluster" "worker-0" -}}
+{{- $ready := false -}}
+{{- range (dig $key "resource" "status" "conditions" (list) $observed) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
+{{- end -}}
+{{- $bootstrapReady = and $bootstrapReady $ready -}}
+{{- end -}}
+{{- $databaseId := dig "database" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $publicIp := dig "public-ip" "resource" "status" "atProvider" "ipAddress" "" $observed -}}
+{{- $loadBalancerSubnet := dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- if and $adoption (or $runtime (and $databaseId $publicIp $loadBalancerSubnet)) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-runtime
+  namespace: {{ $ns }}
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+  annotations:
+    {{ setResourceNameAnnotation "runtime-values" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+data:
+  DATABASE_ID: {{ $databaseId | default (dig "data" "DATABASE_ID" "" $runtime) | quote }}
+  PUBLIC_IP: {{ $publicIp | default (dig "data" "PUBLIC_IP" "" $runtime) | quote }}
+  LOAD_BALANCER_SUBNET_ID: {{ $loadBalancerSubnet | default (dig "data" "LOAD_BALANCER_SUBNET_ID" "" $runtime) | quote }}
+{{- end }}
+
 ---
 apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 status:
+  bootstrapReady: {{ $bootstrapReady }}
+  bindingsReady: {{ or (not (empty $snapshot)) (and (not $adoption) $complete) }}
   outputs:
     clusterId: {{ dig "cluster" "resource" "status" "atProvider" "id" "" $observed | quote }}
     databaseId: {{ dig "database" "resource" "status" "atProvider" "id" "" $observed | quote }}

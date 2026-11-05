@@ -75,13 +75,30 @@ spec:
             file: resources.yaml
             subresource: status
         - command: *check
+    - name: reject a stale runtime revision
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: runtime, namespace: tamoss-infra}
+              status:
+                lastAppliedRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        - command:
+            <<: *check
+            check: {($error != null): true}
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - command: *check
     - name: reject a new values generation with an old Ready condition
       try:
         - patch:
             resource:
               apiVersion: helm.toolkit.fluxcd.io/v2
               kind: HelmRelease
-              metadata: {name: tamoss-gitops, namespace: flux-system}
+              metadata: {name: tamoss-gitops, namespace: tamoss-infra}
               spec:
                 valuesFrom:
                   - {kind: ConfigMap, name: changed-values}
@@ -93,9 +110,9 @@ spec:
             resource:
               apiVersion: helm.toolkit.fluxcd.io/v2
               kind: HelmRelease
-              metadata: {name: tamoss-gitops, namespace: flux-system}
+              metadata: {name: tamoss-gitops, namespace: tamoss-infra}
               status:
-                observedGeneration: (x_k8s_get($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'flux-system', 'tamoss-gitops').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra', 'tamoss-gitops').metadata.generation)
         - command: *check
     - name: reject stale chart content even when the release is healthy
       try:
@@ -104,7 +121,7 @@ spec:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: HelmChart
-              metadata: {name: flux-system-tamoss-gitops, namespace: flux-system}
+              metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
               status:
                 observedSourceArtifactRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
         - command:
@@ -115,7 +132,7 @@ spec:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: HelmChart
-              metadata: {name: flux-system-tamoss-gitops, namespace: flux-system}
+              metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
               status:
                 observedSourceArtifactRevision: 'main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
         - command: *check

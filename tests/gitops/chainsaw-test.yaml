@@ -31,11 +31,11 @@ spec:
         - command:
             entrypoint: yq
             env: *env
-            args: [eval-all, -e, '[select(.kind != null)] as $r | ($r[] | select(.kind == "HelmRelease")).spec.valuesFrom[1].name == ($r[] | select(.kind == "ConfigMap" and (.metadata.name | test("^tamoss-gitops-values-")))).metadata.name', '$DIRECTORY/before.yaml']
+            args: [eval-all, -e, '[select(.kind != null)] as $r | ($r[] | select(.kind == "HelmRelease")).spec.valuesFrom[0].name == ($r[] | select(.kind == "ConfigMap" and (.metadata.name | test("^tamoss-gitops-values-")))).metadata.name', '$DIRECTORY/before.yaml']
         - command:
             entrypoint: yq
             env: *env
-            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[1].name', '$DIRECTORY/before.yaml']
+            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[0].name', '$DIRECTORY/before.yaml']
             outputs:
               - name: beforeReference
                 value: ($stdout)
@@ -59,7 +59,7 @@ spec:
         - command:
             entrypoint: yq
             env: *env
-            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[1].name', '$DIRECTORY/after.yaml']
+            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[0].name', '$DIRECTORY/after.yaml']
             check:
               ($error == null): true
               ($stdout != $beforeReference): true
@@ -171,7 +171,36 @@ spec:
             entrypoint: cmp
             env: *env
             args: ['$DIRECTORY/inputs/initial-release.yaml', '$DIRECTORY/inputs/tamoss-release.bootstrap.yaml']
-    - name: reject missing provider bindings before writing the checkout
+    - name: prepare desired Git configuration before cloud outputs exist
+      try:
+        - command:
+            entrypoint: rm
+            env: *env
+            args: [-rf, '$DIRECTORY/checkout/clusters/oci-dev']
+        - command:
+            entrypoint: rm
+            env: *env
+            args: ['$DIRECTORY/inputs/resources-current.yaml', '$DIRECTORY/inputs/outputs.json', '$DIRECTORY/inputs/foundation-record.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, 'del(.creationCompositeUID)', '$DIRECTORY/inputs/identity.yaml']
+        - command:
+            <<: *export
+            check: {($error == null): true}
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-e, '.databaseId == null and .vaultId == null and .runtime.publicIp == null and .runtime.loadBalancerSubnetId == null', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-e, '.spec.adoption.creationCompositeUID == ("$" + "{CREATION_COMPOSITE_UID}") and (.spec.adoption.externalNames | length == 23)', '$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
+        - command:
+            entrypoint: helm
+            env: *env
+            args: [lint, $PROJECT_ROOT/charts/gitops-bootstrap, -f, '$DIRECTORY/checkout/clusters/oci-dev/values.yaml', --set, vaultId=ocid1.vault.oc1.fixture]
+    - name: reject invalid desired settings before publishing or provisioning
       try:
         - command:
             entrypoint: rm
@@ -180,11 +209,13 @@ spec:
         - command:
             entrypoint: yq
             env: *env
-            args: [-i, 'del(.[0])', '$DIRECTORY/inputs/resources-current.yaml']
+            args: [-i, '.acmeEmail = "invalid"', '$DIRECTORY/inputs/settings.yaml']
         - command:
             <<: *export
-            check: {($error != null): true}
+            check:
+              ($error != null): true
+              (contains($stdout, '/runtime/acmeEmail')): true
         - command:
             entrypoint: test
             env: *env
-            args: ['!', -e, '$DIRECTORY/checkout/clusters/oci-dev']
+            args: ['!', -d, '$DIRECTORY/checkout/clusters/oci-dev']

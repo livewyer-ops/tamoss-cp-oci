@@ -73,6 +73,7 @@ tasks:
       - defer: rm -r '{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-startup'
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/tadoss-startup --set-string root='{{.ROOT_DIR}}' --set-string directory='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}-startup' --set-string databaseImage="$(yq -r .qualification.postgres16Image dependencies.yaml)" --set-string chartVersion="$(yq -r .dependencies.platform.authentik.chartVersion '{{.ROOT_DIR}}/.local/tmp/check/gitops-pins.yaml')" --report-format JUNIT-TEST --report-path .local/reports --report-name tadoss-startup
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --assert-timeout 90s --test-dir tests/secret-persistence --report-format JUNIT-TEST --report-path .local/reports --report-name secret-persistence
+      - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --test-dir tests/controller-state/management --set-string root='{{.ROOT_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name controller-state-management
       - KUBECONFIG='{{.ROOT_DIR}}/.local/tmp/check/{{.CHECK_NAME}}.kubeconfig' chainsaw test --assert-timeout 120s --test-dir tests/secret-retirement --report-format JUNIT-TEST --report-path .local/reports --report-name secret-retirement
       - for: {var: CONNECTION_IMAGES}
         cmd: docker exec '{{.CHECK_NAME}}-control-plane' crictl pull '{{.ITEM}}'

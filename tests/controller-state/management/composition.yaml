@@ -1,0 +1,28 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata: {name: binding-observer}
+spec:
+  compositeTypeRef: {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossEnvironment}
+  mode: Pipeline
+  pipeline:
+    - step: observe-bindings
+      functionRef: {name: function-go-templating}
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: observed-bindings
+              namespace: binding-check
+              annotations:
+                {{ setResourceNameAnnotation "observed" }}
+                gotemplating.fn.crossplane.io/ready: "True"
+            data:
+              vcn: {{ .observed.composite.resource.spec.adoption.externalNames.vcn | quote }}
+              creationUID: {{ .observed.composite.resource.spec.adoption.creationCompositeUID | quote }}
+    - step: readiness
+      functionRef: {name: function-auto-ready}

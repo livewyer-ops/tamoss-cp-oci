@@ -168,17 +168,25 @@ tasks:
       - 'yq -r ''.data[] | [.name, .id] | @tsv'' {{.STORAGE_DIR}}/baseline.json | sort > {{.STORAGE_DIR}}/baseline-names.txt'
       - 'yq -r ''.data[] | [.name, .id] | @tsv'' {{.STORAGE_DIR}}/after.json | sort > {{.STORAGE_DIR}}/after-names.txt'
       - diff -u '{{.STORAGE_DIR}}/baseline-names.txt' '{{.STORAGE_DIR}}/after-names.txt'
+  bootstrap-ready:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for=jsonpath='{.status.bootstrapReady}=true' --timeout=1800s
+      - task: observe-owned
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   infrastructure-ready:
     requires: {vars: [ENV_DIR]}
     vars:
       NAME: {sh: 'yq -r .metadata.name {{.ENV_DIR}}/environment.yaml'}
     cmds:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait 'tamossenvironment/{{.NAME}}' --for=condition=Ready --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait 'tamossbootstrap/{{.NAME}}' --for=condition=Ready --timeout=1800s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=120s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get 'tamossenvironment/{{.NAME}}' -o json | yq -p=json -o=json .status.outputs > '{{.ENV_DIR}}/outputs.json'
       - task: observe-owned
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
   inventory:
     requires: {vars: [ENV_DIR, INVENTORY_DIR]}

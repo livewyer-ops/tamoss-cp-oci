@@ -82,5 +82,7 @@ spec:
                 foundationReady: {type: boolean}
                 credentialsReady: {type: boolean}
                 infrastructureReady: {type: boolean}
+                bindingsReady: {type: boolean}
+                bootstrapReady: {type: boolean}
                 runtimeAccessReady: {type: boolean}
                 released: {type: boolean}

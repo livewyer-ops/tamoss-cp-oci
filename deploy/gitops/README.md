@@ -18,7 +18,7 @@ TAMOSS source, charts, profiles and release assets remain read-only.
 The preceding bootstrap passed live OCI checks for repeat, workload authentication, persisted secret
 delivery, private Git/GHCR pulls, ownership transfer in both directions, Kind-off
 application operation and interrupted/resumed teardown. The Flux-managed Kind
-bootstrap still requires fresh OCI qualification. A supported TAMOSS upgrade
+bootstrap and controller-delivered binding workflow still require fresh OCI qualification. A supported TAMOSS upgrade
 and package-read credential rotation/revocation remain unqualified. See
 [verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
 The public `up`, `qualify` and `down` commands sequence this workflow. The
@@ -28,28 +28,38 @@ tasks. See [setup](../../docs/getting-started.md#git-and-vault-preparation).
 ## Repository contents
 
 The operator clones this product and prepares a separate private environment
-repository. Initial export writes one cluster directory containing:
+repository. Before cloud provisioning, initialisation writes one cluster directory containing:
 
 | File | Responsibility |
 | --- | --- |
-| `values.yaml` | Non-secret environment outputs, settings, dependency pins and TAMOSS release hashes/OCI digest |
+| `values.yaml` | Desired environment settings, dependency pins and TAMOSS release hashes/OCI digest |
 | `sources.yaml` | Exact product and TAMOSS source commits |
-| `infrastructure/environment.yaml` | Observe-only environment declaration with all exact provider bindings and the original creation identity |
+| `infrastructure/environment.yaml` | Observe-only environment declaration with references to controller-delivered bindings |
 | `infrastructure/kustomization.yaml` | Infrastructure entry point |
-| `releases.yaml` | Integration HelmRelease and infrastructure readiness dependencies |
+| `releases.yaml` | Controller/secret-delivery HelmRelease and adoption/runtime dependencies |
+| `runtime/release.yaml`, `runtime/kustomization.yaml` | Application integration release using current Crossplane outputs |
 | `namespaces.yaml` | Runtime namespaces |
 | `flux.yaml` | Controller installation exported by the pinned Flux CLI |
 | `sync.yaml` | Environment Git source and root reconciliation |
-| `kustomizeconfig.yaml` | Connect content-hashed values ConfigMaps to the GitOps HelmRelease |
+| `kustomizeconfig.yaml` | Connect content-hashed values ConfigMaps to both integration releases |
 | `kustomization.yaml` | Root entry point and watched settings ConfigMap |
 
 Export validates the checkout's origin, branch, path and deployment identity.
 It writes this directory once and preserves subsequent user changes. Incomplete
-existing configuration and missing provider bindings stop export. `up` commits
+existing configuration stops initialisation. Generated cloud bindings are not required. `up` commits
 and pushes only the generated cluster files, then publishes the ownership-policy
 change after Kind is quiesced. It preserves unrelated staged files and does not
 force-push. Secrets, Kubernetes status, kubeconfigs and owner references are
-excluded; non-secret cloud identifiers belong in the private environment repo.
+excluded. Generated resource identifiers and the original creation UID are
+persisted in Vault; they are not deployment-time Git edits.
+
+The infrastructure composition produces an immutable `adoption-bindings-input`
+Secret after all 23 bindings are known and their resources are ready. The bootstrap
+persists it to Vault and verifies exact readback. OKE receives `adoption-bindings`
+through ESO, then substitutes those bindings into the Git declaration. Adoption
+starts in Observe mode; existing identity and immutable-binding checks still apply.
+OKE Crossplane publishes current database and ingress outputs in `tamoss-runtime`.
+The runtime Kustomization uses them to configure the application release.
 
 Flux fetches reusable integration charts from the pinned product commit and
 upstream platform charts from the release's recorded TAMOSS commit. Git source
@@ -100,7 +110,8 @@ credential establishment and switches Kind's product source to the delivered
 GitHub App Secret. It verifies source access and removal of creation resources
 before deleting imported Kubernetes staging Secrets. Missing established Vault
 secrets fail visibly. Original local input files remain under the operator's
-control.
+control. The separate binding PushSecret retains its record until infrastructure
+deletion and the independent cloud audit have completed.
 
 OKE receives namespace-scoped SecretStores using workload identity. The local
 OCI signing key stays out of OKE. Separate IAM grants identify the exact cluster,
@@ -116,6 +127,11 @@ does not persist that annotation without late initialisation. Ownership comparis
 verifies the observed administrator and initial credential references without
 comparing OCI's creation-only state.
 
+The remote seed contains the Vault identifier and the already persisted, read-only
+Git App Secret. Flux installs ESO; ESO adopts that Secret and supplies GHCR and
+application credentials. Completion requires successful delivery and ESO ownership
+of the Git Secret. The host does not install or upgrade remote secret releases.
+
 The pinned OCI provider applied a backup-retention change but then reported an
 empty `PatchDbSystem` request. Observation recovered automatically after the
 five-minute check timed out. Treat this as a transient provider limitation:
@@ -123,13 +139,15 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
 
 ## Lifecycle stages
 
-1. Validate bounded inputs; create original Kind, install pinned Flux and apply
+1. Validate bounded inputs; create original Kind, publish desired Git configuration,
+   install pinned Flux and apply
    the private seed. Flux and Crossplane reconcile controllers, retained foundation,
    persisted credentials, infrastructure and runtime access. Verify credential
-   retirement and export the environment directory.
-2. Publish the initial exported configuration. Install ESO and Git/registry secret
-   delivery in `flux-system`, then seed Flux. Flux installs the other namespace
-   secret releases and applications; verify adoption and observe-only infrastructure.
+   retirement. Infrastructure and the retained foundation reconcile concurrently.
+2. When OKE and runtime IAM are ready, authenticate and seed remote Flux while the
+   database may still be provisioning. Flux installs controllers and ESO. Persisted
+   bindings enable observe-only infrastructure adoption; observed outputs enable
+   application releases.
 3. Compare exact external names, provider configuration, cloud status and ownership
    tags. Stop in-flight Helm actions and suspend the bootstrap instance release
    before releasing and pausing its root. Set Kind to observation, wait for operations to finish, pause reconciliation
@@ -142,22 +160,22 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
    Suspend Flux reconciliation, quiesce OKE's provider resources and revoke its write
    grants. Refresh Kind's controllers/API from the current product and Git selections,
    retaining Kind's API-key authentication and suspended bootstrap instance.
-   Return current configuration to Kind in observe-only mode; compare both
+   Combine current Git configuration with the verified Vault bindings and return
+   it to Kind in observe-only mode; compare both
    inventories before granting deletion authority.
 7. Finalise TAMOSS while its operator is available. Keep parent reconciliation
    suspended and resume each application declaration for deletion. Remove releases and
    the load balancer, then delete infrastructure. Confirm direct OCI inventory,
-   remove runtime IAM grants and schedule environment-secret deletion before
+   remove binding persistence and runtime IAM grants, then schedule environment-secret deletion before
    removing Kind. Record the retained vault/key, owner and pending secret deletions.
 
-Runtime bootstrap can resume after an interrupted readiness check. Once Flux's
-Helm controller is installed, retries leave secret-delivery releases to Flux;
-Helmfile no longer upgrades them. Once the environment Kustomization owns Flux's
+Runtime bootstrap can resume after an interrupted readiness check. Flux owns
+secret-delivery releases from their first installation. Once the environment Kustomization owns Flux's
 controller installation, retries also leave those manifests to Flux.
 Bootstrap refreshes Kubernetes API discovery after the infrastructure controllers
 are ready before checking their resources.
 
-Readiness checks observe the expected environment commit, the product source and
+Readiness checks observe the expected environment and runtime commits, the product source and
 chart revisions, and the current HelmRelease generation before accepting workload
 health. Kustomize changes the values ConfigMap name and HelmRelease reference when
 environment values change. The `deployment-ready` Kustomization checks current
@@ -166,12 +184,10 @@ ConfigMaps remain until cluster teardown because the root deliberately disables
 pruning. Application and handover reconciliation proceed without a host trigger;
 ownership transfer retains explicit identity, quiescence and single-writer checks.
 
-For an environment exported before hashed values references were introduced,
-copy `starter/kustomizeconfig.yaml` into its Git directory, add it under
-`configurations` in `kustomization.yaml`, and remove `disableNameSuffixHash: true`
-from that file's generator options. Commit these changes with the product pin.
-The readiness command rejects the old reference layout rather than accepting
-potentially stale release health.
+This layout is for new environments. An environment with cloud bindings embedded
+in Git must retain its deployed product revision for operations and teardown.
+Changing its product pin alone does not migrate grouping releases, generated
+state or namespace ownership. Initialisation rejects an incomplete or older layout.
 
 Secret deletion scheduling is asynchronous. A Kubernetes Job retries OCI metadata
 reads for up to three minutes, accepting only `PENDING_DELETION` or `DELETED` for

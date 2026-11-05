@@ -4,7 +4,7 @@ metadata:
   name: bootstrap-controller
 spec:
   steps:
-    - name: create only the foundation while dependencies are unavailable
+    - name: reconcile infrastructure alongside the unavailable foundation
       try:
         - apply:
             resource:
@@ -49,8 +49,8 @@ spec:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossBootstrap
               metadata: {name: bootstrap-check, namespace: tamoss-infra}
-              status: {foundationReady: false, credentialsReady: false, infrastructureReady: false}
-        - error:
+              status: {foundationReady: false, credentialsReady: false, infrastructureReady: true}
+        - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossEnvironment
@@ -70,8 +70,8 @@ spec:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossBootstrap
               metadata: {name: bootstrap-check, namespace: tamoss-infra}
-              status: {foundationReady: true, credentialsReady: false, infrastructureReady: false}
-        - error:
+              status: {foundationReady: true, credentialsReady: false, infrastructureReady: true}
+        - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossEnvironment

@@ -8,21 +8,21 @@ spec:
     - name: directory
       value: (join('/', [$values.root, '.local/tmp/check/bootstrap']))
   steps:
-    - name: create infrastructure only after foundation and matching credential delivery
+    - name: submit infrastructure while the foundation and credentials are pending
       try:
         - command:
             entrypoint: chainsaw
             env: &inputs
               - {name: DIRECTORY, value: ($directory)}
-            args: [assert, --timeout, 1s, -r, $DIRECTORY/initial-list.yaml, -f, waiting.yaml]
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/initial-list.yaml, -f, independent.yaml]
         - command:
             entrypoint: chainsaw
             env: *inputs
-            args: [assert, --timeout, 1s, -r, $DIRECTORY/waiting-list.yaml, -f, waiting.yaml]
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/waiting-list.yaml, -f, independent.yaml]
         - command:
             entrypoint: chainsaw
             env: *inputs
-            args: [assert, --timeout, 1s, -r, $DIRECTORY/wrong-delivery-list.yaml, -f, waiting.yaml]
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/wrong-delivery-list.yaml, -f, independent.yaml]
         - command:
             entrypoint: chainsaw
             env: *inputs
