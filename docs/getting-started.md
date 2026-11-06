@@ -22,7 +22,7 @@ task setup
 
 The PATH export is needed in each shell. `setup` installs the pinned native OCI
 CLI through Aqua-managed uv and creates an owner-only input directory containing
-`values.yaml` and `secrets/`. Repeating setup preserves the file. It refuses to
+`values.yaml`, optional `gitops.yaml` and `secrets/`. Repeating setup preserves the file. It refuses to
 initialise a directory containing an earlier deployment. Select a fresh directory
 with `task setup ENV_DIR=.local/environments/my-environment` when needed, then use
 that same `ENV_DIR` for every lifecycle command.
@@ -63,8 +63,8 @@ oci os ns get
 ### Storage credentials
 
 The storage identity needs a Customer Secret Key scoped to the intended bucket.
-The default bucket name is `tamoss-<name>-media`, where `name` comes from
-`values.yaml`. Configure the storage policy for that exact name, or set
+The default bucket is `tamoss-media-demo-media`. Setting `name` in
+`values.yaml` changes it to `tamoss-<name>-media`. Configure the storage policy for that exact name, or set
 `storage.bucket` to the bucket name already authorised by your administrator.
 Crossplane creates the bucket during deployment.
 
@@ -83,151 +83,134 @@ unset S3_SECRET_KEY
 Keep credentials out of manifests, shell tracing and logs. Database and application
 passwords are generated and persisted in OCI Vault during deployment.
 
-## Git and package access
+## Quick deployment
 
-Create a private environment repository with an initial commit on `main`.
-Configure Git author/committer identity and authenticated push access on this
-workstation. Branch protections must permit the generated commits. `up` clones
-the repository into `.local/gitops` if needed and publishes its cluster directory;
-`handover` later publishes the ownership policy. An existing checkout must have
-exactly the origin URL and branch selected in `values.yaml`.
-
-Install a GitHub App with read access to the product and environment repositories.
-Put its App ID and installation ID in `values.yaml`. Its read access is separate
-from the workstation's push credentials.
-
-Supply owner-only files under `.local/environment/secrets/`:
-
-| File | Content |
-| --- | --- |
-| `github-app-private-key` | GitHub App PEM private key |
-| `ghcr-dockerconfigjson` | Self-contained Docker authentication JSON for GHCR |
-| `s3-access-key` | Exact S3 access key bytes, without a trailing newline |
-| `s3-secret-key` | Exact S3 secret bytes, without a trailing newline |
-
-The GHCR credential must read the TAMOSS and TADOSS release bundles recorded in
-`deploy/tamoss/release.yaml` and `deploy/tadoss/release.yaml`, plus the bootstrap
-tooling image in `dependencies.yaml`. A Docker configuration referring only to a
-workstation credential helper is insufficient. Set each credential file to mode
-`600`; preserve the PEM and JSON formats. The deployment checks package access
-before provisioning and generates the two internal App ID files automatically.
-
-Consumers use the published packages. Maintainers who publish their own packages
-follow the [bundle procedure](../deploy/tamoss/README.md#private-release-bundle)
-and [tooling image procedure](operations.md#native-oci-cli), then commit their
-matching pins. Private package access is still required when the product Git
-repository is public.
-
-## Environment inputs
+The quick deployment needs no GitHub login, environment repository or registry
+credentials. Product assets are public and pinned by digest. Flux runs internally
+on OKE using pinned product definitions and the locally supplied configuration.
 
 Edit `.local/environment/values.yaml`:
 
 ```yaml
-name: media-demo
 compartmentId: ocid1.compartment.oc1..REPLACE
 contactEmail: operator@example.com
 adminCidrs: [192.0.2.10/32]
-git:
-  url: https://github.com/YOUR-OWNER/tamoss-environments
-  githubAppId: 'REPLACE'
-  githubInstallationId: 'REPLACE'
 ```
 
-Replace the name, compartment, email, administrator CIDR, repository URL and App
-IDs. Use your actual public egress IPv4 address, including any VPN gateway, for
-the API allowlist. The name must have 3–23 lowercase letters, digits or hyphens,
-starting with a letter and ending with a letter or digit. Choose an unused
-cluster path and bucket name for each new deployment.
+Use your actual public egress IPv4 address, including any VPN gateway, for the
+API allowlist. The name defaults to `media-demo`; choose another unused `name`
+for a separate environment. Names have 3–23 lowercase letters, digits or hyphens,
+starting with a letter and ending with a letter or digit.
 
-The [defaults](../charts/setup/values.yaml) provide the existing HA capacity,
-network ranges, PostgreSQL settings, qualified OKE version/image selection and
-`main` branch. Owner, ACME contact and administrator email default to
-`contactEmail`. The cluster path defaults to `clusters/<name>`, and the Vault
-foundation name to `<name>-vault`. TADOSS is prepared but initially disabled.
-
-Before provisioning, native OCI queries resolve the Object Storage namespace,
-regional service network and availability-domain names. The default placement
-needs three availability domains; Frankfurt is the live-qualified region.
-The pinned image must be available for the selected OKE version and architecture.
-An unavailable or ambiguous selection stops setup; it does not select a newer
-image automatically.
-
-Override supported fields in the same file when needed, for example:
-
-```yaml
-owner: platform-team@example.com
-acmeEmail: certificates@example.com
-git:
-  branch: main
-  path: clusters/media-demo
-network:
-  vcn: 10.40.0.0/16
-storage:
-  bucket: my-authorised-media-bucket
-```
-
-Merge overrides into the existing mappings. Retain the Git URL and App IDs, and
-keep every subnet inside the selected VCN. `oke.placements`, `oke.imageId`, sizing
-and database settings have explicit overrides validated against the environment
-API. To reuse an owned Vault/key, set `foundation.name` and its recorded
-`foundation.adoption` fields from the retained foundation record; do not discover
-or adopt an unrelated foundation by name.
-
-The product URL defaults to this repository; `product.url` supports a published
-fork. The selected local commit must be published on that repository's `main`
-history. Release bundle digests come from the product's release locks.
-
-The environment stays running until explicitly removed with `task down`.
-
-## Deploy
-
-Run local product checks, then deploy:
+The [defaults](../charts/setup/values.yaml) supply HA capacity, network ranges,
+PostgreSQL settings and a qualified OKE version/image. Owner, ACME contact and
+administrator email use `contactEmail`. The Vault foundation defaults to
+`<name>-vault`. TADOSS credentials are prepared, with the application disabled.
 
 ```bash
-task check
 task up
 ```
 
-`up` validates and resolves the inputs, checks package access, and records the
-settings before provisioning. Generated `environment.yaml`, `foundation.yaml`,
-`settings.yaml` and `gitops.yaml` are internal records. Repeating `up` reuses the
-recorded choices and preserves environment Git. Keep the original `values.yaml`
-unchanged after input preparation; make operational changes in environment Git.
-A failed discovery or access check can be corrected before inputs are recorded.
+`up` validates inputs and anonymous package access before provisioning. Native
+OCI queries resolve the storage namespace, service network, availability domains
+and pinned worker image. Default placement requires three availability domains;
+Frankfurt is the previously qualified region. Unavailable or ambiguous selections
+stop the build rather than silently choosing another image.
 
-Kind starts Crossplane, Flux and Vault credential persistence. A Crossplane-owned
-Job retrieves the OKE connection, installs Flux and seeds remote GitOps.
-Controllers deliver adoption bindings and application configuration. `up` waits
-for deployment readiness, including public TLS, and leaves Kind running as the
-infrastructure owner. Flux manages the applications from the start.
+Kind starts Flux, Crossplane and Vault credential persistence. Its Crossplane-owned
+Job obtains OKE access, installs Flux and applies the deployment seed. Controllers
+reconcile infrastructure, secret delivery and applications. `up` waits for public
+TLS and application readiness, prints URLs and writes initial login details to
+`.local/environment/access/ui-login.json` with owner-only permissions.
 
-Transfer infrastructure ownership when ready:
+Kind remains the infrastructure writer. Applications run on OKE. Repeating `up`
+reuses the original identity and does not replay a completed remote seed. Keep
+`values.yaml` unchanged after inputs are recorded. `task check` is a contributor
+validation command; it is not required before each deployment.
+
+## Optional GitOps handover
+
+After `up` succeeds, authenticate once on the workstation:
+
+```bash
+gh auth login --hostname github.com --git-protocol https
+```
+
+Set `.local/environment/gitops.yaml`:
+
+```yaml
+owner: YOUR-OWNER
+repository: tamoss-environments
+branch: main
+```
+
+The repository and branch above are defaults; the cluster path defaults to
+`clusters/<name>`. Use an account allowed to create the repository or administer
+an existing repository and its deploy keys. Existing repositories must contain
+the selected branch and permit the generated commits. Existing cluster paths
+belonging to another deployment are rejected.
 
 ```bash
 task handover
 ```
 
-Handover verifies readiness, quiesces Kind, publishes the ownership change and
-waits for OKE convergence before stopping original Kind. Application capabilities
-stay the same. Keep the original containers for teardown. Enable
-[TADOSS through Git](../deploy/tadoss/README.md#enable-through-git) to demonstrate
-an application change while Kind is stopped.
+Handover creates a private repository if needed and publishes the running
+configuration. Native Flux bootstrap registers a repository-scoped, read-only SSH
+deploy key. The operator's GitHub token stays on the workstation; the deploy key
+is persisted through Kind's Vault store and delivered to OKE through ESO.
+
+Once Git has adopted the deployment, handover verifies both inventories, quiesces
+Kind, grants OKE write authority and publishes the ownership change. Original Kind
+stops only after readiness passes. Resources, passwords and application capabilities
+remain in place. Git owns subsequent changes, including
+[TADOSS enablement](../deploy/tadoss/README.md#enable-through-git).
+
+GitHub may remove a deploy key when the token used to register it is revoked.
+Retain that authentication. Renewal must update GitHub, Vault and ESO together;
+see [credential ownership](../deploy/gitops/README.md#inputs-and-secret-delivery).
+Automated rotation is not yet qualified, and Vault persistence does not keep a
+revoked GitHub key valid.
+
+Retain `.local/gitops`, `.local/environment` and the original Kind containers
+until teardown. Failed handover can be retried with the same inputs; `up` never
+restores the initial configuration over established GitOps settings.
+
+## Advanced inputs and generated records
+
+Override supported infrastructure fields in `values.yaml` only when needed:
+
+```yaml
+name: another-demo
+owner: platform-team@example.com
+acmeEmail: certificates@example.com
+storage:
+  bucket: my-authorised-media-bucket
+```
+
+Network, worker placement/image, sizing and database overrides are validated
+against the [setup schema](../charts/setup/values.schema.json) and environment API.
+Keep subnets inside the selected VCN. Reuse an owned Vault/key through
+`foundation.name` and recorded `foundation.adoption` fields; a matching name is
+not proof of ownership.
+
+`product.url` supports a published fork. The local product commit must be on that
+repository's `main` history. Release digests come from its release locks.
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
 | Recorded bootstrap input | `setup-values.yaml` |
+| Resolved product, infrastructure and settings | `product.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
+| Initial deployment configuration | `deployment/`, `deployment.yaml` |
 | OCI discovery and package checks | `discovery/` |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
-| Cloud IDs and endpoints | `outputs.json` |
-| Vault adoption record | `adoption.yaml` |
+| Cloud outputs and adoption record | `outputs.json`, `adoption.yaml` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and baseline records | `resources.yaml`, `owned-cloud.yaml`, `inventory-before/` |
-| Live qualification reports | `reports/` |
+| Qualification reports | `reports/` |
 
-After a failure, follow [retry instructions](operations.md#retry-a-failed-deployment)
-with the same directory. Never edit generated identities or adoption records to
-bypass a mismatch. Existing deployments retain their deployed product revision
-for operations and teardown; setup does not migrate them.
+Follow [retry instructions](operations.md#retry-a-failed-deployment) using the
+same directory. Existing deployments must retain their deployed product revision
+for operations and teardown; this layout does not migrate them.
 
 ## Access
 

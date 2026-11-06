@@ -92,11 +92,37 @@ spec:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
               kind: Kustomization
-              metadata: {name: environment, namespace: flux-system}
+              metadata: {name: flux-system, namespace: flux-system}
               spec: {suspend: true}
       finally:
         - delete:
-            ref: {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: environment, namespace: flux-system}
+            ref: {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: flux-system, namespace: flux-system}
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '[]', $CHECK_DIRECTORY/owned-current.yaml]
+    - name: retain application cleanup when no environment Git root exists
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare-partial-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY', RESOURCE_NAME=runtime]
+        - command:
+            <<: *absentApplication
+            check: {($error != null): true}
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, freeze-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: runtime, namespace: flux-system}
+              spec: {suspend: true}
+      finally:
+        - delete:
+            ref: {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: runtime, namespace: flux-system}
         - command:
             entrypoint: yq
             env: *paths

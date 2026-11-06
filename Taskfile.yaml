@@ -84,11 +84,11 @@ tasks:
       - task: verify:tools
       - task: verify:privacy
       - task: setup:resolve
-        vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
+        vars: {ENV_DIR: '{{.ENV_PATH}}'}
       - task: bootstrap:up
         vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
   handover:
-    desc: Transfer infrastructure ownership to OKE and stop original Kind
+    desc: Enable GitOps, transfer infrastructure ownership to OKE and stop original Kind
     cmds:
       - task: verify:tools
       - task: verify:privacy
@@ -105,7 +105,7 @@ tasks:
       - task: bootstrap:qualify
         vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
   down:
-    desc: Return current GitOps ownership to Kind, remove hardware and retire secrets
+    desc: Remove hardware and retire secrets, returning GitOps ownership when needed
     preconditions:
       - sh: test -f '{{.ENV_DIR}}/management.kubeconfig'
         msg: No selected management kubeconfig; no deletion attempted

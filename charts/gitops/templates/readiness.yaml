@@ -21,9 +21,6 @@ spec:
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: adoption-bindings, namespace: tamoss-infra}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: runtime, namespace: tamoss-infra}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: github-app, namespace: flux-system}
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: ghcr, namespace: flux-system}
-    - {apiVersion: v1, kind: Secret, name: github-app, namespace: flux-system}
     - {apiVersion: cert-manager.io/v1, kind: Certificate, name: authentik-public-tls, namespace: auth}
     - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tams-public-tls, namespace: tams}
 {{ range list "credentials" "database-connection" "database-ca" "platform" "calico" "tamoss-operator" "tamoss" }}
@@ -34,7 +31,7 @@ spec:
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: {{ . }}, namespace: {{ $namespace }}}
 {{ end }}
 {{ end }}
-{{ range list "flux-system" "tamoss-infra" "auth" "tams" }}
+{{ range list "tamoss-infra" "auth" "tams" }}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-secrets, namespace: {{ . }}}
 {{ end }}
 {{ if .Values.tadoss.enabled }}
@@ -53,11 +50,6 @@ spec:
         has(status.conditions) && status.conditions.exists(c,
         c.type == 'Ready' && c.status == 'True' &&
         has(c.observedGeneration) && c.observedGeneration == metadata.generation)
-    - apiVersion: v1
-      kind: Secret
-      current: >-
-        has(metadata.ownerReferences) && metadata.ownerReferences.exists(o,
-        o.kind == 'ExternalSecret' && o.name == 'github-app' && has(o.controller) && o.controller)
 {{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "GitRepository") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "OCIRepository") }}
     - apiVersion: {{ .api }}
       kind: {{ .kind }}

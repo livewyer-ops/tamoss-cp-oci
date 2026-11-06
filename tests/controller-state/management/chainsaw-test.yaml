@@ -2,7 +2,7 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata: {name: controller-delivered-bindings}
 spec:
-  timeouts: {assert: 120s, exec: 120s}
+  timeouts: {assert: 120s, exec: 120s, cleanup: 120s}
   steps:
     - name: submit consumers before their persisted bindings exist
       try:

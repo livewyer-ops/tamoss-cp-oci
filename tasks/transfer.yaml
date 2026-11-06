@@ -137,7 +137,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get
-        kustomization/environment --ignore-not-found -o name |
+        kustomization/flux-system --ignore-not-found -o name |
         xargs --no-run-if-empty kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system patch
         --type=merge -p '{"spec":{"suspend":true}}'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=0
@@ -164,7 +164,7 @@ tasks:
       - test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = '{{.PRODUCT_COMMIT}}'
       - git -C '{{.ROOT_DIR}}' diff --quiet HEAD -- charts/environment charts/packages
       - >-
-        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/environment -o json |
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/flux-system -o json |
         yq -p=json -e '.status.lastAppliedRevision | split(":")[-1] == "{{.REVISION}}"' > /dev/null
       - task: freeze-runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}'}

@@ -8,7 +8,6 @@ spec:
   url: {{ .Values.release.bundleURL | quote }}
   ref: {digest: {{ .Values.release.digest | quote }}}
   provider: generic
-  secretRef: {name: ghcr}
 {{ range $name, $url := dict "jetstack" "https://charts.jetstack.io" "traefik" "https://traefik.github.io/charts" "authentik" "https://charts.goauthentik.io" }}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1

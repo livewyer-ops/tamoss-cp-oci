@@ -1,18 +1,4 @@
 apiVersion: v1
 kind: Secret
-metadata: {name: github-app-input, namespace: tamoss-infra}
-stringData:
-  githubAppID: fixture
-  githubAppInstallationID: fixture
-  githubAppPrivateKey: fixture
----
-apiVersion: v1
-kind: Secret
-metadata: {name: ghcr-input, namespace: tamoss-infra}
-stringData:
-  dockerconfigjson: '{"auths":{"ghcr.io":{"auth":"Zml4dHVyZTpmaXh0dXJl"}}}'
----
-apiVersion: v1
-kind: Secret
 metadata: {name: s3-input, namespace: tamoss-infra}
 stringData: {accessKey: fixture, secretKey: fixture}

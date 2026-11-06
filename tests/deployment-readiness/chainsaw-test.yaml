@@ -15,7 +15,7 @@ spec:
             entrypoint: chainsaw
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [test, --namespace, flux-system, --skip-delete, --test-dir, $PROJECT_ROOT/deploy/gitops/readiness-check, --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+            args: [test, --namespace, flux-system, --skip-delete, --test-dir, "$PROJECT_ROOT/deploy/gitops/readiness-check,$PROJECT_ROOT/deploy/gitops/sync-check", --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, --set-string, productRevision=cccccccccccccccccccccccccccccccccccccccc]
     - name: wait for the first source and applied revisions
       try:
         - patch:
@@ -23,7 +23,7 @@ spec:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: GitRepository
-              metadata: {name: environment, namespace: flux-system}
+              metadata: {name: flux-system, namespace: flux-system}
               status: {artifact: null}
         - command: &waiting
             <<: *check
@@ -38,7 +38,7 @@ spec:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
               kind: Kustomization
-              metadata: {name: environment, namespace: flux-system}
+              metadata: {name: flux-system, namespace: flux-system}
               status: {lastAppliedRevision: null}
         - command: *waiting
         - patch:
@@ -63,7 +63,7 @@ spec:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: GitRepository
-              metadata: {name: environment, namespace: flux-system}
+              metadata: {name: flux-system, namespace: flux-system}
               status:
                 artifact: {revision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}
         - command:
@@ -168,7 +168,7 @@ spec:
               kind: HelmChart
               metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
               status:
-                observedSourceArtifactRevision: 'main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                observedSourceArtifactRevision: 'main@sha1:cccccccccccccccccccccccccccccccccccccccc'
         - command: *check
     - name: reject failed source access despite an existing artifact
       try:
@@ -177,7 +177,7 @@ spec:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: GitRepository
-              metadata: {name: environment, namespace: flux-system}
+              metadata: {name: flux-system, namespace: flux-system}
               status:
                 conditions:
                   - {type: Ready, status: 'False', reason: AuthenticationFailed, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}

@@ -1,0 +1,27 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: gitops-sync}
+spec:
+  steps:
+    - name: observe the selected environment revision
+      try:
+        - assert:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: flux-system, namespace: flux-system}
+              (spec.suspend != `true`): true
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (ends_with(artifact.revision || '', $values.revision)): true
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: flux-system, namespace: flux-system}
+              (spec.suspend != `true`): true
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (ends_with(lastAppliedRevision || '', $values.revision)): true
+                (conditions[?type == 'Ready'] | [0].status): 'True'

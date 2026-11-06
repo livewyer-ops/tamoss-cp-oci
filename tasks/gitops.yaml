@@ -1,6 +1,175 @@
 version: '3'
 set: [errexit, nounset, pipefail]
 tasks:
+  attach:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    status:
+      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    cmds:
+      - task: configure
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: export
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: publish
+        vars:
+          ENV_DIR: '{{.ENV_DIR}}'
+          CHECKOUT: '{{.CHECKOUT}}'
+          MESSAGE: 'feat: adopt the deployed environment'
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, releases.yaml, namespaces.yaml, kustomization.yaml, kustomizeconfig.yaml]
+      - task: github-bootstrap
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: persist-key
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: enable-key-delivery
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: :bootstrap:git-ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: verify-key
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+  configure:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    preconditions:
+      - sh: 'test -s {{.ENV_DIR}}/gitops.yaml && yq -e ''[(.owner | test("^[a-zA-Z0-9][a-zA-Z0-9-]*$")), .owner != "REPLACE", (.repository // "tamoss-environments" | test("^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")), (.branch // "main" | test("^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$")), (.path // ("clusters/" + load("{{.ENV_DIR}}/identity.yaml").environment.name) | test("^clusters/[a-z][a-z0-9-]*$"))] | all'' {{.ENV_DIR}}/gitops.yaml > /dev/null'
+        msg: Set the GitHub owner in gitops.yaml; repository, branch and cluster path have defaults
+      - sh: test ! -e '{{.ENV_DIR}}/gitops-setup.yaml' || cmp --silent '{{.ENV_DIR}}/gitops.yaml' '{{.ENV_DIR}}/gitops-setup.yaml'
+        msg: Git attachment has started; retain the recorded repository and path
+    cmds:
+      - gh auth status --hostname github.com
+      - gh auth setup-git --hostname github.com
+      - >-
+        yq -i '.repository = (.repository // "tamoss-environments") | .branch = (.branch // "main") |
+        .path = (.path // ("clusters/" + load("{{.ENV_DIR}}/identity.yaml").environment.name)) |
+        .url = ("https://github.com/" + .owner + "/" + .repository)' '{{.ENV_DIR}}/gitops.yaml'
+      - install -m 600 '{{.ENV_DIR}}/gitops.yaml' '{{.ENV_DIR}}/gitops-setup.yaml'
+      - task: repository
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - gh repo view "$(yq -r '.owner + "/" + .repository' '{{.ENV_DIR}}/gitops.yaml')" --json visibility --jq .visibility | xargs test PRIVATE =
+      - task: checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: author
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: write-access
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  repository:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      REPOSITORY: {sh: 'yq -r ''.owner + "/" + .repository'' {{.ENV_DIR}}/gitops.yaml'}
+    status: ['gh repo view {{shellQuote .REPOSITORY}} --json name > /dev/null']
+    cmds:
+      - gh repo create {{shellQuote .REPOSITORY}} --private --add-readme
+  checkout:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    status: ['test -d {{shellQuote .CHECKOUT}}/.git']
+    cmds:
+      - git clone --single-branch --branch "$(yq -r .branch '{{.ENV_DIR}}/gitops.yaml')" "$(yq -r .url '{{.ENV_DIR}}/gitops.yaml')" '{{.CHECKOUT}}'
+  author:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    status:
+      - git -C '{{.CHECKOUT}}' var GIT_AUTHOR_IDENT > /dev/null
+      - git -C '{{.CHECKOUT}}' var GIT_COMMITTER_IDENT > /dev/null
+    cmds:
+      - git -C '{{.CHECKOUT}}' config user.name "$(gh api user --jq .login)"
+      - git -C '{{.CHECKOUT}}' config user.email "$(yq -r .adminEmail '{{.ENV_DIR}}/settings.yaml')"
+  export:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    cmds:
+      - task: export-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: initialise-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  initialise-checkout:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      DESTINATION: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}'
+    status: ['test -s {{shellQuote .DESTINATION}}/values.yaml']
+    preconditions:
+      - sh: test ! -e '{{.DESTINATION}}' || test -s '{{.DESTINATION}}/values.yaml'
+        msg: The cluster directory already exists; refuse to overwrite another deployment
+      - sh: test ! -e '{{.DESTINATION}}/values.yaml' || yq -e '.spec.managementPolicies | join(",") == "Observe"' '{{.DESTINATION}}/infrastructure/environment.yaml' > /dev/null
+        msg: Initial publication requires observe-only infrastructure
+      - sh: test -s '{{.ENV_DIR}}/foundation-record.yaml'
+        msg: Complete the quick deployment before exporting it to Git
+    cmds:
+      - mkdir -p '{{.CHECKOUT}}/clusters'
+      - cp -a '{{.ENV_DIR}}/deployment' '{{.DESTINATION}}'
+      - >-
+        yq -i 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap");
+        .spec.values.vaultId = load("{{.ENV_DIR}}/foundation-record.yaml").vaultId) |
+        with(select(.kind == "Kustomization" and .metadata.name == "runtime");
+        .spec.postBuild.substitute.VAULT_ID = load("{{.ENV_DIR}}/foundation-record.yaml").vaultId)'
+        '{{.DESTINATION}}/releases.yaml'
+      - kubectl kustomize '{{.DESTINATION}}' > /dev/null
+  github-bootstrap:
+    silent: true
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      OWNER: {sh: 'yq -r .owner {{.ENV_DIR}}/gitops.yaml'}
+      REPOSITORY: {sh: 'yq -r .repository {{.ENV_DIR}}/gitops.yaml'}
+      BRANCH: {sh: 'yq -r .branch {{.ENV_DIR}}/gitops.yaml'}
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
+      PERSONAL: {sh: 'gh api repos/{{.OWNER}}/{{.REPOSITORY}} --jq ''.owner.type == "User"'''}
+    env:
+      GITHUB_TOKEN: {sh: gh auth token --hostname github.com}
+    cmds:
+      - task: :identity:remote
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - flux --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' bootstrap github --owner='{{.OWNER}}' --repository='{{.REPOSITORY}}' --personal={{.PERSONAL}} --branch='{{.BRANCH}}' --path='{{.PATH_IN_GIT}}' --token-auth=false --version='{{.FLUX_VERSION}}' --timeout=10m
+      - git -C '{{.CHECKOUT}}' pull --ff-only origin '{{.BRANCH}}'
+  persist-key:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    status: ['yq -e ''.gitopsKeyEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
+    cmds:
+      - task: :identity:management
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - install -m 600 /dev/null '{{.ENV_DIR}}/gitops-key.yaml'
+      - defer: rm -f '{{.ENV_DIR}}/gitops-key.yaml' '{{.ENV_DIR}}/gitops-key-readback.json'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get secret flux-system -o json |
+        yq -p=json '{"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "gitops-input", "namespace": "tamoss-infra"},
+        "type": "Opaque", "data": {"identity": .data.identity, "publicKey": .data."identity.pub", "known_hosts": .data.known_hosts}}'
+        > '{{.ENV_DIR}}/gitops-key.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/gitops-key.yaml'
+      - 'yq ''{"deploymentId": .deploymentUID, "initialise": true}'' {{.ENV_DIR}}/identity.yaml > {{.ENV_DIR}}/gitops-auth-values.yaml'
+      - flux create helmrelease gitops-auth -n tamoss-infra --source=GitRepository/tamoss-bootstrap-product --chart=./charts/gitops-auth --values='{{.ENV_DIR}}/gitops-auth-values.yaml' --export > '{{.ENV_DIR}}/gitops-auth.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/gitops-auth.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/gitops --for=create --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/gitops --for=condition=Ready --timeout=300s
+      - install -m 600 /dev/null '{{.ENV_DIR}}/gitops-key-readback.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret gitops -o json > '{{.ENV_DIR}}/gitops-key-readback.json'
+      - 'yq -p=json -e ''.data | .publicKey = ."identity.pub" | del(."identity.pub") | (sort_keys(.) | to_json(0)) == (load("{{.ENV_DIR}}/gitops-key.yaml").data | sort_keys(.) | to_json(0))'' {{.ENV_DIR}}/gitops-key-readback.json > /dev/null'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch helmrelease/gitops-auth --type=merge -p '{"spec":{"values":{"initialise":false}}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait pushsecret/gitops --for=delete --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete secret gitops-input --ignore-not-found
+      - 'yq -i ''.gitopsKeyEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+  enable-key-delivery:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    cmds:
+      - 'yq -i ''.gitops.enabled = true'' {{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml'
+      - 'yq -i ''.resources = ((.resources + ["flux-system"]) | unique)'' {{.CHECKOUT}}/{{.PATH_IN_GIT}}/kustomization.yaml'
+      - 'yq -i ''with(select(.kind == "Kustomization"); .spec.prune = false | .spec.deletionPolicy = "Orphan")'' {{.CHECKOUT}}/{{.PATH_IN_GIT}}/flux-system/gotk-sync.yaml'
+      - task: publish
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}', MESSAGE: 'feat: adopt Flux and read its deploy key from Vault', FILES: [values.yaml, kustomization.yaml, flux-system/gotk-sync.yaml]}
+  verify-key:
+    silent: true
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait externalsecret/flux-system --for=create --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system wait externalsecret/flux-system --for=condition=Ready --timeout=300s
+      - install -m 600 /dev/null '{{.ENV_DIR}}/gitops-key-readback.json'
+      - defer: rm -f '{{.ENV_DIR}}/gitops-key-readback.json'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret gitops -o json > '{{.ENV_DIR}}/gitops-key-readback.json'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get secret flux-system -o json |
+        yq -p=json -e '(.data | sort_keys(.) | to_json(0)) == (load("{{.ENV_DIR}}/gitops-key-readback.json").data | sort_keys(.) | to_json(0)) and
+        (.metadata.ownerReferences | map(select(.controller == true) | .kind + "/" + .name) | contains(["ExternalSecret/flux-system"]))' > /dev/null
   pins:
     requires: {vars: [RELEASE_LOCK, OUTPUT]}
     vars:
@@ -27,15 +196,6 @@ tasks:
         "sourceSha256": load("{{.RELEASE_LOCK}}").sourceSha256,
         "postgresImage": (load("{{.ASSETS}}/release.json").runtime.images.postgresClient | sub("^postgres:"; "docker.io/library/postgres:"))}}'
         > {{shellQuote .OUTPUT}}
-  export:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
-    cmds:
-      - task: export-inputs
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: initialise-checkout
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - git -C {{shellQuote .CHECKOUT}} diff --stat
-      - git -C {{shellQuote .CHECKOUT}} status --short
   export-inputs:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
@@ -58,35 +218,29 @@ tasks:
         msg: Existing Git configuration belongs to a different deployment
       - sh: >-
           test ! -e {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml ||
-          (test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml &&
-          test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml &&
-          test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/runtime/release.yaml &&
+          (test -s {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml &&
           kubectl kustomize {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}} > /dev/null)
         msg: Existing Git configuration is incomplete or uses an older layout; use its deployed product revision for teardown
-  initialise-checkout:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
+  render:
+    requires: {vars: [ENV_DIR]}
     vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
-      DESTINATION: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}'
-      CANDIDATE: '{{.ENV_DIR}}/gitops-export'
+      DESTINATION: '{{.ENV_DIR}}/deployment'
+      CANDIDATE: '{{.ENV_DIR}}/deployment.pending'
       KEY: {sh: 'yq -r .releaseSha256 {{shellQuote .ENV_DIR}}/tamoss-release.yaml'}
-      URL: {sh: 'yq -r .url {{shellQuote .ENV_DIR}}/gitops.yaml'}
-      BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
-      FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
     status: ['test -s {{shellQuote .DESTINATION}}/values.yaml']
     preconditions:
       - sh: test ! -e {{shellQuote .DESTINATION}} || test -s {{shellQuote .DESTINATION}}/values.yaml
         msg: The destination already exists; review it rather than overwriting user files
       - sh: 'yq -e ''.deploymentUID != null'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
-        msg: Record the deployment identity before preparing Git
+        msg: Record the deployment identity before preparing the deployment
     cmds:
-      - mkdir -p -m 700 '{{.CANDIDATE}}/infrastructure' '{{.CANDIDATE}}/runtime'
+      - mkdir -p -m 700 '{{.CANDIDATE}}/infrastructure'
       - task: pins
         vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.yaml', OUTPUT: '{{.CANDIDATE}}/pins.yaml'}
       - >-
         yq -n 'load("{{.ENV_DIR}}/environment.yaml").spec as $e |
         load("{{.ENV_DIR}}/settings.yaml") as $s |
-        load("{{.ENV_DIR}}/gitops.yaml") as $g |
+        load("{{.ENV_DIR}}/product.yaml") as $g |
         {"deploymentId": load("{{.ENV_DIR}}/identity.yaml").deploymentUID,
         "region": $e.region, "databaseAdministrator": $e.database.administrator,
         "release": {"bundleURL": $g.bundle.url, "digest": $g.bundle.digest},
@@ -95,9 +249,9 @@ tasks:
         "acmeEmail": $s.acmeEmail, "adminEmail": $s.adminEmail}} * load("{{.CANDIDATE}}/pins.yaml")'
         > '{{.CANDIDATE}}/values.yaml'
       - >-
-        yq -i 'with(select(load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle != null);
-        .tadoss.release.bundleURL = load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle.url |
-        .tadoss.release.digest = load("{{.ENV_DIR}}/gitops.yaml").tadoss.bundle.digest)'
+        yq -i 'with(select(load("{{.ENV_DIR}}/product.yaml").tadoss.bundle != null);
+        .tadoss.release.bundleURL = load("{{.ENV_DIR}}/product.yaml").tadoss.bundle.url |
+        .tadoss.release.digest = load("{{.ENV_DIR}}/product.yaml").tadoss.bundle.digest)'
         '{{.CANDIDATE}}/values.yaml'
       # Validate desired values before cloud IDs exist; these lint overrides are never exported.
       - >-
@@ -118,33 +272,19 @@ tasks:
         '{{.ENV_DIR}}/environment.yaml' > '{{.CANDIDATE}}/infrastructure/environment.yaml'
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/kustomization.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/kustomizeconfig.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/sources.yaml' '{{.ROOT_DIR}}/deploy/gitops/starter/releases.yaml' '{{.CANDIDATE}}/'
       - cp '{{.ROOT_DIR}}/deploy/gitops/starter/namespaces.yaml' '{{.CANDIDATE}}/'
-      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/infrastructure.yaml' '{{.CANDIDATE}}/infrastructure/kustomization.yaml'
-      - cp '{{.ROOT_DIR}}/deploy/gitops/starter/runtime.yaml' '{{.CANDIDATE}}/runtime/release.yaml'
-      - 'yq ''.resources = ["release.yaml"]'' {{.ROOT_DIR}}/deploy/gitops/starter/infrastructure.yaml > {{.CANDIDATE}}/runtime/kustomization.yaml'
       - >-
         yq -i 'with(select(.metadata.name == "tamoss-upstream"); .spec.ref.commit = load("{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/release.json").sourceCommit) |
-        with(select(.metadata.name == "tamoss-product"); .spec.url = load("{{.ENV_DIR}}/gitops.yaml").product.url |
-        .spec.ref.commit = load("{{.ENV_DIR}}/gitops.yaml").product.commit)' '{{.CANDIDATE}}/sources.yaml'
+        with(select(.metadata.name == "tamoss-product"); .spec.url = load("{{.ENV_DIR}}/product.yaml").product.url |
+        .spec.ref.commit = load("{{.ENV_DIR}}/product.yaml").product.commit)' '{{.CANDIDATE}}/sources.yaml'
       - >-
-        yq -i 'with(select(.metadata.name == "infrastructure"); .spec.path = "./{{.PATH_IN_GIT}}/infrastructure" |
-        .spec.healthChecks[0].name = load("{{.ENV_DIR}}/environment.yaml").metadata.name) |
-        with(select(.metadata.name == "runtime"); .spec.path = "./{{.PATH_IN_GIT}}/runtime") |
+        yq -i 'with(select(.metadata.name == "infrastructure"); .spec.healthChecks[0].name = load("{{.ENV_DIR}}/environment.yaml").metadata.name |
+        .spec.postBuild.substitute.ENVIRONMENT_NAME = load("{{.ENV_DIR}}/environment.yaml").metadata.name) |
         with(select(.kind == "HelmRelease" or .kind == "Kustomization"); .spec.commonMetadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId)'
         '{{.CANDIDATE}}/releases.yaml'
-      - 'yq -i ''.spec.commonMetadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId'' {{.CANDIDATE}}/runtime/release.yaml'
-      - flux create source git environment --url={{shellQuote .URL}} --branch={{shellQuote .BRANCH}} --secret-ref=github-app --provider=github --export > '{{.CANDIDATE}}/sync.yaml'
-      - flux create kustomization environment --source=GitRepository/environment --path='./{{.PATH_IN_GIT}}' --prune=false --interval=1m --export >> '{{.CANDIDATE}}/sync.yaml'
-      - >-
-        yq -i '.metadata.labels."tamoss.livewyer.io/deployment-id" = load("{{.CANDIDATE}}/values.yaml").deploymentId |
-        with(select(.kind == "Kustomization"); .spec.postBuild.substituteFrom = [{"kind": "ConfigMap", "name": "bootstrap-facts"}])'
-        '{{.CANDIDATE}}/sync.yaml'
-      - flux install --version='{{.FLUX_VERSION}}' --export | yq 'select(.kind != "Namespace")' > '{{.CANDIDATE}}/flux.yaml'
-      - 'yq -i ''.resources += ["sync.yaml", "flux.yaml"]'' {{.CANDIDATE}}/kustomization.yaml'
       - 'yq -i ''.labels = [{"pairs": {"tamoss.livewyer.io/deployment-id": load("{{.CANDIDATE}}/values.yaml").deploymentId}}]'' {{.CANDIDATE}}/kustomization.yaml'
-      - kubectl kustomize '{{.CANDIDATE}}' > '{{.ENV_DIR}}/gitops-export.yaml'
+      - kubectl kustomize '{{.CANDIDATE}}' > '{{.ENV_DIR}}/deployment.yaml'
       - rm '{{.CANDIDATE}}/pins.yaml'
-      - mkdir -p {{shellQuote .CHECKOUT}}/clusters
-      - mv '{{.CANDIDATE}}' {{shellQuote .DESTINATION}}
+      - mv '{{.CANDIDATE}}' '{{.DESTINATION}}'
   current-checkout:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
@@ -156,7 +296,7 @@ tasks:
     cmds:
       - task: export-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' '{{.PATH_IN_GIT}}/runtime/release.yaml' > /dev/null
+      - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' > /dev/null
       - git -C {{shellQuote .CHECKOUT}} fetch origin {{shellQuote .BRANCH}}
       - test "$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)" = "$(git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD)"
   publish:

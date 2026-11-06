@@ -1,0 +1,22 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  DIRECTORY: '{{.PROJECT_ROOT}}/.local/tmp/check/gitops-key'
+tasks:
+  prepare:
+    cmds:
+      - mkdir -p '{{.DIRECTORY}}'
+      - >-
+        yq 'select(.kind != "Secret") |
+        with(select(.kind == "Namespace"); .metadata.name |= sub("secret-"; "gitops-key-")) |
+        with(select(.metadata.namespace != null); .metadata.namespace |= sub("secret-"; "gitops-key-")) |
+        with(select(.kind == "RoleBinding"); (.subjects[] | select(.namespace == "secret-check")).namespace = "gitops-key-check")'
+        '{{.PROJECT_ROOT}}/tests/secret-persistence/backend.yaml' > '{{.DIRECTORY}}/backend.yaml'
+      - >-
+        yq -n '{"apiVersion": "external-secrets.io/v1", "kind": "SecretStore",
+        "metadata": {"name": "tamoss-vault", "namespace": "gitops-key-check"},
+        "spec": {"provider": load("{{.PROJECT_ROOT}}/tests/secret-persistence/provider.yaml")}} |
+        .spec.provider.kubernetes.remoteNamespace = "gitops-key-backend"' > '{{.DIRECTORY}}/store.yaml'
+      - helm template gitops-auth '{{.PROJECT_ROOT}}/charts/gitops-auth' -n gitops-key-check --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > '{{.DIRECTORY}}/initial.yaml'
+      - helm template gitops-auth '{{.PROJECT_ROOT}}/charts/gitops-auth' -n gitops-key-check --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --set initialise=false > '{{.DIRECTORY}}/retired.yaml'
+      - 'yq eval-all -e ''[select(.kind == "PushSecret")] | length == 0'' {{.DIRECTORY}}/retired.yaml'

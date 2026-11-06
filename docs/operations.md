@@ -4,8 +4,9 @@
 
 Run commands from the repository root with Aqua's tools on `PATH`. Examples use
 `.local/environment`; substitute your original environment directory throughout.
-Use the matching environment Git checkout (`CHECKOUT`, default `.local/gitops`).
-Kind stays stopped during ordinary operation; OKE owns ongoing reconciliation.
+Quick deployments keep Kind as the infrastructure writer. After GitOps handover,
+use the matching environment Git checkout (`CHECKOUT`, default `.local/gitops`);
+Kind stays stopped while OKE owns ongoing reconciliation.
 
 ## Inspect the installation
 
@@ -60,7 +61,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 
 | Stage or symptom | Check |
 | --- | --- |
-| Preflight rejection | Placeholder settings, OCI discovery, published product/private package access, file permissions and recorded-input consistency |
+| Preflight rejection | Placeholder settings, OCI discovery, published product/public package access, file permissions and recorded-input consistency |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`, `remoteBootstrapPhase`; inspect child conditions and HelmReleases |
@@ -95,12 +96,12 @@ Treat diagnostic output as private and redact it before sharing. Report location
 ## Convergence and handover
 
 `task up` completes deployment with Kind running and owning infrastructure; OKE
-Crossplane observes the same resources. `task handover` checks current deployment
-readiness, transfers ownership and observes the promoted Git revision before
+Crossplane observes the same resources. `task handover` attaches the environment
+repository, persists its SSH deploy key, checks readiness and transfers ownership before
 stopping Kind. Flux already manages applications in both states.
 
 ```bash
-task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task up ENV_DIR=.local/environment
 task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
@@ -108,17 +109,19 @@ Repeating `up` after deployment observes readiness once without changing ownersh
 Repeating completed `handover` observes readiness once without restarting Kind or
 publishing another commit. `qualify` works in either state. `down` also supports
 cleanup before handover and after an interrupted transfer.
-Keep the host checkout at the product commit selected in environment Git;
+Keep the host checkout at the product commit recorded in `product.yaml`, or
+selected in environment Git after handover;
 handover rejects a different revision before changing ownership.
 
 | Stage after remote seeding | Native actions |
 | --- | --- |
 | Initial convergence (`up`) | Observe bootstrap readiness, record bindings and inventory, then check deployment/public TLS readiness and OKE managed resources |
-| Begin handover | Verify the published deployment revision and health; an unpublished ownership-only change is allowed on retry |
+| Attach Git | Create/connect a private repository, publish the shared configuration, run native Flux bootstrap and persist its deploy key through Vault/ESO |
+| Begin transfer | Verify the published deployment revision and health; an unpublished ownership-only change is allowed on retry |
 | Verify adoption | Read and compare both control planes' resource identities and configuration |
 | Quiesce Kind | Freeze the instance HelmRelease, release and pause the bootstrap, set infrastructure to Observe, and wait for managed resources to acknowledge their pause |
 | Enable OKE ownership | Refresh both inventories, verify Kind has stopped writing, enable runtime IAM writes, and commit/push the promotion to the environment repository |
-| Verify promotion | Observe the published infrastructure and runtime Git revision, chart generation and deployment health through Chainsaw |
+| Verify promotion | Observe the published environment revision, product revision, chart generation and deployment health through Chainsaw |
 | Complete handover | Refresh both inventories, verify ownership and OKE managed-resource readiness, stop the original Kind containers, and record completion |
 
 The inventory comparisons occur before quiescing, before enabling OKE writes and
@@ -132,7 +135,7 @@ Resolve the reported problem, preserve its evidence, then repeat with the origin
 inputs and state:
 
 ```bash
-task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task up ENV_DIR=.local/environment
 ```
 
 Run `task check` first if configuration or dependencies changed. `up` verifies and
@@ -147,7 +150,7 @@ and missing established credentials before retrying. Once teardown starts, use
 
 During initial provisioning, Flux and Crossplane continue reconciling if
 Task exits. After credential retirement, Kind's `oke-bootstrap` Job can retrieve
-the remote connection, install Flux and seed GitOps without the Task process.
+the remote connection, install Flux and seed the deployment without the Task process.
 Resume `up` to observe deployment completion, then run `handover` separately. Preserve
 `bootstrap.yaml`, `management-values.yaml` and the recorded
 bootstrap UID alongside the existing environment identity. Do not manually unpause a released root during
@@ -208,10 +211,9 @@ The Job's [tooling image](../deploy/oke-bootstrap/Dockerfile) contains the pinne
 OCI CLI, Flux, kubectl and yq. To change its tools, update the selections in
 `dependencies.yaml` and run the [publication workflow](../.github/workflows/bootstrap-tools.yaml)
 on the product repository's default branch. The workflow uses `GITHUB_TOKEN` to
-publish and `GHCR_READ_TOKEN` to verify private package ownership. Record the
-published digest in `bootstrapTools.image` before selecting that product commit
-for a new environment. Its persisted GHCR read credential must have access to
-this package as well as the release assets.
+publish and verify public package ownership, then checks anonymous access.
+Record the published digest in `bootstrapTools.image` before selecting that
+product commit for a new environment. No deployment registry credential is needed.
 
 ## Posted billing
 
@@ -253,8 +255,8 @@ invoice or a live resource inventory.
 **Destruction deletes managed application data**, including media, the database
 and its backups. Keep the original environment directory and credentials.
 
-Run from the product commit selected by `tamoss-product` in the environment's
-`sources.yaml`. If the product checkout has moved, save local edits and check out
+Run from the product commit recorded in `product.yaml`, or selected by
+`tamoss-product` in the environment repository after handover. If the product checkout has moved, save local edits and check out
 that commit before running `down`. Ownership return rejects a different product
 commit before freezing Flux or deleting cloud resources.
 
@@ -263,9 +265,10 @@ task down ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
 
 `down` starts the original Kind and waits for API readiness before checking its
-identity. It verifies the published environment checkout, freezes Flux, quiesces
-OKE providers and revokes their write grants. Current Git configuration and exact
-provider bindings from Vault return to Kind before it receives deletion authority.
+identity. Quick deployments already have Kind ownership and skip Git operations.
+For Git-owned deployments, it verifies the published checkout, freezes Flux,
+quiesces OKE providers and revokes their write grants. Current Git configuration
+and exact Vault bindings return to Kind before it receives deletion authority.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
 releases and the load balancer, empties the owned bucket (including versions and

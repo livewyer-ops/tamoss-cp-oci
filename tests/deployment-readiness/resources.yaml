@@ -12,10 +12,10 @@ metadata: {name: infrastructure, namespace: tamoss-infra}
 spec:
   interval: 1m
   prune: false
-  sourceRef: {kind: GitRepository, name: environment, namespace: flux-system}
+  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
 status:
   observedGeneration: 1
-  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: Current infrastructure revision, lastTransitionTime: '2026-01-01T00:00:00Z'}
 ---
@@ -25,16 +25,16 @@ metadata: {name: runtime, namespace: tamoss-infra}
 spec:
   interval: 1m
   prune: false
-  sourceRef: {kind: GitRepository, name: environment, namespace: flux-system}
+  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
 status:
   observedGeneration: 1
-  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: Current runtime revision, lastTransitionTime: '2026-01-01T00:00:00Z'}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
-metadata: {name: environment, namespace: flux-system}
+metadata: {name: flux-system, namespace: flux-system}
 spec:
   interval: 1m
   url: https://example.invalid/environment
@@ -52,12 +52,12 @@ status:
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: environment, namespace: flux-system}
+metadata: {name: flux-system, namespace: flux-system}
 spec:
   interval: 1m
   prune: false
   path: ./
-  sourceRef: {kind: GitRepository, name: environment}
+  sourceRef: {kind: GitRepository, name: flux-system}
 status:
   observedGeneration: 1
   lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -70,14 +70,14 @@ metadata: {name: tamoss-product, namespace: flux-system}
 spec:
   interval: 1m
   url: https://example.invalid/product
-  ref: {commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+  ref: {commit: cccccccccccccccccccccccccccccccccccccccc}
 status:
   observedGeneration: 1
   artifact:
     path: fixture
     url: http://fixture.invalid/artifact.tar.gz
-    revision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    revision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
+    digest: sha256:ccccccccccccccccccccccccccccccccccccccccaaaaaaaaaaaaaaaaaaaaaaaa
     lastUpdateTime: '2026-11-04T11:00:00Z'
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
@@ -95,9 +95,9 @@ status:
     path: fixture
     url: http://fixture.invalid/artifact.tar.gz
     revision: 0.1.0+fixture
-    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    digest: sha256:ccccccccccccccccccccccccccccccccccccccccaaaaaaaaaaaaaaaaaaaaaaaa
     lastUpdateTime: '2026-11-04T11:00:00Z'
-  observedSourceArtifactRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  observedSourceArtifactRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
@@ -126,6 +126,6 @@ spec:
   sourceRef: {kind: GitRepository, name: tamoss-product}
 status:
   observedGeneration: 1
-  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}

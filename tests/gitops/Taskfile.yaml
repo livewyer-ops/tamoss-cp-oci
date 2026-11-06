@@ -14,6 +14,8 @@ tasks:
       - task: verify:gitops
   export:
     cmds:
+      - task: gitops:render
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs'}
       - task: gitops:export
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   publication-fixture:
@@ -27,6 +29,50 @@ tasks:
       - git -C '{{.DIRECTORY}}/checkout' config user.email 'fixture@example.invalid'
       - touch '{{.DIRECTORY}}/checkout/unrelated.txt'
       - git -C '{{.DIRECTORY}}/checkout' add unrelated.txt
+  shared-configuration:
+    cmds:
+      - cmp '{{.DIRECTORY}}/inputs/deployment/values.yaml' '{{.DIRECTORY}}/checkout/clusters/oci-dev/values.yaml'
+      - cmp '{{.DIRECTORY}}/inputs/deployment/infrastructure/environment.yaml' '{{.DIRECTORY}}/checkout/clusters/oci-dev/infrastructure/environment.yaml'
+      - >-
+        kubectl kustomize '{{.DIRECTORY}}/inputs/deployment' |
+        yq 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap");
+        .spec.values.vaultId = load("{{.DIRECTORY}}/inputs/foundation-record.yaml").vaultId) |
+        with(select(.kind == "Kustomization" and .metadata.name == "runtime");
+        .spec.postBuild.substitute.VAULT_ID = load("{{.DIRECTORY}}/inputs/foundation-record.yaml").vaultId)'
+        > '{{.DIRECTORY}}/seed-resolved.yaml'
+      - kubectl kustomize '{{.DIRECTORY}}/checkout/clusters/oci-dev' | yq '.' > '{{.DIRECTORY}}/exported.yaml'
+      - diff -u '{{.DIRECTORY}}/seed-resolved.yaml' '{{.DIRECTORY}}/exported.yaml'
+      - >-
+        yq 'select(.kind == "Kustomization" and .metadata.name == "infrastructure") |
+        .spec.postBuild.substitute *= (load("{{.ROOT_DIR}}/.local/tmp/check/adoption.yaml").spec.adoption |
+        {"DEPLOYMENT_ID": .deploymentId, "CREATION_COMPOSITE_UID": .creationCompositeUID} *
+        (.externalNames | with_entries(.key |= upcase | .key |= sub("-"; "_"))))'
+        '{{.DIRECTORY}}/exported.yaml' > '{{.DIRECTORY}}/infrastructure-kustomization.yaml'
+      - >-
+        flux build kustomization infrastructure -n tamoss-infra --dry-run --strict-substitute
+        --kustomization-file '{{.DIRECTORY}}/infrastructure-kustomization.yaml'
+        --path '{{.ROOT_DIR}}/deploy/gitops/infrastructure' > '{{.DIRECTORY}}/infrastructure-rendered.yaml'
+      - >-
+        yq -e 'select(.kind == "TamossEnvironment") | . as $xr | [$xr.metadata.name == load("{{.DIRECTORY}}/inputs/environment.yaml").metadata.name,
+        ($xr.spec.managementPolicies | join(",")) == "Observe",
+        ($xr.spec.adoption | sort_keys(..) | to_json(0)) == (load("{{.ROOT_DIR}}/.local/tmp/check/adoption.yaml").spec.adoption | sort_keys(..) | to_json(0)),
+        ($xr.spec.database | sort_keys(..) | to_json(0)) == (load("{{.DIRECTORY}}/inputs/environment.yaml").spec.database | sort_keys(..) | to_json(0))] | all'
+        '{{.DIRECTORY}}/infrastructure-rendered.yaml'
+  native-git-fixture:
+    cmds:
+      - mkdir -p '{{.DIRECTORY}}/checkout/clusters/oci-dev/flux-system'
+      - flux create source git flux-system --url=ssh://git@github.com/example/tamoss-environments --branch=main --secret-ref=flux-system --export > '{{.DIRECTORY}}/checkout/clusters/oci-dev/flux-system/gotk-sync.yaml'
+      - echo '---' >> '{{.DIRECTORY}}/checkout/clusters/oci-dev/flux-system/gotk-sync.yaml'
+      - flux create kustomization flux-system --source=GitRepository/flux-system --path=./clusters/oci-dev --prune=true --export >> '{{.DIRECTORY}}/checkout/clusters/oci-dev/flux-system/gotk-sync.yaml'
+      - 'yq -n ''{"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": ["gotk-sync.yaml"]}'' > {{.DIRECTORY}}/checkout/clusters/oci-dev/flux-system/kustomization.yaml'
+      - git -C '{{.DIRECTORY}}/checkout' add clusters/oci-dev/flux-system
+      - >-
+        git -C '{{.DIRECTORY}}/checkout' commit --only -m 'feat: bootstrap Flux fixture' -- clusters/oci-dev/flux-system
+      - git -C '{{.DIRECTORY}}/checkout' push origin HEAD:main
+  enable-key-delivery:
+    cmds:
+      - task: gitops:enable-key-delivery
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   publish:
     cmds:
       - task: gitops:publish
@@ -34,26 +80,26 @@ tasks:
           ENV_DIR: '{{.DIRECTORY}}/inputs'
           CHECKOUT: '{{.DIRECTORY}}/checkout'
           MESSAGE: 'feat: publish fixture'
-          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, runtime/release.yaml, runtime/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
+          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, releases.yaml, namespaces.yaml, kustomization.yaml, kustomizeconfig.yaml]
   promotion:
     cmds:
       - task: gitops:promotion-checkout
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
-  initialise-runtime:
+  initial-export:
     cmds:
-      - task: bootstrap:initialise-runtime
+      - task: gitops:export
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   ready:
     cmds:
       - task: bootstrap:observe-ready
-        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout', REVISION: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', DEPLOYMENT_DIR: '{{.DIRECTORY}}/checkout/clusters/oci-dev', REVISION: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
   completed-bootstrap:
     cmds:
       - cp '{{.ROOT_DIR}}/environments/example/foundation.yaml' '{{.DIRECTORY}}/inputs/'
-      - 'yq -i ''.gitopsEstablished = true'' {{.DIRECTORY}}/inputs/identity.yaml'
+      - 'yq -i ''.deploymentReady = true | .gitopsEstablished = true'' {{.DIRECTORY}}/inputs/identity.yaml'
       - task: bootstrap:provision
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
-      - task: bootstrap:initialise-runtime
+      - task: bootstrap:runtime
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
       - task: bootstrap:runtime
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
@@ -80,6 +126,7 @@ tasks:
         "digest": load("{{.ROOT_DIR}}/tests/gitops/values.yaml").release.digest},
         "tadoss": {"bundle": {"url": load("{{.ROOT_DIR}}/tests/tadoss/values.yaml").tadoss.release.bundleURL,
         "digest": load("{{.ROOT_DIR}}/tests/tadoss/values.yaml").tadoss.release.digest}}}' > '{{.DIRECTORY}}/inputs/gitops.yaml'
+      - cp '{{.DIRECTORY}}/inputs/gitops.yaml' '{{.DIRECTORY}}/inputs/product.yaml'
       - >-
         yq -n 'load("{{.ROOT_DIR}}/.local/tmp/check/adoption.yaml").spec.adoption.externalNames |
         to_entries | map({"resourceName": .key, "externalName": .value})' > '{{.DIRECTORY}}/inputs/resources-current.yaml'

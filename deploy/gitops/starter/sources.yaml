@@ -12,8 +12,6 @@ metadata: {name: tamoss-product, namespace: flux-system}
 spec:
   interval: 10m
   url: REPLACE
-  provider: github
-  secretRef: {name: github-app}
   ref: {commit: REPLACE}
   include:
     - repository: {name: tamoss-upstream}

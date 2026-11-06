@@ -21,12 +21,6 @@ spec:
               kind: Secret
               metadata: {name: oci-vault-bootstrap, namespace: oke-check}
               stringData: {fingerprint: fixture, privatekey: fixture}
-        - apply:
-            resource:
-              apiVersion: v1
-              kind: Secret
-              metadata: {name: github-app, namespace: oke-check}
-              stringData: {githubAppID: '1', githubAppInstallationID: '2', githubAppPrivateKey: fixture}
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/fixture-secret.yaml'}
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/input.yaml'}
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/composition.yaml'}
@@ -124,7 +118,17 @@ spec:
             entrypoint: kubectl
             env:
               - {name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}
-            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, flux-system, get, gitrepository/environment, kustomization/environment, secret/github-app, configmap/bootstrap-facts]
+            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, flux-system, get, gitrepository/tamoss-product, configmap/bootstrap-facts]
+        - command:
+            entrypoint: kubectl
+            env: [{name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}]
+            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, flux-system, get, secrets, github-app, ghcr, --ignore-not-found, -o, name]
+            check: {($error == null): true, ($stdout == ''): true}
+        - command:
+            entrypoint: kubectl
+            env: [{name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}]
+            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, tamoss-infra, get, helmrelease/tamoss-gitops-bootstrap, '-o=jsonpath={.spec.values.vaultId}']
+            check: {($error == null): true, ($stdout == 'ocid1.vault.oc1.fixture'): true}
         - command:
             entrypoint: kubectl
             args: [-n, oke-check, delete, pod, -l, job-name=oke-bootstrap, --wait=true, --timeout=120s]

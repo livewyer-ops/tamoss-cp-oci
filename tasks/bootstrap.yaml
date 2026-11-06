@@ -10,63 +10,60 @@ tasks:
       - sh: 'test ! -f {{shellQuote .ENV_DIR}}/identity.yaml || yq -e ''.teardownStarted != true and .returnComplete != true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
         msg: Teardown has started; resume down rather than recreating this environment
     cmds:
-      - task: :gitops:export-inputs
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: provision
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: initialise-runtime
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: runtime
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: record-runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-  initialise-runtime:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
-    vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
-    status:
-      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
-    preconditions:
-      - sh: >-
-          yq -e '.gitopsEstablished == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
-          yq -e '.spec.managementPolicies | join(",") == "Observe"' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null
-        msg: Initial publication requires observe-only infrastructure; write authority follows verified handover
+      - task: access
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  access:
+    silent: true
+    requires: {vars: [ENV_DIR]}
     cmds:
-      - task: runtime
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - install -d -m 700 '{{.ENV_DIR}}/access'
+      - install -m 600 /dev/null '{{.ENV_DIR}}/access/ui-login.json'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth get secret authentik -o json |
+        yq -p=json -o=json -e '.data |
+        {"username": (.AUTHENTIK_BOOTSTRAP_USERNAME | @base64d), "password": (.AUTHENTIK_BOOTSTRAP_PASSWORD | @base64d)} |
+        select(.username != "" and .password != "")' > '{{.ENV_DIR}}/access/ui-login.json'
+      - >-
+        kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss tamoss -o json |
+        yq -p=json '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain),
+        "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'
+      - 'echo "OKE kubeconfig: {{.ENV_DIR}}/remote.kubeconfig"'
+      - 'echo "Private initial login: {{.ENV_DIR}}/access/ui-login.json (remove after use; use the current password if changed)"'
   provision:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
+    requires: {vars: [ENV_DIR]}
     status:
-      - 'test -s {{shellQuote .ENV_DIR}}/identity.yaml && yq -e ''.gitopsEstablished == true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+      - 'test -s {{shellQuote .ENV_DIR}}/identity.yaml && yq -e ''.deploymentReady == true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
     preconditions:
-      - sh: test -s '{{.ENV_DIR}}/foundation.yaml' && test -s '{{.ENV_DIR}}/gitops.yaml'
-        msg: Prepare the retained foundation and GitOps inputs before provisioning
+      - sh: test -s '{{.ENV_DIR}}/foundation.yaml' && test -s '{{.ENV_DIR}}/product.yaml'
+        msg: Prepare the retained foundation and product inputs before provisioning
       - sh: >-
-          (test -s '{{.ENV_DIR}}/identity.yaml' && yq -e '.gitopsEstablished == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null) ||
-          test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = "$(yq -r .product.commit '{{.ENV_DIR}}/gitops.yaml')"
+          (test -s '{{.ENV_DIR}}/identity.yaml' && yq -e '.deploymentReady == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null) ||
+          test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" = "$(yq -r .product.commit '{{.ENV_DIR}}/product.yaml')"
         msg: Check out the product commit selected for Flux before provisioning
       - sh: >-
           yq -e '[(.product.commit | test("^[a-f0-9]{40}$")),
           (.product.url | test("^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")),
           (.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")),
           (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))] | all'
-          '{{.ENV_DIR}}/gitops.yaml' > /dev/null
-        msg: Select the published product commit and private release bundle digest before provisioning
+          '{{.ENV_DIR}}/product.yaml' > /dev/null
+        msg: Select the published product commit and public release bundle digest before provisioning
       - sh: >-
           yq -e '(.tadoss == null) or
           ((.tadoss.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")) and
           (.tadoss.bundle.digest | test("^sha256:[a-f0-9]{64}$")))'
-          '{{.ENV_DIR}}/gitops.yaml' > /dev/null
-        msg: Optional TADOSS integration requires its published private bundle URL and digest
+          '{{.ENV_DIR}}/product.yaml' > /dev/null
+        msg: Optional TADOSS integration requires its published public bundle URL and digest
     cmds:
       - task: :verify:tools
       - task: :verify:privacy
-      - task: :gitops:export-inputs
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: :gitops:write-access
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - for: [github-app-id, github-app-installation-id, github-app-private-key, ghcr-dockerconfigjson]
-        cmd: test -s '{{.ENV_DIR}}/secrets/{{.ITEM}}'
       - task: :tamoss:assert-current
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :tamoss:fetch
@@ -75,18 +72,12 @@ tasks:
       - crossplane resource validate '{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
       - task: :lifecycle:prepare
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :gitops:export
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: :gitops:publish
-        vars:
-          ENV_DIR: '{{.ENV_DIR}}'
-          CHECKOUT: '{{.CHECKOUT}}'
-          MESSAGE: 'feat: initialise environment GitOps configuration'
-          FILES: [values.yaml, sources.yaml, infrastructure/environment.yaml, infrastructure/kustomization.yaml, runtime/release.yaml, runtime/kustomization.yaml, releases.yaml, namespaces.yaml, flux.yaml, sync.yaml, kustomization.yaml, kustomizeconfig.yaml]
+      - task: :gitops:render
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :lifecycle:baseline
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: seed
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: foundation
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: secrets
@@ -100,7 +91,7 @@ tasks:
       - task: :cloud:bootstrap-ready
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
   seed:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
+    requires: {vars: [ENV_DIR]}
     vars:
       NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
     status:
@@ -108,12 +99,11 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{.NAME}} -o json | yq -p=json -e '.metadata.uid == load("{{.ENV_DIR}}/identity.yaml").bootstrapUID' > /dev/null
     cmds:
       - task: seed-new
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   seed-new:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
+    requires: {vars: [ENV_DIR]}
     vars:
       FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
-      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
     preconditions:
       - sh: 'yq -e ''.bootstrapUID == null'' {{.ENV_DIR}}/identity.yaml > /dev/null'
         msg: Existing bootstrap identity is unavailable; restore the original Kind state
@@ -141,7 +131,7 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - >-
         kubectl create configmap oke-bootstrap-input -n tamoss-infra
-        --from-file=sync.yaml={{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sync.yaml
+        --from-file=deployment.yaml='{{.ENV_DIR}}/deployment.yaml'
         --dry-run=client -o yaml | yq '.immutable = true' > '{{.ENV_DIR}}/oke-bootstrap-input.yaml'
       - cp deploy/management/kustomization.yaml '{{.ENV_DIR}}/kustomization.yaml'
       - 'yq -i ''.resources += ["provider", "secrets", "oke-bootstrap-input.yaml"]'' {{.ENV_DIR}}/kustomization.yaml'
@@ -196,19 +186,10 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{.NAME}} crossplane.io/paused=true --overwrite
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s
   runtime:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
-    vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    requires: {vars: [ENV_DIR]}
     status:
-      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
-    preconditions:
-      - sh: >-
-          yq -e '.gitopsEstablished == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
-          yq -e '.spec.managementPolicies | join(",") == "Observe"' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/infrastructure/environment.yaml > /dev/null
-        msg: Bootstrap must begin with observe-only infrastructure in Git
+      - 'yq -e ''.deploymentReady == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     cmds:
-      - task: :gitops:current-checkout
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: remote-bootstrap
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: connection
@@ -224,22 +205,24 @@ tasks:
     vars:
       NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
     status:
-      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+      - 'yq -e ''.deploymentReady == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     cmds:
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
       - task: :identity:runtime-composite
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.deploymentReady = true'' {{.ENV_DIR}}/identity.yaml'
   handover:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     preconditions:
-      - sh: 'test -s {{shellQuote .ENV_DIR}}/identity.yaml && yq -e ''.gitopsEstablished == true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+      - sh: 'test -s {{shellQuote .ENV_DIR}}/identity.yaml && yq -e ''.deploymentReady == true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
         msg: Complete up before handing over this environment
       - sh: 'yq -e ''.teardownStarted != true and .returnComplete != true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
         msg: Teardown has started; resume down instead of handover
     cmds:
+      - task: :gitops:attach
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: promote
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: ready
@@ -265,6 +248,7 @@ tasks:
         vars:
           ENV_DIR: '{{.ENV_DIR}}'
           CHECKOUT: '{{.CHECKOUT}}'
+          DEPLOYMENT_DIR: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}'
           REVISION: {sh: 'git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD'}
       - task: :transfer:start-kind
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -434,24 +418,22 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=600s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret -l tamoss.livewyer.io/credential=true --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get externalsecret -l tamoss.livewyer.io/credential=true -o json > '{{.ENV_DIR}}/credentials-observed.json'
-      - 'yq -e ''.items | length == 11'' {{.ENV_DIR}}/credentials-observed.json > /dev/null'
+      - >-
+        yq -e '([.items[].metadata.name] | sort | join(",")) ==
+        (load("{{.ROOT_DIR}}/deploy/secrets/bootstrap-values.yaml").deliveries | map(.name) | sort | join(","))'
+        '{{.ENV_DIR}}/credentials-observed.json' > /dev/null
       - 'yq -i ''.credentialsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get configmap/tamoss-bootstrap-instance -o yaml > '{{.ENV_DIR}}/credential-retirement.yaml'
       - >-
         yq -i 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.managedFields) |
         .data."values.yaml" |= (from_yaml | .bootstrap.spec.credentialsEstablished = true | to_yaml)'
         '{{.ENV_DIR}}/credential-retirement.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get gitrepository/tamoss-bootstrap-product -o yaml > '{{.ENV_DIR}}/credential-retirement-source.yaml'
-      - >-
-        yq 'del(.status, .metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.managedFields) |
-        .spec.secretRef.name = "github-app"' '{{.ENV_DIR}}/credential-retirement-source.yaml'
-        > '{{.ENV_DIR}}/credential-source.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/credential-retirement.yaml' -f '{{.ENV_DIR}}/credential-source.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/credential-retirement.yaml'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{.NAME}} --for=jsonpath='{.spec.credentialsEstablished}=true' --timeout=300s
       - KUBECONFIG='{{.ENV_DIR}}/management.kubeconfig' chainsaw assert -f '{{.ROOT_DIR}}/deploy/contracts/credentials-established.yaml' --timeout=600s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait pushsecret -l tamoss.livewyer.io/credential-staging=true --for=delete --timeout=120s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait password.generators.external-secrets.io --all --for=delete --timeout=120s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete secret github-app-input ghcr-input s3-input --ignore-not-found
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete secret s3-input --ignore-not-found
   bindings:
     requires: {vars: [ENV_DIR]}
     cmds:
@@ -467,8 +449,7 @@ tasks:
       - >-
         yq -e '.applicationRemoved == true' '{{.ENV_DIR}}/identity.yaml' > /dev/null ||
         yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{.ENV_DIR}}/owned-current.yaml' > /dev/null ||
-        (CRD="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD") ||
-        (ROOT="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n flux-system get kustomization/environment --ignore-not-found -o name)" && test -z "$ROOT")
+        (CRD="$(kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD")
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -571,6 +552,20 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete helmrelease/runtime-access --ignore-not-found --wait=true --timeout=600s
   ready:
     requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      GITOPS: {sh: 'yq -r ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml'}
+    cmds:
+      - task: '{{if eq .GITOPS "true"}}git-ready{{else}}local-ready{{end}}'
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  local-ready:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - task: observe-ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}', DEPLOYMENT_DIR: '{{.ENV_DIR}}/deployment', REVISION: ''}
+  git-ready:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
     cmds:
       - task: :gitops:current-checkout
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
@@ -578,38 +573,49 @@ tasks:
         vars:
           ENV_DIR: '{{.ENV_DIR}}'
           CHECKOUT: '{{.CHECKOUT}}'
+          DEPLOYMENT_DIR: '{{.CHECKOUT}}/{{.PATH_IN_GIT}}'
           REVISION: {sh: 'git -C {{shellQuote .CHECKOUT}} rev-parse HEAD'}
   observe-ready:
-    requires: {vars: [ENV_DIR, CHECKOUT, REVISION]}
-    vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+    requires: {vars: [ENV_DIR, DEPLOYMENT_DIR]}
     preconditions:
       - sh: >-
-          kubectl kustomize '{{.CHECKOUT}}/{{.PATH_IN_GIT}}' |
+          kubectl kustomize '{{.DEPLOYMENT_DIR}}' |
           yq -e 'select(.kind == "Kustomization" and .metadata.name == "runtime") |
           .spec.postBuild.substitute.VALUES_CONFIGMAP | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null
         msg: Update the environment starter to use content-hashed values references before checking this product revision
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: observe-git
+        vars: {ENV_DIR: '{{.ENV_DIR}}', REVISION: '{{.REVISION}}'}
       - >-
         KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system
         --test-dir deploy/gitops/readiness-check --assert-timeout 1800s
-        --set-string revision={{shellQuote .REVISION}}
+        --set-string productRevision="$(yq -r 'select(.metadata.name == "tamoss-product") | .spec.ref.commit' '{{.DEPLOYMENT_DIR}}/sources.yaml')"
         --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name deployment-ready
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss/tamoss -o json |
-        yq -p=json -e '.spec.version == load("{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml").release.tag' > /dev/null
+        yq -p=json -e '.spec.version == load("{{.DEPLOYMENT_DIR}}/values.yaml").release.tag' > /dev/null
+  observe-git:
+    requires: {vars: [ENV_DIR]}
+    status: ['test -z {{shellQuote .REVISION}}']
+    cmds:
+      - >-
+        KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system
+        --test-dir deploy/gitops/sync-check --assert-timeout 600s --set-string revision={{shellQuote .REVISION}}
+        --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name gitops-sync
   qualify:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      GITOPS: {sh: 'yq -r ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml'}
+      PATH_IN_GIT: {sh: 'test ! -s {{.ENV_DIR}}/gitops.yaml || yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      DEPLOYMENT_DIR: '{{if eq .GITOPS "true"}}{{.CHECKOUT}}/{{.PATH_IN_GIT}}{{else}}{{.ENV_DIR}}/deployment{{end}}'
     cmds:
       - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - >-
         yq '.release | {"tag": .tag, "releaseSha256": .releaseSha256, "sourceSha256": .sourceSha256}'
-        '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/values.yaml' > '{{.ENV_DIR}}/tamoss-release.current.yaml'
+        '{{.DEPLOYMENT_DIR}}/values.yaml' > '{{.ENV_DIR}}/tamoss-release.current.yaml'
       - task: :tamoss:fetch
         vars: {RELEASE_LOCK: '{{.ENV_DIR}}/tamoss-release.current.yaml'}
       - task: :tamoss:release
@@ -626,12 +632,14 @@ tasks:
   record-release:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
-      PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      GITOPS: {sh: 'yq -r ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml'}
+      PATH_IN_GIT: {sh: 'test ! -s {{.ENV_DIR}}/gitops.yaml || yq -r .path {{.ENV_DIR}}/gitops.yaml'}
+      DEPLOYMENT_DIR: '{{if eq .GITOPS "true"}}{{.CHECKOUT}}/{{.PATH_IN_GIT}}{{else}}{{.ENV_DIR}}/deployment{{end}}'
       KEY: {sh: 'yq -r .releaseSha256 {{.ENV_DIR}}/tamoss-release.current.yaml'}
     cmds:
       - >-
         yq -e 'select(.metadata.name == "tamoss-upstream") |
         .spec.ref.commit == load("{{.ROOT_DIR}}/.local/tmp/tamoss/{{.KEY}}/release.json").sourceCommit'
-        '{{.CHECKOUT}}/{{.PATH_IN_GIT}}/sources.yaml' > /dev/null
+        '{{.DEPLOYMENT_DIR}}/sources.yaml' > /dev/null
       - cp --no-clobber '{{.ENV_DIR}}/tamoss-release.yaml' '{{.ENV_DIR}}/tamoss-release.bootstrap.yaml'
       - mv '{{.ENV_DIR}}/tamoss-release.current.yaml' '{{.ENV_DIR}}/tamoss-release.yaml'

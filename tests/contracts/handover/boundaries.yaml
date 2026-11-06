@@ -7,13 +7,20 @@ tasks:
   verify:privacy: {cmds: ['true']}
   gitops:export-inputs: {cmds: ['true']}
   provision:
-    status: ['yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
+    status: ['yq -e ''.deploymentReady == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
     cmds: ['yq -i ''.provisions += 1'' {{.ENV_DIR}}/identity.yaml']
-  initialise-runtime: {cmds: ['true']}
+  runtime: {cmds: ['true']}
   record-runtime:
-    status: ['yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
+    status: ['yq -e ''.deploymentReady == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
     cmds:
       - 'yq -e ''.observations > 0'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.deploymentReady = true'' {{.ENV_DIR}}/identity.yaml'
+  access: {cmds: ['true']}
+  gitops:attach:
+    status: ['yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
+    cmds:
+      - task: checkpoint
+        vars: {POINT: before-git}
       - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
   checkpoint:
     preconditions:
@@ -45,9 +52,9 @@ tasks:
       - task: checkpoint
         vars: {POINT: after-publication}
   observe-ready:
-    requires: {vars: [REVISION]}
+    requires: {vars: [ENV_DIR]}
     cmds:
-      - test '{{.REVISION}}' = "$(git -C '{{.CHECKOUT}}' rev-parse FETCH_HEAD)"
+      - test -z '{{.REVISION}}' || test '{{.REVISION}}' = "$(git -C '{{.CHECKOUT}}' rev-parse FETCH_HEAD)"
       - 'yq -e ''.unhealthy != true and (.unhealthyAfterPublication != true or .published != true)'' {{.ENV_DIR}}/identity.yaml'
       - 'yq -i ''.observations += 1'' {{.ENV_DIR}}/identity.yaml'
   transfer:stop-kind:

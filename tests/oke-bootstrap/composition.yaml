@@ -24,7 +24,8 @@ spec:
             {{- $accessRelease := dict -}}
             {{- $secretRelease := dict "metadata" (dict "generation" 1) "spec" (dict "values" (dict "initialise" false)) "status" (dict "observedGeneration" 1 "conditions" (list (dict "type" "Ready" "status" "True"))) -}}
             {{- $deliveries := list -}}
-            {{- range until 11 -}}{{- $deliveries = append $deliveries (dict "resource" (dict "status" (dict "conditions" (list (dict "type" "Ready" "status" "True"))))) -}}{{- end -}}
+            {{- $secretDefaults := fromJson __SECRET_VALUES__ -}}
+            {{- range $secretDefaults.deliveries -}}{{- $deliveries = append $deliveries (dict "resource" (dict "metadata" (dict "name" .name) "status" (dict "conditions" (list (dict "type" "Ready" "status" "True"))))) -}}{{- end -}}
             {{- $_ := set .extraResources "remoteCredentials" (dict "items" $deliveries) -}}
             apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
             kind: ExtraResources

@@ -31,16 +31,16 @@ jobs:
       - uses: aquaproj/aqua-installer@611554c6f0137ba41c8dd15aca8bee82504ea461 # v4.1.1
         with:
           aqua_version: v2.65.2
-      - name: Require private visibility for any existing package
+      - name: Require public visibility for any existing package
         env:
-          GH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           test -n "$GH_TOKEN"
           mkdir -p -m 700 .local/tmp/check
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/package.json ||
             aqua exec -- yq -e '.status == "404"' .local/tmp/check/package.json
           aqua exec -- yq -o=json '{"status": .status, "visibility": .visibility, "repository": .repository.full_name}' .local/tmp/check/package.json
-          aqua exec -- yq -e '(.status == "404") or ((.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
+          aqua exec -- yq -e '(.status == "404") or ((.visibility == "public") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
       - name: Verify the release and prepare the allowlisted bundle
         run: |
           export PATH="$(aqua root-dir)/bin:$PATH"
@@ -62,13 +62,19 @@ jobs:
           flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path ".local/tmp/$APPLICATION-bundle" --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
       - name: Verify the published package and record the digest
         env:
-          GH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           export PATH="$(aqua root-dir)/bin:$PATH"
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/check/published-package.json
           yq -o=json '{"visibility": .visibility, "repository": .repository.full_name}' .local/tmp/check/published-package.json
-          yq -e '(.visibility == "private") and (.repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/check/published-package.json
+          yq -e '(.visibility == "public") and (.repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/check/published-package.json
           yq -r '"OCI digest: `" + .digest + "`"' .local/tmp/check/published-bundle.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify anonymous consumption
+        run: |
+          export PATH="$(aqua root-dir)/bin:$PATH"
+          mkdir -p .local/tmp/anonymous-registry .local/tmp/anonymous-bundle
+          DOCKER_CONFIG="$PWD/.local/tmp/anonymous-registry" flux pull artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME@$(yq -r .digest .local/tmp/check/published-bundle.json)" --output .local/tmp/anonymous-bundle --timeout=60s
+          diff -r ".local/tmp/$APPLICATION-bundle" .local/tmp/anonymous-bundle
       - name: Remove publisher credentials
         if: always()
         run: docker logout ghcr.io

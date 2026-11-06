@@ -14,3 +14,4 @@ packages:
   - name: Orange-OpenSource/hurl@8.0.1
   - name: fluxcd/flux2@v2.9.6
   - name: astral-sh/uv@0.13.7
+  - name: cli/cli@v2.103.3

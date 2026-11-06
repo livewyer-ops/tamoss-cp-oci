@@ -15,7 +15,7 @@ task check
 | --- | --- |
 | TAMOSS release | Published metadata/checksums, matching source, immutable bundle and selected upstream browser-test collection |
 | Infrastructure | Initial/partial/ready composition rendering, schema validation, immutable inputs and deletion dependencies |
-| Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; Git preparation without cloud outputs |
+| Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; local seed preparation without cloud outputs and identical configuration export |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
 | Handover flow | Public command wiring and production Task sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
@@ -56,8 +56,8 @@ before handover and the pause before deletion.
 Flux installs the Kind controller releases from a local chart artefact. Further
 checks cover chart failure/recovery, controller-derived secret/IAM releases,
 irreversible credential retirement and a suspended instance across controller
-restarts and original Kind stop/start. Fixture sources and a Kubernetes secret backend replace GitHub App
-authentication and OCI Vault; these checks do not qualify those external services.
+restarts and original Kind stop/start. Fixture sources and a Kubernetes secret backend replace GitHub and OCI Vault;
+these checks do not qualify those external services.
 
 External Secrets uses a local Kubernetes backend; the database connection Job
 uses fixture retrieval. Tests cover persisted-value reuse and refresh, missing
@@ -71,9 +71,10 @@ Binding-delivery checks submit Flux consumers before the snapshot exists, then
 observe ESO persistence, delivery and Crossplane convergence without forcing
 reconciliation. They reject changed bindings and retain the persisted record when
 its PushSecret is removed. Credential tests verify that ESO adopts a seeded Git
-Secret without replacing its UID.
+Secret without replacing its UID. SSH deploy-key checks also retain the original
+bytes when staging input changes and recover the Secret after input retirement.
 
-Readiness checks wait for initial source revisions, reject stale infrastructure/runtime Git and chart
+Readiness checks wait for initial source revisions, reject stale infrastructure/runtime product and chart
 observations and old Ready conditions after a values change. Real Flux checks
 cover delayed dependencies and recovery without forced reconciliation.
 Media-fixture preparation belongs to `qualify`;
@@ -113,7 +114,7 @@ ownership-verified manual cleanup before the OCI audit can pass.
 ## Deployed qualification
 
 Requires a running deployment, its original environment directory, credentials
-and the matching published environment Git checkout:
+and, after handover, the matching published environment Git checkout:
 
 ```bash
 task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
@@ -148,7 +149,10 @@ evidence and continue independent checks as appropriate. Follow
 Setup contracts exercise private initialisation, preserved edits, deterministic
 regional selections, unavailable/ambiguous images, invalid configuration and
 repeat preparation without discovery. The simplified setup and removal of
-environment lifetime gates still require a fresh full OCI deployment.
+environment lifetime gates still require a fresh full OCI deployment. The Git-free
+quick seed, anonymous package consumption on OKE, native GitHub bootstrap and
+Vault-backed SSH key handover also require fresh OCI qualification. Local contract
+checks and controller tests cannot establish those external outcomes.
 
 The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption
 bindings passed an assisted OCI run. The Job succeeded on its first Pod attempt;

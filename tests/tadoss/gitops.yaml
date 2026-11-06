@@ -32,7 +32,7 @@ kind: Render
   kind: ConfigMap
   name: database-connection
   valuesKey: DATABASE_CA_BASE64
-(resources[?kind == 'OCIRepository' && metadata.name == 'tadoss-release'] | [0].spec.secretRef.name): ghcr
+(resources[?kind == 'OCIRepository' && metadata.name == 'tadoss-release'] | [0].spec.secretRef): null
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.deletionPolicy): Orphan
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.prune): false
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.dependsOn[].name): [tadoss-operator, tadoss-credentials, platform, calico]

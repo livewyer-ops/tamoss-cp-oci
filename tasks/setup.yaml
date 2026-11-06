@@ -19,19 +19,18 @@ tasks:
     cmds:
       - install -d -m 700 '{{.ENV_DIR}}' '{{.ENV_DIR}}/secrets'
       - install -m 600 '{{.ROOT_DIR}}/environments/example/values.yaml' '{{.ENV_DIR}}/values.yaml'
+      - install -m 600 '{{.ROOT_DIR}}/environments/example/gitops.yaml' '{{.ENV_DIR}}/gitops.yaml'
       - 'echo "Edit {{.ENV_DIR}}/values.yaml and supply the credential files described in docs/getting-started.md, then run task up"'
   resolve:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
+    requires: {vars: [ENV_DIR]}
     preconditions:
       - sh: test ! -e '{{.ENV_DIR}}/setup-values.yaml' || cmp --silent '{{.ENV_DIR}}/values.yaml' '{{.ENV_DIR}}/setup-values.yaml'
-        msg: Bootstrap settings are already recorded; keep these inputs and make operational changes in environment Git
+        msg: Bootstrap settings are already recorded; keep these inputs and use handover for GitOps changes
     cmds:
       - task: inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: publish-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: checkout
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
   inputs:
     requires: {vars: [ENV_DIR]}
     status:
@@ -55,7 +54,7 @@ tasks:
     requires: {vars: [ENV_DIR]}
     status: ['test -s {{shellQuote .ENV_DIR}}/identity.yaml']
     cmds:
-      - for: [environment.yaml, foundation.yaml, settings.yaml, gitops.yaml]
+      - for: [environment.yaml, foundation.yaml, settings.yaml, product.yaml]
         cmd: install -m 600 '{{.ENV_DIR}}/setup-render/setup/templates/{{.ITEM}}' '{{.ENV_DIR}}/{{.ITEM}}'
   validate:
     requires: {vars: [ENV_DIR]}
@@ -68,7 +67,7 @@ tasks:
         msg: Configure the OCI provisioner profile before deploying
     cmds:
       - helm lint '{{.ROOT_DIR}}/charts/setup' -f '{{.ENV_DIR}}/values.yaml
-      - for: [github-app-private-key, ghcr-dockerconfigjson, s3-access-key, s3-secret-key]
+      - for: [s3-access-key, s3-secret-key]
         cmd: test -s '{{.ENV_DIR}}/secrets/{{.ITEM}}' && test -z "$(find '{{.ENV_DIR}}/secrets/{{.ITEM}}' -perm /077 -print)"
       - install -d -m 700 '{{.ENV_DIR}}/discovery'
       - >-
@@ -108,13 +107,12 @@ tasks:
   access:
     requires: {vars: [ENV_DIR]}
     vars:
-      PRODUCT_URL: {sh: 'yq -r .product.url {{shellQuote .ENV_DIR}}/setup-render/setup/templates/gitops.yaml'}
+      PRODUCT_URL: {sh: 'yq -r .product.url {{shellQuote .ENV_DIR}}/setup-render/setup/templates/product.yaml'}
     cmds:
       - git -C '{{.ROOT_DIR}}' fetch --no-tags {{shellQuote .PRODUCT_URL}} main
       - git -C '{{.ROOT_DIR}}' merge-base --is-ancestor HEAD FETCH_HEAD
       - install -d -m 700 '{{.ENV_DIR}}/registry' '{{.ENV_DIR}}/discovery/tamoss-bundle' '{{.ENV_DIR}}/discovery/tadoss-bundle'
-      - defer: rm -f '{{.ENV_DIR}}/registry/config.json'
-      - install -m 600 '{{.ENV_DIR}}/secrets/ghcr-dockerconfigjson' '{{.ENV_DIR}}/registry/config.json'
+      - rm -f '{{.ENV_DIR}}/registry/config.json'
       - for: [tamoss, tadoss]
         cmd: >-
           DOCKER_CONFIG='{{.ENV_DIR}}/registry' flux pull artifact
@@ -123,11 +121,3 @@ tasks:
       - 'echo "$(yq -r .releaseSha256 {{.ROOT_DIR}}/deploy/tamoss/release.yaml)  {{.ENV_DIR}}/discovery/tamoss-bundle/release.json" | sha256sum --check --status'
       - 'echo "$(yq -r ''.artifacts."release.json"'' {{.ROOT_DIR}}/deploy/tadoss/release.yaml)  {{.ENV_DIR}}/discovery/tadoss-bundle/release.json" | sha256sum --check --status'
       - timeout 60s docker --config '{{.ENV_DIR}}/registry' manifest inspect "$(yq -r .bootstrapTools.image '{{.ROOT_DIR}}/dependencies.yaml')" > '{{.ENV_DIR}}/discovery/bootstrap-image.json'
-      - printf '%s' "$(yq -r .git.githubAppId '{{.ENV_DIR}}/values.yaml')" > '{{.ENV_DIR}}/secrets/github-app-id'
-      - printf '%s' "$(yq -r .git.githubInstallationId '{{.ENV_DIR}}/values.yaml')" > '{{.ENV_DIR}}/secrets/github-app-installation-id'
-      - chmod 600 '{{.ENV_DIR}}/secrets/github-app-id' '{{.ENV_DIR}}/secrets/github-app-installation-id'
-  checkout:
-    requires: {vars: [ENV_DIR, CHECKOUT]}
-    status: ['test -d {{shellQuote .CHECKOUT}}/.git']
-    cmds:
-      - git clone --single-branch --branch "$(yq -r .branch '{{.ENV_DIR}}/gitops.yaml')" "$(yq -r .url '{{.ENV_DIR}}/gitops.yaml')" '{{.CHECKOUT}}'

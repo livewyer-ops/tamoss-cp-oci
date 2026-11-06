@@ -58,25 +58,19 @@ configuration to Kind for deletion.
 See [Operations](../../docs/operations.md#release-selection) and the [GitOps guide](../gitops/README.md#release-changes)
 for release selection, verification and lifecycle instructions.
 
-## Private release bundle
+## Public release bundle
 
-`task check` also prepares an allowlisted OCI bundle under
-`.local/tmp/tamoss-bundle`. It contains the unchanged published installation,
-compatibility, catalogue and dependency assets, verified release metadata, the
-release lock and a static Kustomize entrypoint. Flux builds a reproducible archive;
-the source checkout and private working files are excluded.
+The release bundle contains only the checksum-verified published operator assets,
+release metadata and a static Kustomize entry point. Upstream bytes are unchanged;
+the source checkout, credentials and private working files are excluded.
 
-The manually dispatched [publishing workflow](../../.github/workflows/release-bundle.yaml)
-publishes from the default branch with `GITHUB_TOKEN`, checks private package
-visibility and repository association, and records the resulting digest. Configure
-the repository's `GHCR_READ_TOKEN` Actions secret with a classic PAT limited to
-`read:packages`, owned by an account with access to the package. Only the metadata
-checks receive this token; Docker publishing uses `GITHUB_TOKEN`. A missing read
-token stops the workflow before release checks or publication. Deploy
-using that digest recorded in `bundle` in the application's `release.yaml`.
-The TAMOSS bundle excludes this publication reference from its embedded lock to
-avoid a digest depending on itself. Private runtime pulls require a separate read-only package
-credential supplied through Vault/ESO; GitHub App credentials are for Git access.
-Private runtime pulls have passed live OCI checks. A supported release upgrade
-and package-read credential rotation/revocation remain unqualified; see
-[coverage limits](../../docs/testing.md#verified-coverage-and-limits).
+The [publication workflow](../../.github/workflows/release-bundle.yaml) publishes
+from the default branch using `GITHUB_TOKEN`. The package must be public and
+associated with this product repository. For a new package, its owner must set
+public visibility in GitHub's package settings after the first publication, then
+rerun the workflow. The workflow checks anonymous consumption and records the
+immutable digest for the release lock.
+
+Deployments pull that digest without a registry login. TAMOSS charts and profiles
+come from the matching public source commit. Local overlays remain separate from
+upstream release assets.

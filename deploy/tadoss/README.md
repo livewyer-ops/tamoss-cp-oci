@@ -13,12 +13,11 @@ the media source through a `tams://` identifier. TADOSS needs no object store.
 ## Release access
 
 Published upstream release assets are public and downloaded without authentication.
-Private bundle publication uses `GITHUB_TOKEN`; metadata verification uses
-`GHCR_READ_TOKEN`. OKE uses the existing package-read credential delivered from
-Vault.
+Public bundle publication and metadata verification use `GITHUB_TOKEN`.
+The workflow verifies anonymous consumption; OKE needs no registry credential.
 
 Downloads have size/time limits and must match the committed checksums. The
-private `tadoss-release-assets` bundle contains only unchanged published assets
+public `tadoss-release-assets` bundle contains only unchanged published assets
 and a static Kustomize entrypoint. Flux consumes its immutable digest. No local
 credentials, source checkout or private notes are included.
 Select `tadoss` in the release publishing workflow's application input to publish
@@ -27,7 +26,7 @@ that bundle; the existing TAMOSS bundle can retain its verified digest.
 ## Prepare bootstrap
 
 Use the [GitOps workflow](../gitops/README.md). The product's
-[release lock](release.yaml) selects the published private TADOSS bundle.
+[release lock](release.yaml) selects the published public TADOSS bundle.
 Setup includes it alongside TAMOSS automatically; the package-read credential
 must have access to both bundles.
 

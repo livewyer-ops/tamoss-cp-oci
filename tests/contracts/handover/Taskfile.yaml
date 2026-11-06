@@ -11,6 +11,7 @@ tasks:
         yq 'load("{{.PROJECT_ROOT}}/tasks/bootstrap.yaml").tasks as $production |
         .tasks.up = $production.up | .tasks.handover = $production.handover |
         .tasks.promote = $production.promote | .tasks.ready = $production.ready |
+        .tasks."git-ready" = $production."git-ready" | .tasks."local-ready" = $production."local-ready" |
         .tasks."complete-handover" = $production."complete-handover" |
         .tasks."gitops:current-checkout" = load("{{.PROJECT_ROOT}}/tasks/gitops.yaml").tasks."current-checkout" |
         .tasks."gitops:promotion-checkout" = load("{{.PROJECT_ROOT}}/tasks/gitops.yaml").tasks."promotion-checkout" |
@@ -22,7 +23,7 @@ tasks:
         (.tasks."public-up".cmds[], .tasks."public-handover".cmds[] | select(has("task"))).task |= sub("^bootstrap:", "")'
         '{{.PROJECT_ROOT}}/tests/contracts/handover/boundaries.yaml' > '{{.DIRECTORY}}/Taskfile.yaml'
       - >-
-        yq -n '{"deploymentUID": "original", "gitopsEstablished": true,
+        yq -n '{"deploymentUID": "original", "deploymentReady": true, "gitopsEstablished": true,
         "provisions": 0, "starts": 0, "publications": 0, "observations": 0}' > '{{.DIRECTORY}}/identity.yaml'
       - 'yq -n ''{"branch": "main", "path": "clusters/fixture"}'' > {{.DIRECTORY}}/gitops.yaml'
       - 'yq -n ''{"spec": {"managementPolicies": ["Observe"]}}'' > {{.DIRECTORY}}/checkout/clusters/fixture/infrastructure/environment.yaml'
@@ -48,7 +49,7 @@ tasks:
   deployed:
     cmds:
       - >-
-        yq -e '[.deploymentUID == "original", .gitopsEstablished == true,
+        yq -e '[.deploymentUID == "original", .deploymentReady == true, .gitopsEstablished == false,
         .handoverComplete != true, .quiesced != true, .runtimeWritesEnabled != true,
         .starts == 0, .publications == 0, .stopped != true] | all' '{{.DIRECTORY}}/identity.yaml'
   complete:

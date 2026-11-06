@@ -24,12 +24,12 @@ jobs:
           aqua_version: v2.65.2
       - name: Check package ownership and visibility
         env:
-          GH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p -m 700 .local/tmp/image
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/image/package.json ||
             aqua exec -- yq -e '.status == "404"' .local/tmp/image/package.json
-          aqua exec -- yq -e '(.status == "404") or (.visibility == "private" and .repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/image/package.json
+          aqua exec -- yq -e '(.status == "404") or (.visibility == "public" and .repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/image/package.json
       - name: Build and verify pinned tools
         run: |
           export PATH="$(aqua root-dir)/bin:$PATH"
@@ -47,11 +47,15 @@ jobs:
           docker push "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA"
       - name: Verify publication
         env:
-          GH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/image/published.json
-          aqua exec -- yq -e '.visibility == "private" and .repository.full_name == strenv(PRODUCT_REPOSITORY)' .local/tmp/image/published.json
+          aqua exec -- yq -e '.visibility == "public" and .repository.full_name == strenv(PRODUCT_REPOSITORY)' .local/tmp/image/published.json
           docker buildx imagetools inspect "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify anonymous consumption
+        run: |
+          mkdir -p .local/tmp/anonymous-registry
+          docker --config "$PWD/.local/tmp/anonymous-registry" manifest inspect "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA" > /dev/null
       - name: Remove publisher credentials
         if: always()
         run: docker logout ghcr.io

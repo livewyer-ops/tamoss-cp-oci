@@ -25,6 +25,10 @@ spec:
             env: *env
             args: [export]
         - command:
+            entrypoint: task
+            env: *env
+            args: [shared-configuration]
+        - command:
             entrypoint: kubectl
             env: *env
             args: [kustomize, '$DIRECTORY/checkout/clusters/oci-dev', -o, '$DIRECTORY/before.yaml']
@@ -42,7 +46,7 @@ spec:
         - command:
             entrypoint: yq
             env: *env
-            args: [-e, '.tadoss.enabled == false and .tadoss.release.digest == load(strenv(DIRECTORY) + "/inputs/gitops.yaml").tadoss.bundle.digest', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+            args: [-e, '.tadoss.enabled == false and .tadoss.release.digest == load(strenv(DIRECTORY) + "/inputs/product.yaml").tadoss.bundle.digest', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
         - command:
             entrypoint: yq
             env: *env
@@ -98,12 +102,18 @@ spec:
         - command:
             entrypoint: rm
             env: *env
-            args: ['$DIRECTORY/checkout/clusters/oci-dev/sync.yaml']
+            args: ['$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
         - command:
             <<: *export
             check:
               ($error != null): true
               (contains($stderr, 'incomplete')): true
+    - name: mark the Git-owned fixture
+      try:
+        - command:
+            entrypoint: yq
+            env: *env
+            args: [-i, '.gitopsEstablished = true', '$DIRECTORY/inputs/identity.yaml']
     - name: reject mismatched release sources without changing the installed record
       try:
         - command:
@@ -171,16 +181,16 @@ spec:
             entrypoint: cmp
             env: *env
             args: ['$DIRECTORY/inputs/initial-release.yaml', '$DIRECTORY/inputs/tamoss-release.bootstrap.yaml']
-    - name: prepare desired Git configuration before cloud outputs exist
+    - name: prepare the local seed before cloud outputs exist
       try:
         - command:
             entrypoint: rm
             env: *env
-            args: [-rf, '$DIRECTORY/checkout/clusters/oci-dev']
+            args: [-rf, '$DIRECTORY/checkout/clusters/oci-dev', '$DIRECTORY/inputs/deployment']
         - command:
             entrypoint: rm
             env: *env
-            args: ['$DIRECTORY/inputs/resources-current.yaml', '$DIRECTORY/inputs/outputs.json', '$DIRECTORY/inputs/foundation-record.yaml']
+            args: ['$DIRECTORY/inputs/resources-current.yaml', '$DIRECTORY/inputs/outputs.json']
         - command:
             entrypoint: yq
             env: *env
@@ -205,7 +215,7 @@ spec:
         - command:
             entrypoint: rm
             env: *env
-            args: [-rf, '$DIRECTORY/checkout/clusters/oci-dev']
+            args: [-rf, '$DIRECTORY/checkout/clusters/oci-dev', '$DIRECTORY/inputs/deployment']
         - command:
             entrypoint: yq
             env: *env

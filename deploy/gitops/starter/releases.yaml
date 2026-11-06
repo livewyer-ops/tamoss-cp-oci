@@ -33,14 +33,21 @@ spec:
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: infrastructure, namespace: tamoss-infra}
+metadata:
+  name: infrastructure
+  namespace: tamoss-infra
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   interval: 5m
   timeout: 15m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: GitRepository, name: environment, namespace: flux-system}
-  path: REPLACE
+  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: ./deploy/gitops/infrastructure
+  patches:
+    - target: {kind: TamossEnvironment}
+      patch: REPLACE
   dependsOn: [{name: adoption-bindings}]
   postBuild:
     substituteFrom: [{kind: Secret, name: adoption-bindings}]
@@ -56,8 +63,8 @@ spec:
   timeout: 15m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: GitRepository, name: environment, namespace: flux-system}
-  path: REPLACE
+  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: ./deploy/gitops/runtime
   dependsOn: [{name: infrastructure}, {name: platform-defaults, namespace: flux-system}]
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: tamoss-runtime}]

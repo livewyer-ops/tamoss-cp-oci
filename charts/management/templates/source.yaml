@@ -10,9 +10,6 @@ spec:
   timeout: 1m
   url: {{ required "product.url is required" .Values.product.url | quote }}
   ref: {commit: {{ required "product.commit is required" .Values.product.commit | quote }}}
-  provider: github
-  secretRef:
-    name: {{ ternary "github-app" "github-app-input" .Values.credentialsEstablished }}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository

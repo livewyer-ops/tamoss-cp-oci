@@ -46,6 +46,11 @@
     },
     "externalSecrets": {
       "type": "object"
+    },
+    "gitops": {
+      "type": "object",
+      "properties": {"enabled": {"type": "boolean"}},
+      "additionalProperties": false
     }
   }
 }

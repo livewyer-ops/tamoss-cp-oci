@@ -149,6 +149,9 @@ tasks:
       - 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/runtime-access.yaml > {{.CACHE}}/runtime-access-list.yaml'
       - helm lint charts/secret-foundation
       - helm lint charts/secrets -f tests/secrets/values.yaml
+      - helm lint charts/gitops-auth --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - helm template gitops-auth charts/gitops-auth -n tamoss-infra --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > '{{.CACHE}}/gitops-auth.yaml'
+      - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/gitops-auth.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results
       - helm template foundation charts/secret-foundation > '{{.CACHE}}/foundation-api.yaml'
       - 'yq ''del(.metadata.uid) | .metadata.annotations."crossplane.io/paused" = "true"'' tests/secrets/foundation.yaml > {{.CACHE}}/foundation-admission.yaml'
       - 'yq ''select(.kind == "Composition")'' {{.CACHE}}/foundation-api.yaml > {{.CACHE}}/foundation-composition.yaml'
@@ -170,7 +173,7 @@ tasks:
       - helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f deploy/secrets/bootstrap-values.yaml --set initialise=true > '{{.CACHE}}/secrets-bootstrap.yaml'
       - helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f deploy/secrets/bootstrap-values.yaml --set initialise=false > '{{.CACHE}}/secrets-established.yaml'
       - 'yq eval-all -e ''[select(.kind == "PushSecret" or .kind == "Password")] | length == 0'' {{.CACHE}}/secrets-established.yaml'
-      - 'yq eval-all -e ''[select(.kind == "ExternalSecret")] | length == 11'' {{.CACHE}}/secrets-established.yaml'
+      - 'yq eval-all -e ''[select(.kind == "ExternalSecret")] | length == 9'' {{.CACHE}}/secrets-established.yaml'
       - >-
         yq '.metadata.namespace = "secret-check" |
         with(select(.kind == "SecretStore"); .spec.provider = load("tests/secret-persistence/provider.yaml")) |
@@ -246,7 +249,8 @@ tasks:
       - helm template tamoss-gitops '{{.CHART}}' -n flux-system -f '{{.ASSETS}}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' > '{{.CACHE}}/gitops-render.yaml'
       - helm lint charts/gitops-bootstrap -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml'
       - helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' >> '{{.CACHE}}/gitops-render.yaml'
-      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/runtime-secrets-flux-system.yaml'
+      - helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{.CACHE}}/gitops-pins.yaml' --set gitops.enabled=true > '{{.CACHE}}/gitops-auth-render.yaml'
+      - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values'' {{.CACHE}}/gitops-auth-render.yaml > {{.CACHE}}/runtime-secrets-flux-system.yaml'
       - helm template tamoss-secrets charts/secrets -n flux-system -f '{{.CACHE}}/runtime-secrets-flux-system.yaml' > '{{.CACHE}}/runtime-seed.yaml'
       - 'yq eval-all ''[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}'' {{.CACHE}}/runtime-seed.yaml > {{.CACHE}}/runtime-seed-list.yaml'
       - 'yq ''select(.kind == "HelmRelease" and .metadata.name == "tamoss-platform-config") | .spec.values'' {{.CACHE}}/gitops-render.yaml > {{.CACHE}}/gitops-platform-config-values.yaml'

@@ -30,8 +30,9 @@ tasks:
         yq '.metadata.namespace = "binding-check" | .spec.crossplane.compositionRef.name = "binding-observer" |
         .spec.adoption.creationCompositeUID = "${CREATION_COMPOSITE_UID}" | .spec.adoption.deploymentId = "${DEPLOYMENT_ID}" |
         .spec.adoption.externalNames |= with_entries(.value = ("${" + (.key | upcase | sub("-"; "_")) + "}"))'
-        '{{.CACHE}}/adoption.yaml' > '{{.DIRECTORY}}/artifact/environment/environment.yaml'
-      - cp '{{.ROOT}}/deploy/gitops/starter/infrastructure.yaml' '{{.DIRECTORY}}/artifact/environment/kustomization.yaml'
+        '{{.CACHE}}/adoption.yaml' > '{{.DIRECTORY}}/intent.yaml'
+      - 'yq ''.metadata.namespace = "binding-check"'' {{.ROOT}}/deploy/gitops/infrastructure/environment.yaml > {{.DIRECTORY}}/artifact/environment/environment.yaml'
+      - cp '{{.ROOT}}/deploy/gitops/infrastructure/kustomization.yaml' '{{.DIRECTORY}}/artifact/environment/kustomization.yaml'
       - >-
         helm template bootstrap '{{.ROOT}}/charts/gitops-bootstrap' -f '{{.ROOT}}/tests/gitops/values.yaml' -f '{{.CACHE}}/gitops-pins.yaml' |
         yq 'select(.metadata.name == "adoption-bindings") | .metadata.namespace = "binding-check" |
@@ -41,6 +42,8 @@ tasks:
       - >-
         yq 'select(.metadata.name == "infrastructure") | .metadata.namespace = "binding-check" |
         .spec.sourceRef = {"kind": "GitRepository", "name": "binding-fixture"} | .spec.path = "./environment" |
+        .spec.patches[0].patch = load_str("{{.DIRECTORY}}/intent.yaml") |
+        .spec.postBuild.substitute.ENVIRONMENT_NAME = load("{{.CACHE}}/adoption.yaml").metadata.name |
         .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s" |
         .spec.healthChecks[0].namespace = "binding-check" | .spec.healthChecks[0].name = load("{{.CACHE}}/adoption.yaml").metadata.name'
         '{{.ROOT}}/deploy/gitops/starter/releases.yaml' > '{{.DIRECTORY}}/infrastructure-kustomization.yaml'

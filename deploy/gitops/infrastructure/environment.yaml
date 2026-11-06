@@ -1,0 +1,4 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossEnvironment
+metadata: {name: '${ENVIRONMENT_NAME}', namespace: tamoss-infra}
+spec: {}

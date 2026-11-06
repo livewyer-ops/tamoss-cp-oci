@@ -16,7 +16,6 @@ spec:
   url: {{ .Values.tadoss.release.bundleURL | quote }}
   ref: {digest: {{ .Values.tadoss.release.digest | quote }}}
   provider: generic
-  secretRef: {name: ghcr}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

@@ -2,6 +2,8 @@ deploymentId: ''
 region: ''
 vaultId: ''
 databaseAdministrator: postgres
+gitops:
+  enabled: false
 tadoss:
   enabled: false
 dependencies: {}

@@ -12,7 +12,7 @@ for HA deployments and qualification environments.
 
 | Component | Configuration |
 | --- | --- |
-| Management | Kind bootstraps; Flux and Crossplane on OKE operate; retain original Kind for teardown |
+| Management | Kind owns infrastructure until optional GitOps handover to OKE; retain original Kind for teardown |
 | Kubernetes | OKE with three workers and explicit failure-domain placement |
 | Application | Replicated TAMOSS API, worker, UI and Console API |
 | PostgreSQL | Two OCI database nodes; separate TAMOSS and Authentik databases, with verified TLS |
@@ -29,8 +29,8 @@ Flux, Crossplane and External Secrets on OKE. The Flux-managed Kind bootstrap,
 OKE bootstrap Job and Vault-delivered adoption bindings have run on OCI, with
 application qualification while Kind was stopped. The run required IAM propagation
 retries, host transfer corrections and certificate renewal; an uninterrupted
-lifecycle remains unqualified. Release upgrades and package-credential rotation
-also remain unqualified.
+lifecycle remains unqualified. The Git-free seed and SSH handover require fresh OCI qualification. Release
+upgrades and credential rotation also remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
 through the environment Git repository, using the same platform services. Live
@@ -52,21 +52,28 @@ export PATH="$(aqua root-dir)/bin:$(aqua exec -- uv tool dir --bin):$PATH"
 task setup
 ```
 
-Complete [Getting started](docs/getting-started.md) to prepare OCI access,
-credentials and `.local/environment/values.yaml`. The product supplies HA defaults
-and release pins; `up` discovers regional OCI values and clones the environment
-repository. Then deploy:
+Complete [Getting started](docs/getting-started.md) with an OCI profile, S3 key pair,
+compartment, contact email and administrator CIDR. Then deploy:
 
 ```bash
-task check
 task up
+```
+
+The quick deployment requires no GitHub account or environment repository. Flux
+reconciles pinned public product assets with the supplied configuration. Kind
+retains infrastructure ownership; TAMOSS runs on OKE. `up` prints the URLs and
+location of protected initial login details.
+
+To demonstrate GitOps, configure the optional GitHub owner in `gitops.yaml`:
+
+```bash
+gh auth login --hostname github.com --git-protocol https
 task handover
 ```
 
-`up` leaves Kind owning infrastructure. `handover` transfers ownership to OKE
-and stops Kind. Flux deploys applications from the start; after handover, enable
-[TADOSS through Git](deploy/tadoss/README.md#enable-through-git) to demonstrate an
-application change while Kind is stopped.
+Handover publishes the existing configuration to a private repository, establishes
+a read-only SSH deploy key, transfers infrastructure ownership to OKE and stops
+original Kind. Then enable [TADOSS through Git](deploy/tadoss/README.md#enable-through-git).
 
 Qualification replaces its test media and drains one worker. Follow the
 [access instructions](docs/getting-started.md#access) to sign in and inspect the
@@ -82,9 +89,9 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 | `task check:storage` | Test a real OCI bucket in a separately authorised compartment. |
 | `task check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
 | `task up` | Provision OCI and install TAMOSS with public TLS ready; Kind retains infrastructure ownership. |
-| `task handover` | Transfer infrastructure ownership to OKE, verify convergence and stop original Kind. |
+| `task handover` | Attach GitOps, transfer infrastructure ownership to OKE and stop original Kind. |
 | `task qualify` | Test ingest, access, network isolation and a worker drain. |
-| `task down` | Return current ownership to Kind, delete hardware and retire secrets. |
+| `task down` | Return ownership if needed, delete hardware and retire secrets through original Kind. |
 
 `ENV_DIR` selects the private deployment directory; `CHECKOUT` selects its environment
 Git checkout (default `.local/gitops`). Storage checks have separate

@@ -1,16 +1,10 @@
-name: ''
+name: media-demo
 compartmentId: ''
 contactEmail: ''
 adminCidrs: []
 owner: ''
 acmeEmail: ''
 adminEmail: ''
-git:
-  url: ''
-  branch: main
-  path: ''
-  githubAppId: ''
-  githubInstallationId: ''
 product:
   url: https://github.com/dodwyer/tamoss-cp-oci
   commit: ''

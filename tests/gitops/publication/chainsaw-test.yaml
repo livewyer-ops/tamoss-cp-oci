@@ -47,7 +47,7 @@ spec:
         - command:
             entrypoint: task
             env: *paths
-            args: [-t, ../Taskfile.yaml, initialise-runtime]
+            args: [-t, ../Taskfile.yaml, initial-export]
             check:
               ($error != null): true
               (contains($stderr, 'Initial publication requires observe-only infrastructure')): true
@@ -85,3 +85,29 @@ spec:
         - command:
             <<: *promotion
             check: {($error != null): true}
+    - name: include native Flux manifests and enable only Git credential delivery
+      try:
+        - command:
+            entrypoint: git
+            env: *paths
+            args: [-C, '$DIRECTORY/checkout', restore, clusters/oci-dev/infrastructure/environment.yaml]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, native-git-fixture]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, enable-key-delivery]
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [kustomize, '$DIRECTORY/checkout/clusters/oci-dev', -o, '$DIRECTORY/git-root.yaml']
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [eval-all, -e, '[select(.kind == "Kustomization" and .metadata.name == "flux-system")] | select(length == 1) | .[0].spec | [.prune == false, .deletionPolicy == "Orphan"] | all', '$DIRECTORY/git-root.yaml']
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.gitops.enabled == true and .tadoss.enabled == false', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']

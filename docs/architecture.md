@@ -6,8 +6,9 @@ Flux in Kind installs Crossplane and External Secrets from a private seed.
 Crossplane creates the retained OCI Vault/key and the OKE environment.
 Flux, Crossplane and External Secrets on OKE take over ongoing reconciliation.
 The original Kind stops after verified ownership transfer and is retained for
-teardown. Git holds desired configuration before provisioning; Vault holds the
-generated adoption bindings.
+teardown. The quick deployment seeds configuration from the private local
+directory. Optional handover publishes it to Git; Vault holds generated
+credentials and adoption bindings.
 
 Kind receives a `TamossBootstrap` composite containing the foundation and
 environment inputs. Flux installs providers, functions and composition APIs,
@@ -24,13 +25,14 @@ their values from observed Vault/key and OKE IDs. Flux owns their Helm operation
 Once OKE and its workers, runtime IAM and persisted credentials are ready, the
 root creates the `oke-bootstrap` Job in Kind. Its pinned OCI CLI retrieves the
 OKE kubeconfig; native init containers validate cluster identity, install Flux
-and apply the GitOps seed. Kubernetes owns retries and the execution deadline.
+and apply the deployment seed. Kubernetes owns retries and the execution deadline.
 The database can continue provisioning during this work. A restricted local
 ServiceAccount records the connection and successful seed in `oke-connection`;
 it cannot read other Secrets through the API. The OCI signing key stays in Kind.
 
 Task still supplies the initial credential imports, verifies persistence and
-retires staging credentials, publishes Git, and reads the completed connection.
+retires staging credentials and reads the completed connection. Git publication
+and deploy-key establishment occur only during optional handover.
 Ownership transfer, qualification and cleanup remain explicit
 operations. Before handover or teardown, Task freezes the bootstrap-instance
 HelmRelease and excludes an in-flight Helm action. It then irreversibly releases the root's
@@ -48,7 +50,7 @@ flowchart LR
     Kind --> Job[OKE bootstrap Job]
     Job --> Flux
     Kind --> Vault[Retained OCI Vault/key]
-    Git[Desired environment Git configuration]
+    Git[Optional environment Git configuration]
     Kind --> Bindings[Immutable adoption bindings in Vault]
     Git --> Flux[Flux on OKE]
     Release[Verified TAMOSS assets] --> Flux
@@ -61,8 +63,7 @@ flowchart LR
 ```
 
 See the [GitOps integration](../deploy/gitops/README.md) for adoption gates and
-secret delivery. Release upgrade and package-read credential rotation/revocation
-remain unqualified.
+secret delivery. Release upgrades and credential rotation remain unqualified.
 
 ## Ownership
 
@@ -193,8 +194,9 @@ removes staging inputs. The bootstrap instance records `credentialsEstablished`
 irreversibly; its secret HelmRelease then removes credential generators and PushSecrets.
 The separate adoption-binding PushSecret remains until infrastructure deletion
 and the direct cloud audit finish.
-The Kind product source switches to the delivered Git credential before its
-import Secret is removed. A missing established value must fail secret delivery
+Product sources and release packages are read anonymously. During handover, a
+separate credential-establishment step persists the generated SSH deploy key
+without restarting application password generators. A missing established value must fail secret delivery
 without silently generating a replacement. Secret retirement remains an explicit
 operation with a separate check of OCI's asynchronous deletion state.
 

@@ -1,9 +1,4 @@
-url: https://github.com/REPLACE/tamoss-environments
+owner: REPLACE
+repository: tamoss-environments
 branch: main
-path: clusters/oci-dev
-product:
-  url: https://github.com/REPLACE/tamoss-cp-oci
-  commit: REPLACE
-bundle:
-  url: oci://ghcr.io/REPLACE/tamoss-release-assets
-  digest: REPLACE
+# path defaults to clusters/<environment name>.

@@ -3,28 +3,6 @@ kind: Test
 metadata: {name: deployment-ready}
 spec:
   steps:
-    - name: observe the selected environment revision
-      try:
-        - assert:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
-              metadata: {name: environment, namespace: flux-system}
-              (spec.suspend != `true`): true
-              (status.observedGeneration == metadata.generation): true
-              status:
-                (ends_with(artifact.revision || '', $values.revision)): true
-                (conditions[?type == 'Ready'] | [0].status): 'True'
-        - assert:
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: environment, namespace: flux-system}
-              (spec.suspend != `true`): true
-              (status.observedGeneration == metadata.generation): true
-              status:
-                (ends_with(lastAppliedRevision || '', $values.revision)): true
-                (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: observe infrastructure and runtime revisions before accepting existing releases
       try:
         - assert:
@@ -35,7 +13,7 @@ spec:
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               status:
-                (ends_with(lastAppliedRevision || '', $values.revision)): true
+                (ends_with(lastAppliedRevision || '', $values.productRevision)): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
             resource:
@@ -45,7 +23,7 @@ spec:
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               status:
-                (ends_with(lastAppliedRevision || '', $values.revision)): true
+                (ends_with(lastAppliedRevision || '', $values.productRevision)): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: observe the selected product and its chart
       try:
@@ -54,6 +32,8 @@ spec:
               apiVersion: source.toolkit.fluxcd.io/v1
               kind: GitRepository
               metadata: {name: tamoss-product, namespace: flux-system}
+              spec:
+                ref: {commit: ($values.productRevision)}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               (ends_with(status.artifact.revision || '', spec.ref.commit)): true

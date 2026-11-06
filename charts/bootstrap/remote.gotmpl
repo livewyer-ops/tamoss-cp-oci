@@ -18,14 +18,20 @@
 {{- $remoteReady = and $remoteCompleted $receipt $bound (not $running) -}}
 {{- $remotePhase = "Waiting" -}}
 {{- $deliveries := dig "remoteCredentials" "items" (list) (.extraResources | default dict) -}}
-{{- $delivered := eq (len $deliveries) 11 -}}
+{{- $expected := dict -}}
+{{- range $secretDefaults.deliveries -}}{{- $_ := set $expected .name true -}}{{- end -}}
+{{- $delivered := true -}}
 {{- range $deliveries -}}
+{{- if hasKey $expected .resource.metadata.name -}}
+{{- $_ := unset $expected .resource.metadata.name -}}
 {{- $ready := false -}}
 {{- range (dig "status" "conditions" (list) .resource) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
 {{- end -}}
 {{- $delivered = and $delivered $ready -}}
 {{- end -}}
+{{- end -}}
+{{- $delivered = and $delivered (empty $expected) -}}
 {{- $retired := false -}}
 {{- range (dig "status" "conditions" (list) $secretRelease) -}}
 {{- if and (eq .type "Ready") (eq .status "True") (eq (dig "status" "observedGeneration" 0 $secretRelease) ($secretRelease.metadata.generation | default 0)) (not (dig "spec" "values" "initialise" true $secretRelease)) -}}{{- $retired = true -}}{{- end -}}
@@ -108,13 +114,14 @@ data:
   kustomization.yaml: |
     apiVersion: kustomize.config.k8s.io/v1beta1
     kind: Kustomization
-    namespace: flux-system
-    resources: [sync.yaml, facts.yaml]
-    secretGenerator:
-      - name: github-app
-        files: [githubAppID, githubAppInstallationID, githubAppPrivateKey]
-    generatorOptions:
-      disableNameSuffixHash: true
+    resources: [deployment.yaml, facts.yaml]
+    replacements:
+      - source: {kind: ConfigMap, name: bootstrap-facts, fieldPath: data.VAULT_ID}
+        targets:
+          - select: {kind: HelmRelease, name: tamoss-gitops-bootstrap}
+            fieldPaths: [spec.values.vaultId]
+          - select: {kind: Kustomization, name: runtime}
+            fieldPaths: [spec.postBuild.substitute.VAULT_ID]
 ---
 apiVersion: batch/v1
 kind: Job
@@ -145,7 +152,6 @@ spec:
       serviceAccountName: oke-bootstrap
       automountServiceAccountToken: false
       restartPolicy: Never
-      imagePullSecrets: [{name: ghcr}]
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -292,12 +298,6 @@ spec:
             sources:
               - configMap: {name: {{ $remote.seedConfigMap }}}
               - configMap: {name: oke-bootstrap}
-              - secret:
-                  name: github-app
-                  items:
-                    - {key: githubAppID, path: githubAppID}
-                    - {key: githubAppInstallationID, path: githubAppInstallationID}
-                    - {key: githubAppPrivateKey, path: githubAppPrivateKey}
 {{- end }}
 {{- end }}
 {{- end }}

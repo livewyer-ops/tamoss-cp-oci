@@ -114,7 +114,7 @@ spec:
             args: [-n, tamoss-infra, wait, pushsecret,password.generators.external-secrets.io, --all, --for=delete, --timeout=120s]
         - command:
             entrypoint: kubectl
-            args: [-n, tamoss-infra, delete, secret, github-app-input, ghcr-input, s3-input]
+            args: [-n, tamoss-infra, delete, secret, s3-input]
         - command:
             entrypoint: kubectl
             args: [-n, flux-system, rollout, restart, deployment/helm-controller]

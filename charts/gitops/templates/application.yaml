@@ -10,7 +10,7 @@ spec:
   path: ./deploy/gitops/readiness
   sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
   healthChecks:
-{{ range $ns, $names := dict "flux-system" (list "github-app" "ghcr") "tamoss-infra" (list "database-admin") "auth" (list "database-admin" "tams-database" "authentik-values") "tams" (list "tams-database" "tams-s3" "qualification-source") }}
+{{ range $ns, $names := dict "tamoss-infra" (list "database-admin") "auth" (list "database-admin" "tams-database" "authentik-values") "tams" (list "tams-database" "tams-s3" "qualification-source") }}
 {{ range $names }}
     - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: {{ . }}, namespace: {{ $ns }}}
 {{ end }}

@@ -1,7 +1,4 @@
 {{- if .Values.discovery }}
-url: {{ .Values.git.url | quote }}
-branch: {{ .Values.git.branch | quote }}
-path: {{ .Values.git.path | default (printf "clusters/%s" .Values.name) | quote }}
 product:
 {{ .Values.product | toYaml | indent 2 }}
 bundle:
