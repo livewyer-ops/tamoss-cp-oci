@@ -1,0 +1,16 @@
+{{- if .Values.discovery }}
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: SecretFoundation
+metadata:
+  name: {{ .Values.foundation.name | default (printf "%s-vault" .Values.name) | quote }}
+  namespace: tamoss-infra
+spec:
+  owner: {{ .Values.owner | default .Values.contactEmail | quote }}
+  region: {{ .Values.discovery.region | quote }}
+  compartmentId: {{ .Values.compartmentId | quote }}
+  providerConfigName: oci
+{{- with .Values.foundation.adoption }}
+  adoption:
+{{ toYaml . | indent 4 }}
+{{- end }}
+{{- end }}

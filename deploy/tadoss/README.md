@@ -26,15 +26,10 @@ that bundle; the existing TAMOSS bundle can retain its verified digest.
 
 ## Prepare bootstrap
 
-Use the [GitOps workflow](../gitops/README.md). Supply the published TADOSS bundle
-alongside the existing TAMOSS bundle in the private environment's `gitops.yaml`:
-
-```yaml
-tadoss:
-  bundle:
-    url: oci://ghcr.io/OWNER/tadoss-release-assets
-    digest: sha256:REPLACE_WITH_PUBLISHED_DIGEST
-```
+Use the [GitOps workflow](../gitops/README.md). The product's
+[release lock](release.yaml) selects the published private TADOSS bundle.
+Setup includes it alongside TAMOSS automatically; the package-read credential
+must have access to both bundles.
 
 Bootstrap prepares persisted TADOSS database and OAuth credentials in Vault and
 restricts their readers to this environment's cluster and service accounts.

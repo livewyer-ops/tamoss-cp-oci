@@ -14,7 +14,7 @@
 {{- end -}}
 {{- $creationUID := $adoption.creationCompositeUID | default ($xr.metadata.uid | default "render-only") -}}
 {{- $policies := $p.managementPolicies | default (list "*") -}}
-{{- $tags := dict "tamoss-environment" $n "tamoss-deployment-id" $deploymentId "tamoss-composite-uid" $creationUID "tamoss-owner" $p.owner "tamoss-expires" $p.expiresAt "tamoss-budget" (printf "%v %s" $p.budget.amount $p.budget.currency) -}}
+{{- $tags := dict "tamoss-environment" $n "tamoss-deployment-id" $deploymentId "tamoss-composite-uid" $creationUID "tamoss-owner" $p.owner -}}
 {{- $resources := dict -}}
 {{- $edges := list -}}
 {{- $net := "networking.oci.m.upbound.io/v1alpha1" -}}

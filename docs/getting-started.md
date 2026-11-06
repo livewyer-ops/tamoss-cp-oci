@@ -2,56 +2,45 @@
 
 [Overview](../README.md) | [Operations](operations.md) | [Testing](testing.md) | [Architecture](architecture.md)
 
-Run commands from the repository root. Examples use `.local/environment` for a
-new deployment; use the same `ENV_DIR` and `CHECKOUT` for every lifecycle command. Retain this
-directory and the original Kind cluster until teardown is verified.
+Run commands from the repository root. The default deployment directory is
+`.local/environment`; the environment Git checkout is `.local/gitops`. Retain
+both directories and the original Kind cluster until teardown is verified.
 
 ## Workstation prerequisites
 
-The bootstrap tooling image targets Linux amd64. Other workstation platforms remain
-unverified. Install Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar,
-gzip, unzip and Docker with the Compose plugin. Docker must be running and
-accessible to your user; local checks run containers and management checks create
-a Kind cluster.
+Use Linux amd64 with Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar,
+gzip, unzip and Docker with its Compose plugin. Docker must be running and
+accessible to your user. Other workstation platforms remain unverified.
 
-Install [Aqua](https://aquaproj.github.io/docs/install/), then follow the
-[quickstart](../README.md#quickstart). Aqua supplies the tools pinned in
-[aqua.yaml](../aqua.yaml). In each shell used for this checkout:
+Install [Aqua](https://aquaproj.github.io/docs/install/), then run:
 
 ```bash
-export PATH="$(aqua root-dir)/bin:$PATH"
-export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
-docker info
-docker compose version
-task --list
+aqua install
+export PATH="$(aqua root-dir)/bin:$(aqua exec -- uv tool dir --bin):$PATH"
+task setup
 ```
 
-Expected: Docker is reachable, Compose is available and Task lists the public
-commands. Setup and local checks need internet access for pinned downloads and
-container builds. Browser checks run in the repository's container.
+The PATH export is needed in each shell. `setup` installs the pinned native OCI
+CLI through Aqua-managed uv and creates an owner-only input directory containing
+`values.yaml` and `secrets/`. Repeating setup preserves the file. It refuses to
+initialise a directory containing an earlier deployment. Select a fresh directory
+with `task setup ENV_DIR=.local/environments/my-environment` when needed, then use
+that same `ENV_DIR` for every lifecycle command.
+
+Setup performs no OCI provisioning or Git publication. Account access and the
+following settings must be supplied before `up`.
 
 ## OCI preparation
 
-Use a dedicated, precreated compartment with quota for three OKE workers,
-two PostgreSQL nodes, networking, storage and a load balancer. The
-[account prerequisites](../deploy/oci/README.md) define separate provisioning
-and application-storage identities and their scoped IAM permissions.
-
-Obtain the compartment OCID, Object Storage namespace, OKE-compatible image,
-Kubernetes version, availability/fault domains and regional service-network ID
-and CIDR. Use one region throughout. Obtain your workstation's public egress
-IPv4 address, including any VPN gateway, for the API allowlist. The account
-administrator owns creation and retirement of these prerequisites.
+Use a precreated compartment with quota for three OKE workers, two PostgreSQL
+nodes, networking, storage and a load balancer. The [account prerequisites](../deploy/oci/README.md)
+define the provisioner's infrastructure permissions and a separate application
+storage identity. The provisioner also needs the [Vault and runtime IAM permissions](../deploy/gitops/README.md#inputs-and-secret-delivery).
+These account prerequisites can be reused across deployments.
 
 ### API signing profile
 
-Store the provisioner's signing key outside Git. Create its configuration directory:
-
-```bash
-install -d -m 700 ~/.oci
-```
-
-**File: `~/.oci/config`**
+Store the provisioner's signing key outside Git. Configure `~/.oci/config`:
 
 ```ini
 [DEFAULT]
@@ -62,86 +51,24 @@ region=eu-frankfurt-1
 key_file=/absolute/path/to/oci_api_key.pem
 ```
 
-Set `key_file` to the actual absolute path, then restrict both files:
+Restrict the configuration and key to mode `600` and their directory to `700`.
+`OCI_CLI_CONFIG_FILE` and `OCI_CLI_PROFILE` select another file/profile; their
+defaults are `~/.oci/config` and `DEFAULT`. The deployment reads its region from
+that profile. Verify it with the installed native CLI:
 
 ```bash
-chmod 600 ~/.oci/config /absolute/path/to/oci_api_key.pem
+oci os ns get
 ```
-
-`OCI_CLI_CONFIG_FILE` and `OCI_CLI_PROFILE` select another config/profile for
-Task commands. Their defaults are `~/.oci/config` and `DEFAULT`. The profile's
-region must match the environment. Install the pinned [native OCI CLI](operations.md#native-oci-cli)
-through Aqua-managed uv before running the deployment or checks.
-
-## Environment inputs
-
-Create a fresh private directory and copy the examples:
-
-```bash
-umask 077
-install -d -m 700 .local/environment .local/environment/secrets
-cp environments/example/environment.yaml environments/example/settings.yaml \
-  environments/example/cost.yaml environments/example/foundation.yaml \
-  environments/example/gitops.yaml .local/environment/
-```
-
-### Infrastructure
-
-**File: `.local/environment/environment.yaml`**
-
-Edit the copied [example](../environments/example/environment.yaml); preserve its
-complete structure. Replace all placeholders and review these fields:
-
-| Fields | Required values |
-| --- | --- |
-| `metadata.name` | Unique name: 3–23 lowercase letters, digits or hyphens, starting with a letter and ending with a letter or digit |
-| `spec.region`, `spec.compartmentId`, `spec.owner` | Deployment region, dedicated compartment and accountable owner |
-| `spec.expiresAt` | UTC teardown deadline covering the run and cleanup, no later than the next UTC midnight |
-| `spec.budget` | Currency `USD`; amount at least the allowance in `cost.yaml` |
-| `spec.network` | Non-overlapping network ranges, your API allowlist and regional OCI service-network ID/CIDR |
-| `spec.oke` | Compatible version/image, worker capacity and three availability/fault-domain placements |
-| `spec.database` | PostgreSQL version, per-node capacity, administrator and backup retention |
-| `spec.storage` | Object Storage namespace and an unused bucket name |
-
-The example environment uses EUR; change `spec.budget.currency` to `USD` to
-match the cost contract. Keep namespace `tamoss-infra`, provider configuration
-`oci` and database credential Secret `database-admin`. The
-[environment schema](../charts/environment/definition.yaml) defines supported
-inputs and immutability rules. Select capacity before creating the environment.
-
-After the [native OCI CLI setup](operations.md#native-oci-cli), inspect the
-selected region's worker options and service networks:
-
-```bash
-oci ce node-pool-options get \
-  --node-pool-option-id all \
-  --compartment-id "$(yq -r .spec.compartmentId .local/environment/environment.yaml)"
-oci network service list
-```
-
-Choose an image compatible with the selected Kubernetes version and worker
-architecture. Use the regional all-services network's ID and CIDR, and obtain
-the exact availability/fault-domain names from OCI for the worker placements.
-
-### Application settings
-
-**File: `.local/environment/settings.yaml`**
-
-```yaml
-acmeEmail: operator@example.com
-adminEmail: admin@example.com
-```
-
-Use monitored addresses. Public API, UI and authentication hostnames are derived
-from the reserved public IP using sslip.io. Cert-manager obtains public
-certificates through HTTP validation on port 80; application access uses HTTPS
-on port 443. The current input interface derives these hostnames automatically.
 
 ### Storage credentials
 
-The separate storage identity's Customer Secret Key must have access to the exact
-bucket named above. Supply owner-only files containing the credential bytes,
-without trailing line endings. Enter the values at the hidden prompts:
+The storage identity needs a Customer Secret Key scoped to the intended bucket.
+The default bucket name is `tamoss-<name>-media`, where `name` comes from
+`values.yaml`. Configure the storage policy for that exact name, or set
+`storage.bucket` to the bucket name already authorised by your administrator.
+Crossplane creates the bucket during deployment.
+
+Write the credential bytes through hidden prompts:
 
 ```bash
 umask 077
@@ -151,111 +78,160 @@ unset S3_ACCESS_KEY
 read -r -s -p 'S3 secret key: ' S3_SECRET_KEY
 printf '%s' "$S3_SECRET_KEY" > .local/environment/secrets/s3-secret-key
 unset S3_SECRET_KEY
-chmod 600 .local/environment/secrets/s3-access-key .local/environment/secrets/s3-secret-key
 ```
 
-Keep credentials out of manifests, command-line arguments, shell tracing and
-logs. Application database passwords are generated on first deployment. A
-missing credential in an established environment must be recovered.
+Keep credentials out of manifests, shell tracing and logs. Database and application
+passwords are generated and persisted in OCI Vault during deployment.
 
-### Git and Vault preparation
+## Git and package access
 
-Create a private environment Git repository with an initial commit and clone it:
+Create a private environment repository with an initial commit on `main`.
+Configure Git author/committer identity and authenticated push access on this
+workstation. Branch protections must permit the generated commits. `up` clones
+the repository into `.local/gitops` if needed and publishes its cluster directory;
+`handover` later publishes the ownership policy. An existing checkout must have
+exactly the origin URL and branch selected in `values.yaml`.
 
-```bash
-git clone https://github.com/YOUR-OWNER/tamoss-environments.git .local/gitops
-```
+Install a GitHub App with read access to the product and environment repositories.
+Put its App ID and installation ID in `values.yaml`. Its read access is separate
+from the workstation's push credentials.
 
-Configure Git author/committer identity and authenticated push access on the
-workstation. `up` publishes the generated configuration; `handover` publishes the
-ownership policy. Branch protections must permit these pushes. Flux uses a separate GitHub App
-with read access to the environment and product repositories.
+Supply owner-only files under `.local/environment/secrets/`:
 
-Edit `.local/environment/gitops.yaml` to match the checkout's exact origin,
-branch and an unused `clusters/<name>` path. Select the published product commit
-checked out locally and the immutable private GHCR bundle digest. Follow the
-[private bundle procedure](../deploy/tamoss/README.md#private-release-bundle).
-
-Edit `.local/environment/foundation.yaml` for the same region, compartment and
-owner. To reuse an owned Vault/key, provide its recorded adoption IDs and creation
-identity; retain that foundation record. The [OCI prerequisites](../deploy/oci/README.md)
-include secret-management and runtime-IAM permissions.
-
-Place the GitHub App IDs, PEM private key and package-read Docker credential JSON
-in the exact owner-only files listed under
-[secret delivery](../deploy/gitops/README.md#inputs-and-secret-delivery). The App's
-read token does not provide the workstation's push access. Never commit secrets
-or kubeconfigs to either repository.
-
-### Spending and expiry
-
-**File: `.local/environment/cost.yaml`**
-
-Complete the copied [cost example](../environments/example/cost.yaml) with current
-regional prices and HTTPS source references. It is a preflight estimate:
-
-| Field | Meaning |
+| File | Content |
 | --- | --- |
-| `date`, `currency` | Current UTC date and `USD` |
-| `allowanceUSD`, `spentUSD` | Total authorised allowance and spend already charged against it |
-| `runHours`, `cleanupHours`, `reserveUSD` | Positive run window, cleanup window and contingency |
-| `hourlyUSD` | Combined worker, database, Kubernetes, load-balancer, networking and storage rates |
-| `transferUSD`, `priceReferences` | Transfer allowance and sources for the prices |
+| `github-app-private-key` | GitHub App PEM private key |
+| `ghcr-dockerconfigjson` | Self-contained Docker authentication JSON for GHCR |
+| `s3-access-key` | Exact S3 access key bytes, without a trailing newline |
+| `s3-secret-key` | Exact S3 secret bytes, without a trailing newline |
 
-The projected total, including previous spend and cleanup, must fit the allowance.
-Zero placeholder prices are insufficient. A repeated deployment preserves its
-identity and deadline and must still have the full cleanup window available.
-Expiry tags do not stop resources: monitor the deadline and start teardown in time.
-Use [posted billing](operations.md#posted-billing) for actual charges; reconcile
-currency differences explicitly when maintaining a USD allowance.
+The GHCR credential must read the TAMOSS and TADOSS release bundles recorded in
+`deploy/tamoss/release.yaml` and `deploy/tadoss/release.yaml`, plus the bootstrap
+tooling image in `dependencies.yaml`. A Docker configuration referring only to a
+workstation credential helper is insufficient. Set each credential file to mode
+`600`; preserve the PEM and JSON formats. The deployment checks package access
+before provisioning and generates the two internal App ID files automatically.
+
+Consumers use the published packages. Maintainers who publish their own packages
+follow the [bundle procedure](../deploy/tamoss/README.md#private-release-bundle)
+and [tooling image procedure](operations.md#native-oci-cli), then commit their
+matching pins. Private package access is still required when the product Git
+repository is public.
+
+## Environment inputs
+
+Edit `.local/environment/values.yaml`:
+
+```yaml
+name: media-demo
+compartmentId: ocid1.compartment.oc1..REPLACE
+contactEmail: operator@example.com
+adminCidrs: [192.0.2.10/32]
+git:
+  url: https://github.com/YOUR-OWNER/tamoss-environments
+  githubAppId: 'REPLACE'
+  githubInstallationId: 'REPLACE'
+```
+
+Replace the name, compartment, email, administrator CIDR, repository URL and App
+IDs. Use your actual public egress IPv4 address, including any VPN gateway, for
+the API allowlist. The name must have 3–23 lowercase letters, digits or hyphens,
+starting with a letter and ending with a letter or digit. Choose an unused
+cluster path and bucket name for each new deployment.
+
+The [defaults](../charts/setup/values.yaml) provide the existing HA capacity,
+network ranges, PostgreSQL settings, qualified OKE version/image selection and
+`main` branch. Owner, ACME contact and administrator email default to
+`contactEmail`. The cluster path defaults to `clusters/<name>`, and the Vault
+foundation name to `<name>-vault`. TADOSS is prepared but initially disabled.
+
+Before provisioning, native OCI queries resolve the Object Storage namespace,
+regional service network and availability-domain names. The default placement
+needs three availability domains; Frankfurt is the live-qualified region.
+The pinned image must be available for the selected OKE version and architecture.
+An unavailable or ambiguous selection stops setup; it does not select a newer
+image automatically.
+
+Override supported fields in the same file when needed, for example:
+
+```yaml
+owner: platform-team@example.com
+acmeEmail: certificates@example.com
+git:
+  branch: main
+  path: clusters/media-demo
+network:
+  vcn: 10.40.0.0/16
+storage:
+  bucket: my-authorised-media-bucket
+```
+
+Merge overrides into the existing mappings. Retain the Git URL and App IDs, and
+keep every subnet inside the selected VCN. `oke.placements`, `oke.imageId`, sizing
+and database settings have explicit overrides validated against the environment
+API. To reuse an owned Vault/key, set `foundation.name` and its recorded
+`foundation.adoption` fields from the retained foundation record; do not discover
+or adopt an unrelated foundation by name.
+
+The product URL defaults to this repository; `product.url` supports a published
+fork. The selected local commit must be published on that repository's `main`
+history. Release bundle digests come from the product's release locks.
+
+The environment stays running until explicitly removed with `task down`.
 
 ## Deploy
 
-Run local checks after changing configuration or dependencies, then deploy:
+Run local product checks, then deploy:
 
 ```bash
 task check
-task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task up
 ```
 
-`up` records identity, prepares the environment Git configuration and records a
-cloud inventory baseline. Its Kind seed starts Crossplane provisioning and Vault
-credential persistence. Task verifies persisted credentials and retires staging
-inputs. Once OKE, its workers and IAM grants are usable, a Crossplane-owned Job
-in Kind retrieves the connection, installs Flux and seeds remote GitOps.
-Controllers deliver generated bindings through Vault and verify observe-only OKE
-adoption. `up` waits for deployment readiness, including public TLS, and leaves
-Kind running as the infrastructure owner. Flux already manages the applications.
+`up` validates and resolves the inputs, checks package access, and records the
+settings before provisioning. Generated `environment.yaml`, `foundation.yaml`,
+`settings.yaml` and `gitops.yaml` are internal records. Repeating `up` reuses the
+recorded choices and preserves environment Git. Keep the original `values.yaml`
+unchanged after input preparation; make operational changes in environment Git.
+A failed discovery or access check can be corrected before inputs are recorded.
+
+Kind starts Crossplane, Flux and Vault credential persistence. A Crossplane-owned
+Job retrieves the OKE connection, installs Flux and seeds remote GitOps.
+Controllers deliver adoption bindings and application configuration. `up` waits
+for deployment readiness, including public TLS, and leaves Kind running as the
+infrastructure owner. Flux manages the applications from the start.
 
 Transfer infrastructure ownership when ready:
 
 ```bash
-task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task handover
 ```
 
-Handover verifies current readiness, quiesces Kind and publishes the ownership
-change. It waits for OKE convergence before stopping original Kind. Application
-configuration and capabilities stay the same. Keep the original containers for
-teardown. Subsequent Git changes, including [enabling TADOSS](../deploy/tadoss/README.md),
-reconcile on OKE without Kind. Flux also accepts application changes before
-handover; there is no separate Git enablement switch.
+Handover verifies readiness, quiesces Kind, publishes the ownership change and
+waits for OKE convergence before stopping original Kind. Application capabilities
+stay the same. Keep the original containers for teardown. Enable
+[TADOSS through Git](../deploy/tadoss/README.md#enable-through-git) to demonstrate
+an application change while Kind is stopped.
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
+| Recorded bootstrap input | `setup-values.yaml` |
+| OCI discovery and package checks | `discovery/` |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Cloud IDs and endpoints | `outputs.json` |
-| Verified Vault adoption record | `adoption.yaml` |
+| Vault adoption record | `adoption.yaml` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and baseline records | `resources.yaml`, `owned-cloud.yaml`, `inventory-before/` |
 | Live qualification reports | `reports/` |
 
 After a failure, follow [retry instructions](operations.md#retry-a-failed-deployment)
-using this same directory. Generated files support ownership checks; do not edit
-them to bypass a mismatch.
+with the same directory. Never edit generated identities or adoption records to
+bypass a mismatch. Existing deployments retain their deployed product revision
+for operations and teardown; setup does not migrate them.
 
 ## Access
 
-Display the public URLs and verify the application:
+Display the public URLs and application status:
 
 ```bash
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o json |
@@ -276,25 +252,21 @@ kubectl --kubeconfig .local/environment/remote.kubeconfig -n auth get secret aut
 ```
 
 Open the private file locally, visit the UI URL and sign in through Authentik.
-If the bootstrap password has been changed, use the current password. Remove
-the exported file after use:
-
-```bash
-rm .local/environment/access/ui-login.json
-```
-
-For an authenticated API request, see [Operations](operations.md#first-api-request).
+If the bootstrap password has changed, use the current password. Remove the
+exported file after use. For authenticated API requests, see
+[Operations](operations.md#first-api-request).
 
 ## Qualify and inspect ingest
 
 Read the [qualification effects](testing.md#deployed-qualification) before running:
 
 ```bash
-task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task qualify
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get ingestrun qualification
 ```
 
 Expected: the run reaches `Succeeded` and all qualification checks pass. In the
-UI, open **Ingest runs** and follow the output Flow links. The fixture remains
-until the next qualification or teardown. Finish with
-[verified teardown](operations.md#destroy-the-environment) before the deadline.
+UI, open **Ingest runs** and follow the output Flow links. Qualification drains
+one worker and replaces its test media. The environment remains running after
+qualification; use [verified teardown](operations.md#destroy-the-environment)
+when it is no longer needed.

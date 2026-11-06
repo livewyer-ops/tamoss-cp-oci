@@ -12,7 +12,7 @@ tasks:
       - cp '{{.MANAGEMENT_KUBECONFIG}}' '{{.STORAGE_DIR}}/management.kubeconfig'
       - >-
         yq -n '{"compartmentId": "ocid1.compartment.fixture", "objectNamespace": "fixture",
-        "bucketName": "{{.CHECK_NAME}}", "expiresAt": "2099-01-01T00:00:00Z",
+        "bucketName": "{{.CHECK_NAME}}",
         "oci": {"tenancy": "ocid1.tenancy.fixture", "user": "ocid1.user.fixture", "fingerprint": "fixture", "region": "eu-frankfurt-1"}}'
         > '{{.STORAGE_DIR}}/values.yaml'
       - yq -n -o=json '{"data":[]}' > '{{.STORAGE_DIR}}/baseline.json'

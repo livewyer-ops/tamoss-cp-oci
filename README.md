@@ -6,7 +6,7 @@ Crossplane configuration and deployment tooling for
 
 The deployment runs TAMOSS's `multi-server` profile on OKE with external
 PostgreSQL, private Object Storage, Authentik and public HTTPS. It is intended
-for temporary HA qualification environments.
+for HA deployments and qualification environments.
 
 ## Deployment
 
@@ -48,19 +48,19 @@ Install [Aqua](https://aquaproj.github.io/docs/install/) and check the
 git clone https://github.com/dodwyer/tamoss-cp-oci.git
 cd tamoss-cp-oci
 aqua install
-export PATH="$(aqua root-dir)/bin:$PATH"
-uv tool install --python 3.12 "oci-cli==$(yq -r .oci.version dependencies.yaml)"
-export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
-task check
+export PATH="$(aqua root-dir)/bin:$(aqua exec -- uv tool dir --bin):$PATH"
+task setup
 ```
 
 Complete [Getting started](docs/getting-started.md) to prepare OCI access,
-private environment inputs, an environment Git checkout and a bounded spending allowance before deploying:
+credentials and `.local/environment/values.yaml`. The product supplies HA defaults
+and release pins; `up` discovers regional OCI values and clones the environment
+repository. Then deploy:
 
 ```bash
-task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
-task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
-task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task check
+task up
+task handover
 ```
 
 `up` leaves Kind owning infrastructure. `handover` transfers ownership to OKE
@@ -76,6 +76,7 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 
 | Command | Purpose |
 | --- | --- |
+| `task setup` | Install the pinned OCI CLI and create private settings without overwriting existing deployment state. |
 | `task check` | Validate releases, rendering, TLS and local contracts. |
 | `task check:management` | Also test a disposable, credential-free Kind bootstrap. |
 | `task check:storage` | Test a real OCI bucket in a separately authorised compartment. |
@@ -88,6 +89,7 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 `ENV_DIR` selects the private deployment directory; `CHECKOUT` selects its environment
 Git checkout (default `.local/gitops`). Storage checks have separate
 inputs; see [Testing](docs/testing.md#oci-storage-check).
+The environment stays running until explicitly removed with `task down`.
 **Teardown deletes application data**, including the owned bucket and database
 backups. See [teardown and retention](docs/operations.md#destroy-the-environment).
 

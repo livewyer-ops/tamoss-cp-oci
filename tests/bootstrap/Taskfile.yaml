@@ -51,7 +51,6 @@ tasks:
     cmds:
       - mkdir -p -m 700 '{{.DIRECTORY}}/management'
       - cp '{{.DIRECTORY}}/root.yaml' '{{.DIRECTORY}}/management/bootstrap.yaml'
-      - 'yq -n ''{"cleanupHours": 1}'' > {{.DIRECTORY}}/management/cost.yaml'
       - 'yq -n ''{"path": "unused"}'' > {{.DIRECTORY}}/management/gitops.yaml'
       - 'yq ''{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": .metadata, "spec": .spec.environment}'' {{.DIRECTORY}}/root.yaml > {{.DIRECTORY}}/management/environment.yaml'
       - cp "$KUBECONFIG" '{{.DIRECTORY}}/management/management.kubeconfig'

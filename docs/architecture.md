@@ -74,7 +74,7 @@ remain unqualified.
 | Flux | Kind bootstrap releases; OKE platform releases, HA/OCI overlays, controllers and TAMOSS declarations |
 | TAMOSS operator | Application workloads, runtime images, schema migrations, StorageBackend and IngestRun Jobs |
 | Database bootstrap Job | Separate TAMOSS and Authentik databases and login roles |
-| Operator of this environment | Spending deadline, qualification, retained records and verified cleanup |
+| Operator of this environment | Account access, qualification, retained records and explicit verified cleanup |
 
 Flux takes release ownership and Crossplane on
 OKE takes infrastructure ownership through observe-only adoption and exact
@@ -131,7 +131,7 @@ remained unchanged across enablement. See the [qualification limits](testing.md#
 
 | Source | Purpose |
 | --- | --- |
-| [Environment examples](../environments/example/) | Private region, placement, capacity, settings and cost inputs |
+| [Setup values](../environments/example/values.yaml) and [defaults](../charts/setup/values.yaml) | Operator choices and the HA configuration; regional discovery and complete declarations are recorded privately |
 | [Environment schema](../charts/environment/definition.yaml) | Typed infrastructure contract and immutable fields |
 | [Bootstrap chart](../charts/bootstrap/) | Kind root, child dependencies and release state; reuses the foundation and environment schemas |
 | [dependencies.yaml](../dependencies.yaml), [aqua.yaml](../aqua.yaml) | Infrastructure component selections/checksums and workstation tools |

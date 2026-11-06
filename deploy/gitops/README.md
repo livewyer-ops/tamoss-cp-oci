@@ -24,7 +24,7 @@ and package-read credential rotation/revocation remain unqualified. See
 [verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
 The public `up`, `handover`, `qualify` and `down` commands sequence this workflow. The
 `bootstrap`, `gitops` and `transfer` namespaces remain internal implementation
-tasks. See [setup](../../docs/getting-started.md#git-and-vault-preparation).
+tasks. See [setup](../../docs/getting-started.md#git-and-package-access).
 
 ## Repository contents
 
@@ -77,10 +77,11 @@ overlay excludes its bundled Namespace to avoid a second owner.
 
 ## Inputs and secret delivery
 
-Start with the [private environment, settings and bounded cost inputs](../../docs/getting-started.md#environment-inputs), plus
-[`foundation.yaml`](../../environments/example/foundation.yaml) and
-[`gitops.yaml`](../../environments/example/gitops.yaml). Select an existing
-environment checkout, published product commit and private bundle digest.
+Run `task setup` and complete the [private values and credentials](../../docs/getting-started.md#environment-inputs).
+Deployment renders foundation, infrastructure, application settings and Git inputs
+from that file and the product defaults. It records discovery once, uses the
+published checkout commit and release-lock bundle digests, and clones the selected
+environment repository if needed.
 The GitHub App needs read access to both Git sources that use it. GHCR uses a
 separate package-read credential.
 
@@ -95,14 +96,16 @@ owner. Bootstrap requires both resources to be Ready and Synced before secret
 delivery. This also avoids the pinned OCI provider's replacement difference on
 unused external-key fields.
 
-Bootstrap reads these owner-only files under the private environment's `secrets/`:
+Supply these owner-only files under the private environment's `secrets/`:
 
-- `github-app-id`, `github-app-installation-id`, `github-app-private-key`;
+- `github-app-private-key`;
 - `ghcr-dockerconfigjson`, containing the Docker registry authentication document;
 - `s3-access-key` and `s3-secret-key`, containing exact credential bytes.
 
-Supply the two GitHub App IDs as decimal digits without a trailing line ending.
-PEM and Docker JSON files retain their native formats.
+Supply the two GitHub App IDs in `values.yaml`. Setup generates their internal
+credential files without trailing line endings. PEM and Docker JSON files retain
+their native formats. The GHCR credential must also read the pinned bootstrap
+tooling image and TADOSS bundle.
 
 Kind's ESO uses the configured OCI user principal. Password generators and
 `PushSecret` with `IfNotExists` persist initial credentials; all consumers use

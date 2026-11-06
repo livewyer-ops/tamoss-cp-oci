@@ -15,6 +15,7 @@ vars:
   CORE:
     sh: aqua exec -- yq -r '"xpkg.crossplane.io/crossplane/crossplane:v" + .crossplane.version' dependencies.yaml
 includes:
+  setup: {taskfile: tasks/setup.yaml, internal: true}
   tamoss: {taskfile: deploy/tamoss/Taskfile.yaml, internal: true}
   tadoss: {taskfile: deploy/tadoss/Taskfile.yaml, internal: true}
   verify: {taskfile: tasks/check.yaml, internal: true}
@@ -29,6 +30,14 @@ includes:
   transfer: {taskfile: tasks/transfer.yaml, internal: true}
   qualification: {taskfile: tasks/qualification.yaml, internal: true}
 tasks:
+  setup:
+    desc: Install pinned tooling and prepare private deployment settings
+    cmds:
+      - task: setup:tools
+      - task: verify:tools
+      - task: verify:privacy
+      - task: setup:initialise
+        vars: {ENV_DIR: '{{.ENV_PATH}}'}
   check:
     desc: Validate pinned artefacts, composition lifecycle and native deployment configuration
     cmds:
@@ -74,6 +83,8 @@ tasks:
     cmds:
       - task: verify:tools
       - task: verify:privacy
+      - task: setup:resolve
+        vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
       - task: bootstrap:up
         vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
   handover:

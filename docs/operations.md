@@ -60,7 +60,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 
 | Stage or symptom | Check |
 | --- | --- |
-| Preflight rejection | Placeholder inputs, matching OCI region/profile, file permissions, current UTC cost date and cleanup window |
+| Preflight rejection | Placeholder settings, OCI discovery, published product/private package access, file permissions and recorded-input consistency |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`, `remoteBootstrapPhase`; inspect child conditions and HelmReleases |
@@ -156,9 +156,8 @@ Keep `tamoss-bootstrap-instance` suspended after handover. Restarting Kind must
 not reinstall its original bootstrap intent. Teardown refreshes controller/API
 releases from current Git while leaving that instance suspended.
 
-The Job allows six retries and at most thirty minutes, capped by the original
-deployment's cleanup cutoff. A repeat `up` archives a terminal failure's Job,
-logs and events before replacing that original Job, provided time remains.
+The Job allows six retries and at most thirty minutes per attempt. A repeat `up`
+archives a terminal failure's Job, logs and events before replacing that original Job.
 An active, completed or released bootstrap is never replaced by this retry.
 Do not delete `oke-connection`: its completion record prevents replay, and its
 cluster identity prevents a retry seeding a different cluster. Inspect progress
@@ -174,8 +173,8 @@ The new Job contract applies to new environments. Use an existing environment's
 recorded product commit for its operations and teardown.
 
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
-overwrites them, continue independent checks where appropriate, and keep enough
-time and money for cleanup. If the cleanup window is all that remains, run `down`.
+overwrites them and continue independent checks where appropriate. Remove the
+environment explicitly with `down` when it is no longer needed.
 
 ## Release selection
 
@@ -244,8 +243,7 @@ with `--page '<returned token>'`. Grouping by `currency` alone instead returns
 the tenancy total per currency for reconciliation.
 
 Report posted amounts in their returned currency, with the query period and time.
-The USD values in `cost.yaml` are planning inputs; do not relabel an API amount
-as USD. Oracle says data can take up to 48 hours to appear in
+Do not relabel an API amount as another currency. Oracle says data can take up to 48 hours to appear in
 [Cost Analysis](https://docs.oracle.com/en-us/iaas/Content/Billing/Concepts/costanalysisoverview.htm).
 Missing recent usage does not prove zero cost, and posted usage is not a final
 invoice or a live resource inventory.

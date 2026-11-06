@@ -31,12 +31,10 @@
 {{- if and (eq .type "Ready") (eq .status "True") (eq (dig "status" "observedGeneration" 0 $secretRelease) ($secretRelease.metadata.generation | default 0)) (not (dig "spec" "values" "initialise" true $secretRelease)) -}}{{- $retired = true -}}{{- end -}}
 {{- end -}}
 {{- $eligible := and (dig "status" "bootstrapReady" false $environment) $accessReady $delivered $retired ($p.credentialsEstablished | default false) (ne $vault "") -}}
-{{- $remaining := sub (unixEpoch (toDate "2006-01-02T15:04:05Z07:00" $remote.deadline) | int64) (unixEpoch now | int64) -}}
 {{- if $remoteJob -}}{{- $remotePhase = "Running" -}}{{- end -}}
 {{- range (dig "status" "conditions" (list) $remoteJob) -}}
 {{- if and (eq .type "Failed") (eq .status "True") -}}{{- $remotePhase = "Failed" -}}{{- end -}}
 {{- end -}}
-{{- if and (not $remoteJob) (le $remaining 0) -}}{{- $remotePhase = "DeadlineExceeded" -}}{{- end -}}
 {{- if $remoteCompleted -}}{{- $remotePhase = "InvalidConnection" -}}{{- end -}}
 {{- if $remoteReady -}}{{- $remotePhase = "Succeeded" -}}{{- end -}}
 {{- if $p.released -}}{{- $remotePhase = "Released" -}}{{- end -}}
@@ -54,7 +52,7 @@ metadata:
     tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
 type: Opaque
 {{- end }}
-{{- if or $remoteJob (and $eligible (gt $remaining 0) (not $remoteCompleted)) }}
+{{- if or $remoteJob (and $eligible (not $remoteCompleted)) }}
 {{- if not $p.released }}
 ---
 apiVersion: v1
@@ -136,7 +134,7 @@ spec:
   completions: 1
   parallelism: 1
   backoffLimit: 6
-  activeDeadlineSeconds: {{ min 1800 $remaining }}
+  activeDeadlineSeconds: 1800
   podReplacementPolicy: Failed
   template:
     metadata:

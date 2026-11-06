@@ -18,7 +18,7 @@ spec:
             entrypoint: task
             env: *paths
             args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=completed]
-    - name: refuse released foreign and expired retries before API access
+    - name: refuse released and foreign retries before API access
       try:
         - command:
             entrypoint: task
@@ -34,10 +34,3 @@ spec:
             check:
               ($error != null): true
               (contains($stderr, 'original bootstrap Job ownership')): true
-        - command:
-            entrypoint: task
-            env: *paths
-            args: [-t, ../Taskfile.yaml, guarded-retry, ROOT=$PROJECT_ROOT, CASE=expired]
-            check:
-              ($error != null): true
-              (contains($stderr, 'original bootstrap deadline')): true

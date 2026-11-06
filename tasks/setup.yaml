@@ -1,0 +1,133 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  OCI_CONFIG: '{{env "OCI_CLI_CONFIG_FILE" | default (printf "%s/.oci/config" (env "HOME"))}}'
+  OCI_PROFILE: '{{env "OCI_CLI_PROFILE" | default "DEFAULT"}}'
+  OCI: oci --config-file {{shellQuote .OCI_CONFIG}} --profile {{shellQuote .OCI_PROFILE}} --connection-timeout 10 --read-timeout 30 --max-retries 0
+tasks:
+  tools:
+    status:
+      - test "$(oci --version)" = "$(yq -r .oci.version '{{.ROOT_DIR}}/dependencies.yaml')"
+    cmds:
+      - uv tool install --python 3.12 "oci-cli==$(yq -r .oci.version '{{.ROOT_DIR}}/dependencies.yaml')"
+  initialise:
+    requires: {vars: [ENV_DIR]}
+    status: ['test -s {{shellQuote .ENV_DIR}}/values.yaml']
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/values.yaml' || (test ! -e '{{.ENV_DIR}}/identity.yaml' && test ! -e '{{.ENV_DIR}}/environment.yaml' && test ! -e '{{.ENV_DIR}}/management.kubeconfig')
+        msg: This directory contains an existing deployment; retain its recorded inputs and use a fresh ENV_DIR for setup
+    cmds:
+      - install -d -m 700 '{{.ENV_DIR}}' '{{.ENV_DIR}}/secrets'
+      - install -m 600 '{{.ROOT_DIR}}/environments/example/values.yaml' '{{.ENV_DIR}}/values.yaml'
+      - 'echo "Edit {{.ENV_DIR}}/values.yaml and supply the credential files described in docs/getting-started.md, then run task up"'
+  resolve:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    preconditions:
+      - sh: test ! -e '{{.ENV_DIR}}/setup-values.yaml' || cmp --silent '{{.ENV_DIR}}/values.yaml' '{{.ENV_DIR}}/setup-values.yaml'
+        msg: Bootstrap settings are already recorded; keep these inputs and make operational changes in environment Git
+    cmds:
+      - task: inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: publish-inputs
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  inputs:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - test -s '{{.ENV_DIR}}/identity.yaml' || test -s '{{.ENV_DIR}}/setup-values.yaml'
+    preconditions:
+      - sh: test -s '{{.ENV_DIR}}/identity.yaml' || test -s '{{.ENV_DIR}}/values.yaml'
+        msg: Run task setup and complete values.yaml before deploying
+      - sh: test -s '{{.ENV_DIR}}/identity.yaml' || test -s '{{.ENV_DIR}}/setup-values.yaml' || test ! -e '{{.ENV_DIR}}/environment.yaml'
+        msg: Existing generated or legacy inputs need review; use their deployed product revision or a fresh ENV_DIR
+    cmds:
+      - task: validate
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: discover
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: render
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: access
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - install -m 600 '{{.ENV_DIR}}/values.yaml' '{{.ENV_DIR}}/setup-values.yaml'
+  publish-inputs:
+    requires: {vars: [ENV_DIR]}
+    status: ['test -s {{shellQuote .ENV_DIR}}/identity.yaml']
+    cmds:
+      - for: [environment.yaml, foundation.yaml, settings.yaml, gitops.yaml]
+        cmd: install -m 600 '{{.ENV_DIR}}/setup-render/setup/templates/{{.ITEM}}' '{{.ENV_DIR}}/{{.ITEM}}'
+  validate:
+    requires: {vars: [ENV_DIR]}
+    preconditions:
+      - sh: test "$(stat -c '%a:%u' '{{.ENV_DIR}}')" = "700:$(id -u)"
+        msg: The environment directory must be owned by the current user with mode 700
+      - sh: 'yq -e ''[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0'' {{shellQuote .ENV_DIR}}/values.yaml'
+        msg: Replace example configuration before deploying
+      - sh: test -s '{{.OCI_CONFIG}}'
+        msg: Configure the OCI provisioner profile before deploying
+    cmds:
+      - helm lint '{{.ROOT_DIR}}/charts/setup' -f '{{.ENV_DIR}}/values.yaml
+      - for: [github-app-private-key, ghcr-dockerconfigjson, s3-access-key, s3-secret-key]
+        cmd: test -s '{{.ENV_DIR}}/secrets/{{.ITEM}}' && test -z "$(find '{{.ENV_DIR}}/secrets/{{.ITEM}}' -perm /077 -print)"
+      - install -d -m 700 '{{.ENV_DIR}}/discovery'
+      - >-
+        OCI_PROFILE={{shellQuote .OCI_PROFILE}} yq -p=ini -o=yaml
+        '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region}'
+        {{shellQuote .OCI_CONFIG}} > '{{.ENV_DIR}}/discovery/profile.yaml'
+      - 'yq -e ''.region | test("^[a-z]+-[a-z]+-[0-9]+$")'' {{.ENV_DIR}}/discovery/profile.yaml > /dev/null'
+  discover:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      COMPARTMENT: {sh: 'yq -r .compartmentId {{shellQuote .ENV_DIR}}/values.yaml'}
+      VERSION: {sh: 'yq -n -r ''load("{{.ENV_DIR}}/values.yaml").oke.version // load("{{.ROOT_DIR}}/charts/setup/values.yaml").oke.version'''}
+    cmds:
+      - '{{.OCI}} os ns get > {{shellQuote .ENV_DIR}}/discovery/namespace.json'
+      - '{{.OCI}} network service list --all > {{shellQuote .ENV_DIR}}/discovery/services.json'
+      - '{{.OCI}} iam availability-domain list --compartment-id {{shellQuote .COMPARTMENT}} --all > {{shellQuote .ENV_DIR}}/discovery/domains.json'
+      - '{{.OCI}} ce node-pool-options get --node-pool-option-id all --compartment-id {{shellQuote .COMPARTMENT}} --node-pool-k8s-version {{shellQuote .VERSION}} --node-pool-os-arch X86_64 > {{shellQuote .ENV_DIR}}/discovery/node-options.json'
+  render:
+    requires: {vars: [ENV_DIR]}
+    cmds:
+      - >-
+        yq -n '{"discovery": {
+        "region": load("{{.ENV_DIR}}/discovery/profile.yaml").region,
+        "namespace": load("{{.ENV_DIR}}/discovery/namespace.json").data,
+        "services": load("{{.ENV_DIR}}/discovery/services.json").data,
+        "domains": load("{{.ENV_DIR}}/discovery/domains.json").data,
+        "nodeOptions": load("{{.ENV_DIR}}/discovery/node-options.json").data},
+        "bundles": {"tamoss": load("{{.ROOT_DIR}}/deploy/tamoss/release.yaml").bundle,
+        "tadoss": load("{{.ROOT_DIR}}/deploy/tadoss/release.yaml").bundle}}'
+        > '{{.ENV_DIR}}/discovery/values.yaml'
+      - >-
+        helm template setup '{{.ROOT_DIR}}/charts/setup' -f '{{.ENV_DIR}}/values.yaml'
+        -f '{{.ENV_DIR}}/discovery/values.yaml'
+        --set-string product.commit="$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)"
+        --output-dir '{{.ENV_DIR}}/setup-render'
+      - crossplane resource validate '{{.ROOT_DIR}}/charts/environment/definition.yaml,{{.ROOT_DIR}}/charts/secret-foundation/definition.yaml' '{{.ENV_DIR}}/setup-render/setup/templates/environment.yaml,{{.ENV_DIR}}/setup-render/setup/templates/foundation.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.ROOT_DIR}}/.local/tmp/check/crossplane' --error-on-missing-schemas
+  access:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      PRODUCT_URL: {sh: 'yq -r .product.url {{shellQuote .ENV_DIR}}/setup-render/setup/templates/gitops.yaml'}
+    cmds:
+      - git -C '{{.ROOT_DIR}}' fetch --no-tags {{shellQuote .PRODUCT_URL}} main
+      - git -C '{{.ROOT_DIR}}' merge-base --is-ancestor HEAD FETCH_HEAD
+      - install -d -m 700 '{{.ENV_DIR}}/registry' '{{.ENV_DIR}}/discovery/tamoss-bundle' '{{.ENV_DIR}}/discovery/tadoss-bundle'
+      - defer: rm -f '{{.ENV_DIR}}/registry/config.json'
+      - install -m 600 '{{.ENV_DIR}}/secrets/ghcr-dockerconfigjson' '{{.ENV_DIR}}/registry/config.json'
+      - for: [tamoss, tadoss]
+        cmd: >-
+          DOCKER_CONFIG='{{.ENV_DIR}}/registry' flux pull artifact
+          "$(yq -r '.bundle.url + "@" + .bundle.digest' '{{.ROOT_DIR}}/deploy/{{.ITEM}}/release.yaml')"
+          --output '{{.ENV_DIR}}/discovery/{{.ITEM}}-bundle' --timeout=60s
+      - 'echo "$(yq -r .releaseSha256 {{.ROOT_DIR}}/deploy/tamoss/release.yaml)  {{.ENV_DIR}}/discovery/tamoss-bundle/release.json" | sha256sum --check --status'
+      - 'echo "$(yq -r ''.artifacts."release.json"'' {{.ROOT_DIR}}/deploy/tadoss/release.yaml)  {{.ENV_DIR}}/discovery/tadoss-bundle/release.json" | sha256sum --check --status'
+      - timeout 60s docker --config '{{.ENV_DIR}}/registry' manifest inspect "$(yq -r .bootstrapTools.image '{{.ROOT_DIR}}/dependencies.yaml')" > '{{.ENV_DIR}}/discovery/bootstrap-image.json'
+      - printf '%s' "$(yq -r .git.githubAppId '{{.ENV_DIR}}/values.yaml')" > '{{.ENV_DIR}}/secrets/github-app-id'
+      - printf '%s' "$(yq -r .git.githubInstallationId '{{.ENV_DIR}}/values.yaml')" > '{{.ENV_DIR}}/secrets/github-app-installation-id'
+      - chmod 600 '{{.ENV_DIR}}/secrets/github-app-id' '{{.ENV_DIR}}/secrets/github-app-installation-id'
+  checkout:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    status: ['test -d {{shellQuote .CHECKOUT}}/.git']
+    cmds:
+      - git clone --single-branch --branch "$(yq -r .branch '{{.ENV_DIR}}/gitops.yaml')" "$(yq -r .url '{{.ENV_DIR}}/gitops.yaml')" '{{.CHECKOUT}}'

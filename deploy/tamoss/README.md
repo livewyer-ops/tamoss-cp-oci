@@ -73,7 +73,9 @@ the repository's `GHCR_READ_TOKEN` Actions secret with a classic PAT limited to
 `read:packages`, owned by an account with access to the package. Only the metadata
 checks receive this token; Docker publishing uses `GITHUB_TOKEN`. A missing read
 token stops the workflow before release checks or publication. Deploy
-using that digest. Private runtime pulls require a separate read-only package
+using that digest recorded in `bundle` in the application's `release.yaml`.
+The TAMOSS bundle excludes this publication reference from its embedded lock to
+avoid a digest depending on itself. Private runtime pulls require a separate read-only package
 credential supplied through Vault/ESO; GitHub App credentials are for Git access.
 Private runtime pulls have passed live OCI checks. A supported release upgrade
 and package-read credential rotation/revocation remain unqualified; see

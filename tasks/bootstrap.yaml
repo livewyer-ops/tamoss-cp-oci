@@ -10,8 +10,6 @@ tasks:
       - sh: 'test ! -f {{shellQuote .ENV_DIR}}/identity.yaml || yq -e ''.teardownStarted != true and .returnComplete != true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
         msg: Teardown has started; resume down rather than recreating this environment
     cmds:
-      - task: :lifecycle:time-window
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :gitops:export-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: provision
@@ -116,9 +114,6 @@ tasks:
     vars:
       FLUX_VERSION: {sh: 'yq -r ''.packages[].name | select(test("^fluxcd/flux2@")) | split("@")[1]'' {{.ROOT_DIR}}/aqua.yaml'}
       PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
-      CLEANUP_SECONDS: {sh: 'yq -r ".cleanupHours * 3600" {{shellQuote .ENV_DIR}}/cost.yaml'}
-      EXPIRY: {sh: 'date -d "$(yq -r .spec.expiresAt {{shellQuote .ENV_DIR}}/environment.yaml)" +%s'}
-      DEADLINE: {sh: 'date -u -d "@$(({{.EXPIRY}} - {{.CLEANUP_SECONDS}}))" +%Y-%m-%dT%H:%M:%SZ'}
     preconditions:
       - sh: 'yq -e ''.bootstrapUID == null'' {{.ENV_DIR}}/identity.yaml > /dev/null'
         msg: Existing bootstrap identity is unavailable; restore the original Kind state
@@ -140,7 +135,7 @@ tasks:
         "vaultAuth": (load("{{.ENV_DIR}}/identity.yaml").oci | {"user": .user, "tenancy": .tenancy}),
         "foundationName": $f.metadata.name, "foundation": $f.spec, "environment": $e.spec,
         "remoteBootstrap": {"image": load("{{.ROOT_DIR}}/dependencies.yaml").bootstrapTools.image,
-        "fluxVersion": "{{.FLUX_VERSION}}", "seedConfigMap": "oke-bootstrap-input", "deadline": "{{.DEADLINE}}"}}}'
+        "fluxVersion": "{{.FLUX_VERSION}}", "seedConfigMap": "oke-bootstrap-input"}}}'
         > '{{.ENV_DIR}}/bootstrap.yaml'
       - task: :management:render
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
@@ -245,8 +240,6 @@ tasks:
       - sh: 'yq -e ''.teardownStarted != true and .returnComplete != true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
         msg: Teardown has started; resume down instead of handover
     cmds:
-      - task: :lifecycle:time-window
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: promote
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: ready
@@ -326,15 +319,11 @@ tasks:
           [.items | length == 1, (.items[0].metadata.ownerReferences | map(.uid) | contains([$uid]))] | all'
           '{{.ENV_DIR}}/bootstrap-jobs.json' > /dev/null
         msg: Retry requires the original bootstrap Job ownership
-      - sh: test "$(date -d "$(yq -r .spec.remoteBootstrap.deadline '{{.ENV_DIR}}/bootstrap-observed.json')" +%s)" -gt "$(date -u +%s)"
-        msg: The original bootstrap deadline has passed; proceed with teardown
       - sh: >-
           kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json |
           yq -p=json -e '.data.complete != "dHJ1ZQ=="' > /dev/null
         msg: A recorded successful seed must not be replayed
     cmds:
-      - task: :lifecycle:time-window
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - mkdir -p -m 700 '{{.REPORT}}'
       - cp '{{.ENV_DIR}}/bootstrap-jobs.json' '{{.REPORT}}/jobs.json'
       - cmd: kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra logs -l job-name=oke-bootstrap --all-containers=true --prefix=true --max-log-requests=7 > '{{.REPORT}}/pods.log' 2>&1

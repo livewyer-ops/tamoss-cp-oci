@@ -1,0 +1,5 @@
+apiVersion: v2
+name: setup
+description: Render private bootstrap inputs from operator settings and OCI discovery
+version: 0.1.0
+type: application

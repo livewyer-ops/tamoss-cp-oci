@@ -1,0 +1,4 @@
+{{- if .Values.discovery }}
+acmeEmail: {{ .Values.acmeEmail | default .Values.contactEmail | quote }}
+adminEmail: {{ .Values.adminEmail | default .Values.contactEmail | quote }}
+{{- end }}

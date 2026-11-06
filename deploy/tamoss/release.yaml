@@ -1,3 +1,6 @@
 tag: 8.2.0-oss2
 releaseSha256: 8b593f8803581e2417f0be391687f17a221e10f3b52567dccf3985d6230f478e
 sourceSha256: 340ccebb3ebf82fb88adf31d0943c3ab0183c6d0df9330c6e8329e9c3a91bc1b
+bundle:
+  url: oci://ghcr.io/dodwyer/tamoss-release-assets
+  digest: sha256:61693132cc3126f6725db9114411779d2d0dfcc0deebf5ac8e6c204080178c07

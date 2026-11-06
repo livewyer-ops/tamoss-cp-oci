@@ -8,10 +8,6 @@ spec:
   compartmentId: ocid1.compartment.oc1..REPLACE
   providerConfigName: oci
   owner: REPLACE
-  expiresAt: '2099-01-01T00:00:00Z'
-  budget:
-    amount: 100
-    currency: EUR
   network:
     vcn: 10.40.0.0/16
     api: 10.40.0.0/28

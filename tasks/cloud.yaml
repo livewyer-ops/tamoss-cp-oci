@@ -67,7 +67,7 @@ tasks:
       - >-
         yq -n
         '{"compartmentId": "{{.OCI_TEST_COMPARTMENT_ID}}", "objectNamespace": (load_str("{{.STORAGE_DIR}}/namespace.txt") | trim),
-        "bucketName": "{{.CHECK_NAME}}", "expiresAt": "{{now | dateModify "30m" | date "2006-01-02T15:04:05Z07:00"}}",
+        "bucketName": "{{.CHECK_NAME}}",
         "oci": load("{{.STORAGE_DIR}}/oci-current.yaml")}'
         > '{{.STORAGE_DIR}}/values.yaml'
       - 'yq -e ''[.data[] | select(.name == "{{.CHECK_NAME}}")] | length == 0'' {{.STORAGE_DIR}}/baseline.json'

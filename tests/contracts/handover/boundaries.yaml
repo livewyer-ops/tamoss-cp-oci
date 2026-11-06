@@ -2,7 +2,7 @@ version: '3'
 set: [errexit, nounset, pipefail]
 # Exercise the production Task flow with local substitutes for external actions.
 tasks:
-  lifecycle:time-window: {cmds: ['true']}
+  setup:resolve: {cmds: ['true']}
   verify:tools: {cmds: ['true']}
   verify:privacy: {cmds: ['true']}
   gitops:export-inputs: {cmds: ['true']}

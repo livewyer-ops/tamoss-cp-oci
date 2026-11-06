@@ -1,0 +1,1 @@
+{"data":{"kubernetes-versions":["v1.36.0"],"shapes":["VM.Standard.E5.Flex"],"sources":[{"image-id":"ocid1.image.oc1.fixture","source-name":"Oracle-Linux-8.10-2026.04.30-3-OKE-1.36.0-1462"}]}}

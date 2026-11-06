@@ -42,7 +42,7 @@ spec:
               properties:
                 remoteBootstrap:
                   type: object
-                  required: [image, fluxVersion, seedConfigMap, deadline]
+                  required: [image, fluxVersion, seedConfigMap]
                   x-kubernetes-validations:
                     - rule: self == oldSelf
                       message: Remote bootstrap inputs are immutable
@@ -50,7 +50,6 @@ spec:
                     image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
                     fluxVersion: {type: string, pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'}
                     seedConfigMap: {type: string, enum: [oke-bootstrap-input]}
-                    deadline: {type: string, format: date-time}
                 credentialsEstablished:
                   type: boolean
                   default: false

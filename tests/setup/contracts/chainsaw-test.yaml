@@ -1,0 +1,79 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: setup-contracts}
+spec:
+  steps:
+    - name: initialise privately and render deterministic HA defaults without lifetime inputs
+      try:
+        - command:
+            entrypoint: task
+            env: &paths [{name: PROJECT_ROOT, value: ($values.root)}]
+            args: [-t, ../Taskfile.yaml, fixture, defaults, ROOT=$PROJECT_ROOT]
+    - name: reject ambiguous images
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, ambiguous, ROOT=$PROJECT_ROOT]
+            check:
+              ($error != null): true
+              (contains($stderr, 'unavailable or ambiguous')): true
+    - name: reject unavailable images
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, unavailable, ROOT=$PROJECT_ROOT]
+            check:
+              ($error != null): true
+              (contains($stderr, 'unavailable or ambiguous')): true
+    - name: reject unrestricted API access and development configuration
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, fixture, ROOT=$PROJECT_ROOT]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, bad-input, ROOT=$PROJECT_ROOT, 'CHANGE=.adminCidrs = ["0.0.0.0/0"]']
+            check:
+              ($error != null): true
+              (contains($stderr, 'adminCidrs')): true
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, fixture, ROOT=$PROJECT_ROOT]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, bad-input, ROOT=$PROJECT_ROOT, 'CHANGE=.budget = {"amount": 50}']
+            check:
+              ($error != null): true
+              (contains($stderr, 'budget')): true
+    - name: repeat preparation without discovery and reject changes to recorded bootstrap choices
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, fixture, preserve, ROOT=$PROJECT_ROOT]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, changed, ROOT=$PROJECT_ROOT]
+            check:
+              ($error != null): true
+              (contains($stderr, 'already recorded')): true
+    - name: retain existing deployment directories
+      try:
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, recorded, ROOT=$PROJECT_ROOT]
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [-t, ../Taskfile.yaml, existing, ROOT=$PROJECT_ROOT]
+            check:
+              ($error != null): true
+              (contains($stderr, 'existing deployment')): true

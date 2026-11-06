@@ -1,4 +1,7 @@
 tag: v0.1.0-rc1
+bundle:
+  url: oci://ghcr.io/dodwyer/tadoss-release-assets
+  digest: sha256:60a9b77ea95ac2bdb3556ec70e45ea7a49f497e03d836a4ea0b0edfacb9de17c
 artifacts:
   release.json: 72efc32321850b565ffcb4e196fbe82105b5885e33c032761ab6f4bdaf95dce0
   catalogue.json: 0188880de963290301cbfb550dc6dee465cde379bf9ae6949d8d29a7682ace2e

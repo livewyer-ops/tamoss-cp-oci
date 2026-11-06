@@ -1,0 +1,47 @@
+name: ''
+compartmentId: ''
+contactEmail: ''
+adminCidrs: []
+owner: ''
+acmeEmail: ''
+adminEmail: ''
+git:
+  url: ''
+  branch: main
+  path: ''
+  githubAppId: ''
+  githubInstallationId: ''
+product:
+  url: https://github.com/dodwyer/tamoss-cp-oci
+  commit: ''
+network:
+  vcn: 10.40.0.0/16
+  api: 10.40.0.0/28
+  loadBalancer: 10.40.1.0/24
+  workers: 10.40.2.0/24
+  database: 10.40.3.0/24
+  pods: 10.40.16.0/20
+  services: 10.96.0.0/16
+oke:
+  version: v1.36.0
+  imageName: Oracle-Linux-8.10-2026.04.30-3-OKE-1.36.0-1462
+  imageId: ''
+  shape: VM.Standard.E5.Flex
+  ocpus: 4
+  memoryGiB: 32
+  placements: []
+database:
+  version: '16'
+  shape: VM.Standard.E5.Flex
+  ocpus: 2
+  memoryGiB: 32
+  administrator: bootstrap_admin
+  regionalStorage: true
+  backupRetentionDays: 1
+storage:
+  bucket: ''
+foundation:
+  name: ''
+  adoption: {}
+bundles: {}
+discovery: {}

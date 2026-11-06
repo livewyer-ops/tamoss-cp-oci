@@ -47,7 +47,7 @@ spec:
             resource: {apiVersion: batch/v1, kind: Job, metadata: {name: oke-bootstrap, namespace: oke-check}}
         - command:
             entrypoint: kubectl
-            args: [-n, oke-check, patch, tamossbootstrap, oke-check, --type=merge, '-p={"spec":{"remoteBootstrap":{"deadline":"2098-01-01T00:00:00Z"}}}']
+            args: [-n, oke-check, patch, tamossbootstrap, oke-check, --type=merge, '-p={"spec":{"remoteBootstrap":{"fluxVersion":"v2.0.0"}}}']
             check: {($error != null): true}
     - name: controller installs Flux and survives an interrupted Pod
       try:

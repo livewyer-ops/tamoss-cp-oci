@@ -18,4 +18,3 @@ spec:
     freeformTags:
       project: tamoss-cp-oci
       purpose: storage-lifecycle-check
-      expiresAt: {{ required "expiresAt is required" .Values.expiresAt | quote }}

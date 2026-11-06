@@ -98,7 +98,6 @@ tasks:
     cmds:
       - mkdir -p -m 700 '{{.ENV_DIR}}/invalid-credentials/secrets'
       - touch '{{.ENV_DIR}}/invalid-credentials/environment.yaml' '{{.ENV_DIR}}/invalid-credentials/settings.yaml'
-      - 'yq -n ''{"runHours": 1, "cleanupHours": 1}'' > {{.ENV_DIR}}/invalid-credentials/cost.yaml'
       - cp '{{.ENV_DIR}}/secrets/s3-access-key' '{{.ENV_DIR}}/invalid-credentials/secrets/'
       - install -m 600 '{{.PROJECT_ROOT}}/tests/lifecycle/oci-config' '{{.ENV_DIR}}/invalid-credentials/secrets/s3-secret-key'
       - task: lifecycle:preflight

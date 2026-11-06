@@ -8,10 +8,13 @@ tasks:
       LOCK: &releaseLock '{{.RELEASE_LOCK | default (printf "%s/deploy/tamoss/release.yaml" .ROOT_DIR)}}'
     cmds:
       - >-
-        yq -e '(length == 3) and
+        yq -e '((del(.bundle) | length) == 3) and
         (.tag | test("^v?[0-9]+[.][0-9]+[.][0-9]+[a-zA-Z0-9.-]*$")) and
         (.releaseSha256 | test("^[a-f0-9]{64}$")) and
-        (.sourceSha256 | test("^[a-f0-9]{64}$"))' {{shellQuote .LOCK}} > /dev/null
+        (.sourceSha256 | test("^[a-f0-9]{64}$")) and
+        (.bundle == null or ((.bundle | length) == 2 and
+        (.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")) and
+        (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))))' {{shellQuote .LOCK}} > /dev/null
   fetch:
     vars:
       LOCK: *releaseLock
@@ -146,7 +149,8 @@ tasks:
       - for: [install.yaml, compatibility.yaml, catalogue.json, dependencies.yaml]
         cmd: 'yq -r ''.artifacts."{{.ITEM}}".sha256 + "  {{.ASSETS}}/{{.ITEM}}"'' {{.ASSETS}}/release.json | sha256sum --check --status'
       - cp '{{.ASSETS}}/install.yaml' '{{.ASSETS}}/compatibility.yaml' '{{.ASSETS}}/catalogue.json' '{{.ASSETS}}/dependencies.yaml' '{{.ASSETS}}/release.json' '{{.BUNDLE}}/'
-      - cp '{{.LOCK}}' '{{.BUNDLE}}/release.yaml'
+      # The published digest is not part of the content it identifies.
+      - 'yq ''del(.bundle)'' {{shellQuote .LOCK}} > {{shellQuote .BUNDLE}}/release.yaml'
       - cp '{{.ROOT_DIR}}/deploy/tamoss/bundle/kustomization.yaml' '{{.BUNDLE}}/'
       - find '{{.BUNDLE}}' -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort > '{{.CACHE}}/bundle-files.txt'
       - diff -u '{{.ROOT_DIR}}/deploy/tamoss/bundle/files.txt' '{{.CACHE}}/bundle-files.txt'

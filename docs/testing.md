@@ -140,10 +140,15 @@ Browser credentials are mounted read-only into the test container and removed
 afterwards. The container receives neither OCI credentials nor the Docker socket.
 
 A failed qualification leaves the deployment running for investigation. Preserve
-evidence and continue independent checks as appropriate, while keeping the budget
-and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deployment).
+evidence and continue independent checks as appropriate. Follow
+[operations](operations.md#retry-a-failed-deployment).
 
 ## Verified coverage and limits
+
+Setup contracts exercise private initialisation, preserved edits, deterministic
+regional selections, unavailable/ambiguous images, invalid configuration and
+repeat preparation without discovery. The simplified setup and removal of
+environment lifetime gates still require a fresh full OCI deployment.
 
 The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption
 bindings passed an assisted OCI run. The Job succeeded on its first Pod attempt;

@@ -14,7 +14,7 @@ tasks:
       - mkdir -p -m 700 '{{.DIRECTORY}}'
       - >-
         yq '.spec.remoteBootstrap = {"image": "{{.IMAGE}}", "fluxVersion": "{{.FLUX_VERSION}}",
-        "seedConfigMap": "oke-bootstrap-input", "deadline": "2099-01-01T00:00:00Z"}'
+        "seedConfigMap": "oke-bootstrap-input"}'
         '{{.ROOT}}/.local/tmp/check/bootstrap/native-retired-root.yaml' > '{{.DIRECTORY}}/root.yaml'
       - >-
         yq 'select(.kind != "TamossBootstrap") |
@@ -31,7 +31,7 @@ tasks:
       - 'yq eval-all -e ''[select(.kind == "Job")] | length == 1'' {{.DIRECTORY}}/ready.yaml'
       - 'yq -e ''select(.kind == "Job") | [.spec.parallelism == 1, .spec.completions == 1, .spec.activeDeadlineSeconds == 1800, .spec.podReplacementPolicy == "Failed", .spec.template.spec.automountServiceAccountToken == false] | all'' {{.DIRECTORY}}/ready.yaml'
       - 'yq -e ''select(.kind == "Role") | [(.rules | length == 1), (.rules[0].resources | join(",") == "secrets"), (.rules[0].resourceNames | join(",") == "oke-connection"), (.rules[0].verbs | join(",") == "get,patch")] | all'' {{.DIRECTORY}}/ready.yaml'
-      - for: [credentials, access, retired, expired, released, completed]
+      - for: [credentials, access, retired, released, completed]
         task: blocked
         vars: {CASE: '{{.ITEM}}'}
       - 'yq ''select(.metadata.annotations."crossplane.io/composition-resource-name" | test("^remote-"))'' {{.DIRECTORY}}/ready.yaml > {{.DIRECTORY}}/resources.yaml'
@@ -42,7 +42,7 @@ tasks:
       - mkdir -p '{{.DIRECTORY}}/retry'
       - >-
         yq -n -o=json '{"metadata": {"uid": "original"}, "spec": {"released": ("{{.CASE}}" == "released"),
-        "remoteBootstrap": {"deadline": "2020-01-01T00:00:00Z"}},
+        "remoteBootstrap": {}},
         "status": {"remoteBootstrapCompleted": ("{{.CASE}}" == "completed")}}' > '{{.DIRECTORY}}/retry/bootstrap-observed.json'
       - >-
         yq -n -o=json '{"items": [{"metadata": {"ownerReferences": [{"uid": "original"}]},
@@ -59,7 +59,6 @@ tasks:
       - cp '{{.DIRECTORY}}/observed.yaml' '{{.DIRECTORY}}/{{.CASE}}-observed.yaml'
       - >-
         yq -i 'with(select("{{.CASE}}" == "credentials"); .spec.credentialsEstablished = false) |
-        with(select("{{.CASE}}" == "expired"); .spec.remoteBootstrap.deadline = "2020-01-01T00:00:00Z") |
         with(select("{{.CASE}}" == "released"); .spec.released = true) |
         with(select("{{.CASE}}" == "completed"); .status.remoteBootstrapCompleted = true)'
         '{{.DIRECTORY}}/{{.CASE}}-root.yaml'

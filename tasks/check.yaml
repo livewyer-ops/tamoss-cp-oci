@@ -106,7 +106,8 @@ tasks:
       - task: connection-details
       - task: gitops
       - task: tadoss
-      - for: [open-api, overlap, outside-vcn, service-overlap, zero-budget, catalogue-shape, unsupported-oke, duplicate-placement, name-length]
+      - task --taskfile tests/setup/Taskfile.yaml check ROOT='{{.ROOT_DIR}}'
+      - for: [open-api, overlap, outside-vcn, service-overlap, catalogue-shape, unsupported-oke, duplicate-placement, name-length]
         cmd: kubectl kustomize tests/invalid/{{.ITEM}} > '{{.CACHE}}/rejected-{{.ITEM}}.yaml'
       - chainsaw test --no-cluster --set-string crossplaneImage={{.CORE}} --test-dir tests/invalid --report-format JUNIT-TEST --report-path .local/reports --report-name invalid-inputs
   handover:
