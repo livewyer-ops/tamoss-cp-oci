@@ -144,26 +144,34 @@ and cleanup deadline. Follow [operations](operations.md#retry-a-failed-deploymen
 
 ## Verified coverage and limits
 
-The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption bindings require
-a fresh OCI run. The live results below describe the preceding bootstrap.
+The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption
+bindings passed an assisted OCI run. The Job succeeded on its first Pod attempt;
+runtime values and applications converged through ordinary reconciliation.
+Repeat up preserved identity and Git while Kind remained stopped.
 
-The reduced secret seed and revision-aware readiness checks passed a resumed OCI
-deployment, repeat invocation and qualification with Kind stopped. The first cold
-invocation exposed a readiness assertion error when a Git source had no artifact
-yet. The correction passed a real-API regression and live resume; a fresh
-uninterrupted build with that correction remains unqualified.
+The run required retries while new OCI credentials propagated, host comparison
+and teardown corrections, and native certificate renewal after an ACME timeout.
+The corrected comparisons retain resource identity and desired configuration
+while allowing provider-owned IP attachments and approximate bucket usage to
+differ. Native API tests cover the deletion-policy transition and interrupted
+ownership return. An uninterrupted lifecycle from the corrected product remains
+unqualified.
+
+Deployment readiness currently omits Authentik's public certificate. Up can
+therefore complete while SSO TLS is unavailable; qualification catches this.
+Including public certificate readiness in the native health checks remains open.
 
 | Behaviour | Observed status |
 | --- | --- |
 | TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
 | Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Bootstrap root | Earlier uninterrupted OCI bootstrap passed. The current readiness correction passed resume and repeat with preserved resource identities. Local checks cover dependency convergence, release/pause after input changes, controller restart and child deletion without recreation |
+| Bootstrap root | Flux installed the Kind controllers; Crossplane's OKE Job completed on its first attempt with zero container restarts. Vault-delivered bindings and derived runtime values converged without a provider restart |
 | Initial Flux convergence | All initial runtime Kustomizations, including TAMOSS, reached Ready before any host reconciliation request. Current-Git refresh and ownership transfer remain explicit operations |
 | Public GitOps lifecycle | Resumed bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media and persistence after four verified pod replacements passed with Kind stopped; all 34 OCI resource IDs were unchanged |
-| Combined environment cleanup | Public down completed after checking out the environment's pinned product commit: original Kind startup, current-Git ownership return, application finalisation, all 21 hardware categories empty, pending Vault secret deletion and Kind removal passed |
-| Build readiness | The reduced seed converged through Flux without a provider restart. Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs and zero restarts |
+| Combined environment cleanup | Resumed public down passed after the comparison and interrupted-return corrections, with the pinned host checkout retained throughout. Current-Git ownership return, application finalisation, all 21 hardware categories empty, scheduled Vault secret deletion and Kind removal passed |
+| Workload convergence | Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs/restart counts. Authentik public certificate readiness remains the gap described above |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
