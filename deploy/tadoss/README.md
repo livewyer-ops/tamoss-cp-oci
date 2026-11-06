@@ -44,7 +44,7 @@ environments require those bootstrap prerequisites before Kind is stopped.
 
 ## Enable through Git
 
-After the documented ownership transfer and Kind stop, change the environment
+After `task handover` completes the ownership transfer and Kind stop, change the environment
 repository's existing `clusters/<environment>/values.yaml`:
 
 ```yaml
@@ -83,8 +83,9 @@ Only the Job receives the TADOSS blueprint and client secret. Enabling TADOSS
 leaves Authentik's server and worker pod configuration unchanged.
 
 The instance requires its current generation, selected release and both API and
-worker replica counts to be ready. Certificate readiness and working API requests
-are separate checks. Initial enablement and full environment teardown are the
+worker replica counts to be ready. The deployment aggregate also requires its
+public certificate to be Ready; working API requests are a separate check.
+Initial enablement and full environment teardown are the
 supported integration paths; application uninstall and upgrades are unqualified.
 Removing the enablement setting is not a database deletion procedure.
 

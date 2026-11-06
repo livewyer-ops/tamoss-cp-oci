@@ -45,8 +45,8 @@ tasks:
         vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
   ready:
     cmds:
-      - task: bootstrap:ready
-        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout'}
+      - task: bootstrap:observe-ready
+        vars: {ENV_DIR: '{{.DIRECTORY}}/inputs', CHECKOUT: '{{.DIRECTORY}}/checkout', REVISION: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
   completed-bootstrap:
     cmds:
       - cp '{{.ROOT_DIR}}/environments/example/foundation.yaml' '{{.DIRECTORY}}/inputs/'

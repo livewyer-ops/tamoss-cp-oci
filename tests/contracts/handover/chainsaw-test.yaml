@@ -65,7 +65,7 @@ spec:
         - command:
             entrypoint: yq
             env: *paths
-            args: [-e, '.observations == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+            args: [-e, '.observations == 2', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
         - command:
             entrypoint: task
             env: *paths
@@ -89,3 +89,116 @@ spec:
         - command: *complete
         - command: *unhealthy
         - command: *failed
+    - name: deployment completes once without handing over and repeats only observe
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.gitopsEstablished = false', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: &up
+            entrypoint: task
+            env: *paths
+            args: [up]
+        - command: &deployed
+            entrypoint: task
+            env: *paths
+            args: [deployed]
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.observations == 1 and .provisions == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: *up
+        - command: *deployed
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.observations == 2 and .provisions == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: *resume
+        - command: *complete
+        - command: *up
+        - command: *complete
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.observations == 5 and .provisions == 1 and .starts == 1 and .publications == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+    - name: pending ownership change resumes through handover only
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: task
+            env: *paths
+            args: [run, STOP_AT=after-iam]
+            check: *interruption
+        - command:
+            <<: *up
+            check:
+              ($error != null): true
+              (contains($stderr, 'resume task handover')): true
+        - command: *resume
+        - command: *complete
+    - name: failed promoted readiness cannot stop Kind
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.unhealthyAfterPublication = true', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: *failed
+        - command: *incomplete
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.published == true and .observations == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, 'del(.unhealthyAfterPublication)', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: *resume
+        - command: *complete
+    - name: reject a different product revision before changing ownership
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.spec.ref.commit = "different-product"', '$PROJECT_ROOT/.local/tmp/check/handover-flow/checkout/clusters/fixture/sources.yaml']
+        - command:
+            <<: *resume
+            check:
+              ($error != null): true
+              (contains($stderr, 'product commit selected in environment Git')): true
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.observations == 0 and .starts == 0 and .publications == 0', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+    - name: incomplete deployment and teardown reject handover
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.gitopsEstablished = false', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command:
+            <<: *resume
+            check:
+              ($error != null): true
+              (contains($stderr, 'Complete up')): true
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.gitopsEstablished = true | .teardownStarted = true', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command:
+            <<: *resume
+            check:
+              ($error != null): true
+              (contains($stderr, 'Teardown has started')): true
+        - command:
+            <<: *up
+            check:
+              ($error != null): true
+              (contains($stderr, 'Teardown has started')): true
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.observations == 0 and .starts == 0 and .publications == 0', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']

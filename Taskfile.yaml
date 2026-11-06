@@ -70,11 +70,18 @@ tasks:
       - task: cloud:storage-cleanup
         vars: {STORAGE_DIR: '{{.STORAGE_PATH}}'}
   up:
-    desc: Bootstrap OCI, publish GitOps configuration and transfer operations to OKE
+    desc: Deploy OCI and TAMOSS with Kind retaining infrastructure ownership
     cmds:
       - task: verify:tools
       - task: verify:privacy
       - task: bootstrap:up
+        vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
+  handover:
+    desc: Transfer infrastructure ownership to OKE and stop original Kind
+    cmds:
+      - task: verify:tools
+      - task: verify:privacy
+      - task: bootstrap:handover
         vars: {ENV_DIR: '{{.ENV_PATH}}', CHECKOUT: '{{.CHECKOUT_PATH}}'}
   qualify:
     desc: Qualify ingest, media reads and availability during one worker drain

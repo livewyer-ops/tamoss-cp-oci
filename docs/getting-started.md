@@ -167,8 +167,8 @@ git clone https://github.com/YOUR-OWNER/tamoss-environments.git .local/gitops
 ```
 
 Configure Git author/committer identity and authenticated push access on the
-workstation. `up` publishes the generated configuration and the handover policy;
-branch protections must permit these pushes. Flux uses a separate GitHub App
+workstation. `up` publishes the generated configuration; `handover` publishes the
+ownership policy. Branch protections must permit these pushes. Flux uses a separate GitHub App
 with read access to the environment and product repositories.
 
 Edit `.local/environment/gitops.yaml` to match the checkout's exact origin,
@@ -224,8 +224,21 @@ credential persistence. Task verifies persisted credentials and retires staging
 inputs. Once OKE, its workers and IAM grants are usable, a Crossplane-owned Job
 in Kind retrieves the connection, installs Flux and seeds remote GitOps.
 Controllers deliver generated bindings through Vault and verify observe-only OKE
-adoption before transferring write authority. It waits for TAMOSS readiness, then
-stops original Kind. Ongoing changes come from Git.
+adoption. `up` waits for deployment readiness, including public TLS, and leaves
+Kind running as the infrastructure owner. Flux already manages the applications.
+
+Transfer infrastructure ownership when ready:
+
+```bash
+task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
+```
+
+Handover verifies current readiness, quiesces Kind and publishes the ownership
+change. It waits for OKE convergence before stopping original Kind. Application
+configuration and capabilities stay the same. Keep the original containers for
+teardown. Subsequent Git changes, including [enabling TADOSS](../deploy/tadoss/README.md),
+reconcile on OKE without Kind. Flux also accepts application changes before
+handover; there is no separate Git enablement switch.
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |

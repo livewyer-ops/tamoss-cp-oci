@@ -59,8 +59,14 @@ private environment inputs, an environment Git checkout and a bounded spending a
 
 ```bash
 task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
 task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
 ```
+
+`up` leaves Kind owning infrastructure. `handover` transfers ownership to OKE
+and stops Kind. Flux deploys applications from the start; after handover, enable
+[TADOSS through Git](deploy/tadoss/README.md#enable-through-git) to demonstrate an
+application change while Kind is stopped.
 
 Qualification replaces its test media and drains one worker. Follow the
 [access instructions](docs/getting-started.md#access) to sign in and inspect the
@@ -74,7 +80,8 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 | `task check:management` | Also test a disposable, credential-free Kind bootstrap. |
 | `task check:storage` | Test a real OCI bucket in a separately authorised compartment. |
 | `task check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
-| `task up` | Provision OCI, publish GitOps configuration, install TAMOSS and stop Kind. |
+| `task up` | Provision OCI and install TAMOSS with public TLS ready; Kind retains infrastructure ownership. |
+| `task handover` | Transfer infrastructure ownership to OKE, verify convergence and stop original Kind. |
 | `task qualify` | Test ingest, access, network isolation and a worker drain. |
 | `task down` | Return current ownership to Kind, delete hardware and retire secrets. |
 
@@ -90,5 +97,6 @@ backups. See [teardown and retention](docs/operations.md#destroy-the-environment
 - [Operations](docs/operations.md): inspection, retries, billing and teardown.
 - [Testing](docs/testing.md): local and deployed checks, reports and coverage limits.
 - [Architecture](docs/architecture.md): ownership, configuration, HA and storage.
+- [Changelog](CHANGELOG.md): command and compatibility changes.
 - [TAMOSS integration](deploy/tamoss/README.md): immutable assets and release selection.
 - [GitOps integration](deploy/gitops/README.md): repositories, secret delivery and ownership transfer.

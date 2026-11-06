@@ -18,11 +18,9 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: initialise-runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: handover
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - task: complete-handover
+      - task: record-runtime
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
   initialise-runtime:
     requires: {vars: [ENV_DIR, CHECKOUT]}
@@ -206,7 +204,6 @@ tasks:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
-      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
     status:
       - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
     preconditions:
@@ -227,8 +224,13 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: bindings
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: ready
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  record-runtime:
+    requires: {vars: [ENV_DIR]}
+    vars:
+      NAME: {sh: 'yq -r .environment.name {{.ENV_DIR}}/identity.yaml'}
+    status:
+      - 'yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    cmds:
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' api-resources --cached=false > /dev/null
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
@@ -237,9 +239,40 @@ tasks:
       - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
   handover:
     requires: {vars: [ENV_DIR, CHECKOUT]}
+    preconditions:
+      - sh: 'test -s {{shellQuote .ENV_DIR}}/identity.yaml && yq -e ''.gitopsEstablished == true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+        msg: Complete up before handing over this environment
+      - sh: 'yq -e ''.teardownStarted != true and .returnComplete != true'' {{shellQuote .ENV_DIR}}/identity.yaml > /dev/null'
+        msg: Teardown has started; resume down instead of handover
+    cmds:
+      - task: :lifecycle:time-window
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+      - task: promote
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: ready
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: complete-handover
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
+  promote:
+    requires: {vars: [ENV_DIR, CHECKOUT]}
+    vars:
+      PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
     status:
       - 'yq -e ''.handoverComplete == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    preconditions:
+      - sh: >-
+          test "$(git -C '{{.ROOT_DIR}}' rev-parse HEAD)" =
+          "$(yq -r 'select(.metadata.name == "tamoss-product") | .spec.ref.commit' {{shellQuote .CHECKOUT}}/{{.PATH_IN_GIT}}/sources.yaml)"
+        msg: Check out the product commit selected in environment Git before handover
     cmds:
+      - task: :gitops:promotion-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      # A retry may have only the ownership change waiting to be published.
+      - task: observe-ready
+        vars:
+          ENV_DIR: '{{.ENV_DIR}}'
+          CHECKOUT: '{{.CHECKOUT}}'
+          REVISION: {sh: 'git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD'}
       - task: :transfer:start-kind
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - task: :transfer:prepare-promotion
@@ -549,6 +582,16 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra delete helmrelease/runtime-access --ignore-not-found --wait=true --timeout=600s
   ready:
     requires: {vars: [ENV_DIR, CHECKOUT]}
+    cmds:
+      - task: :gitops:current-checkout
+        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: observe-ready
+        vars:
+          ENV_DIR: '{{.ENV_DIR}}'
+          CHECKOUT: '{{.CHECKOUT}}'
+          REVISION: {sh: 'git -C {{shellQuote .CHECKOUT}} rev-parse HEAD'}
+  observe-ready:
+    requires: {vars: [ENV_DIR, CHECKOUT, REVISION]}
     vars:
       PATH_IN_GIT: {sh: 'yq -r .path {{.ENV_DIR}}/gitops.yaml'}
     preconditions:
@@ -560,12 +603,10 @@ tasks:
     cmds:
       - task: :identity:remote
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: :gitops:current-checkout
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - >-
         KUBECONFIG='{{.ENV_DIR}}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system
         --test-dir deploy/gitops/readiness-check --assert-timeout 1800s
-        --set-string revision="$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)"
+        --set-string revision={{shellQuote .REVISION}}
         --report-format JUNIT-TEST --report-path '{{.ENV_DIR}}/reports' --report-name deployment-ready
       - >-
         kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tams get tamoss/tamoss -o json |

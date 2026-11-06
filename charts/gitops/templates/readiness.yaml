@@ -24,6 +24,8 @@ spec:
     - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: github-app, namespace: flux-system}
     - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: ghcr, namespace: flux-system}
     - {apiVersion: v1, kind: Secret, name: github-app, namespace: flux-system}
+    - {apiVersion: cert-manager.io/v1, kind: Certificate, name: authentik-public-tls, namespace: auth}
+    - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tams-public-tls, namespace: tams}
 {{ range list "credentials" "database-connection" "database-ca" "platform" "calico" "tamoss-operator" "tamoss" }}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: auth}
 {{ end }}
@@ -36,6 +38,7 @@ spec:
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-secrets, namespace: {{ . }}}
 {{ end }}
 {{ if .Values.tadoss.enabled }}
+    - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tadoss-public-tls, namespace: tads}
     - {apiVersion: source.toolkit.fluxcd.io/v1, kind: OCIRepository, name: tadoss-release, namespace: flux-system}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: auth}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tads}
@@ -44,6 +47,12 @@ spec:
 {{ end }}
 {{ end }}
   healthCheckExprs:
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      current: >-
+        has(status.conditions) && status.conditions.exists(c,
+        c.type == 'Ready' && c.status == 'True' &&
+        has(c.observedGeneration) && c.observedGeneration == metadata.generation)
     - apiVersion: v1
       kind: Secret
       current: >-

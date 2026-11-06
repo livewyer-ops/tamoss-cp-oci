@@ -3,9 +3,18 @@ set: [errexit, nounset, pipefail]
 # Exercise the production Task flow with local substitutes for external actions.
 tasks:
   lifecycle:time-window: {cmds: ['true']}
+  verify:tools: {cmds: ['true']}
+  verify:privacy: {cmds: ['true']}
   gitops:export-inputs: {cmds: ['true']}
-  provision: {cmds: ['true']}
+  provision:
+    status: ['yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
+    cmds: ['yq -i ''.provisions += 1'' {{.ENV_DIR}}/identity.yaml']
   initialise-runtime: {cmds: ['true']}
+  record-runtime:
+    status: ['yq -e ''.gitopsEstablished == true'' {{.ENV_DIR}}/identity.yaml > /dev/null']
+    cmds:
+      - 'yq -e ''.observations > 0'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.gitopsEstablished = true'' {{.ENV_DIR}}/identity.yaml'
   checkpoint:
     preconditions:
       - sh: test '{{.STOP_AT}}' != '{{.POINT}}'
@@ -19,6 +28,7 @@ tasks:
       - task: checkpoint
         vars: {POINT: before-promotion}
       - 'yq -i ''.quiesced = true'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.spec.managementPolicies = ["*"]'' {{.CHECKOUT}}/clusters/fixture/infrastructure/environment.yaml'
   transfer:runtime-writes:
     cmds:
       - 'yq -e ''.quiesced == true'' {{.ENV_DIR}}/identity.yaml'
@@ -28,12 +38,17 @@ tasks:
   gitops:publish:
     cmds:
       - 'yq -e ''.quiesced == true and .runtimeWritesEnabled == true'' {{.ENV_DIR}}/identity.yaml'
+      - git -C '{{.CHECKOUT}}' add clusters/fixture/infrastructure/environment.yaml
+      - git -C '{{.CHECKOUT}}' diff --cached --quiet || git -C '{{.CHECKOUT}}' commit -m 'Transfer ownership'
+      - git -C '{{.CHECKOUT}}' push origin main
       - 'yq -i ''.publications += 1 | .published = true'' {{.ENV_DIR}}/identity.yaml'
       - task: checkpoint
         vars: {POINT: after-publication}
-  ready:
+  observe-ready:
+    requires: {vars: [REVISION]}
     cmds:
-      - 'yq -e ''.published == true and .unhealthy != true'' {{.ENV_DIR}}/identity.yaml'
+      - test '{{.REVISION}}' = "$(git -C '{{.CHECKOUT}}' rev-parse FETCH_HEAD)"
+      - 'yq -e ''.unhealthy != true and (.unhealthyAfterPublication != true or .published != true)'' {{.ENV_DIR}}/identity.yaml'
       - 'yq -i ''.observations += 1'' {{.ENV_DIR}}/identity.yaml'
   transfer:stop-kind:
     cmds:

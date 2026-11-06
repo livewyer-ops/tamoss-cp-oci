@@ -201,6 +201,13 @@ spec:
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
+    - command:
+        entrypoint: task
+        workDir: ../..
+        args: [handover]
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
     finally:
     - command:
         entrypoint: rmdir

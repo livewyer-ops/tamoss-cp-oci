@@ -93,6 +93,14 @@ tasks:
       - 'yq -i ''.teardownStarted = true'' {{.DIRECTORY}}/management/identity.yaml'
       - task: transfer:return-ownership
         vars: {ENV_DIR: '{{.DIRECTORY}}/management', CHECKOUT: '{{.DIRECTORY}}/unused-checkout'}
+  owned-return:
+    cmds:
+      - cp '{{.DIRECTORY}}/management/identity.yaml' '{{.DIRECTORY}}/management/before-owned-return.yaml'
+      - defer: cp '{{.DIRECTORY}}/management/before-owned-return.yaml' '{{.DIRECTORY}}/management/identity.yaml'
+      - 'yq -i ''.gitopsEstablished = true | .teardownStarted = true'' {{.DIRECTORY}}/management/identity.yaml'
+      - task: transfer:return-ownership
+        vars: {ENV_DIR: '{{.DIRECTORY}}/management', CHECKOUT: '{{.DIRECTORY}}/unused-checkout'}
+      - 'yq -e ''.returnComplete != true and .runtimeWritesEnabled != true'' {{.DIRECTORY}}/management/identity.yaml'
   render:
     cmds:
       - mkdir -p '{{.DIRECTORY}}'

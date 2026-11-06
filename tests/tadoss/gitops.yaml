@@ -38,3 +38,4 @@ kind: Render
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.dependsOn[].name): [tadoss-operator, tadoss-credentials, platform, calico]
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 1
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'OCIRepository'].name): [tamoss-release, tadoss-release]
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls, tadoss-public-tls]

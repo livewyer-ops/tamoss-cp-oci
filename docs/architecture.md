@@ -97,11 +97,15 @@ tokens, inventory, qualification and cleanup.
 
 Deployment completion observes the selected infrastructure and runtime Git revision, current product chart
 and HelmRelease generation, then the `deployment-ready` Flux health check.
-That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS.
+That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS,
+plus their public certificates and Authentik's certificate at the current generation.
 Routine `up` and `qualify` readiness checks do not force application reconciliation;
 ownership promotion also observes normal Flux reconciliation at the published revision.
-Initial deployment health is checked before handover and the promoted revision
-is checked before Kind stops. Completion is recorded only after that stop succeeds.
+`up` finishes with Kind owning infrastructure and OKE observing it. The separate
+`handover` command checks the published deployment before transfer and the
+promoted revision before Kind stops. Handover completion is recorded only after
+that stop succeeds. Flux manages applications throughout; the transfer changes
+infrastructure authority without changing application settings.
 
 Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
 the load balancer. Handover compares the address, resource identity and desired

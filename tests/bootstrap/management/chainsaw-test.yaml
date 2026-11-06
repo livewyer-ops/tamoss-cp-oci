@@ -132,6 +132,11 @@ spec:
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
             args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, record-composite, ROOT=$ROOT]
         - command:
+            entrypoint: task
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, owned-return, ROOT=$ROOT]
+        - command:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
         - command:

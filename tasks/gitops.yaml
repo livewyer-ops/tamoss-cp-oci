@@ -150,10 +150,12 @@ tasks:
     vars:
       BRANCH: {sh: 'yq -r .branch {{shellQuote .ENV_DIR}}/gitops.yaml'}
       PATH_IN_GIT: {sh: 'yq -r .path {{shellQuote .ENV_DIR}}/gitops.yaml'}
+    preconditions:
+      - sh: test -z "$(git -C {{shellQuote .CHECKOUT}} status --porcelain -- '{{.PATH_IN_GIT}}')"
+        msg: Publish intended environment edits, or resume task handover for a pending ownership change
     cmds:
       - task: export-inputs
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
-      - test -z "$(git -C {{shellQuote .CHECKOUT}} status --porcelain -- '{{.PATH_IN_GIT}}')"
       - git -C {{shellQuote .CHECKOUT}} ls-files --error-unmatch '{{.PATH_IN_GIT}}/values.yaml' '{{.PATH_IN_GIT}}/infrastructure/environment.yaml' '{{.PATH_IN_GIT}}/runtime/release.yaml' > /dev/null
       - git -C {{shellQuote .CHECKOUT}} fetch origin {{shellQuote .BRANCH}}
       - test "$(git -C {{shellQuote .CHECKOUT}} rev-parse HEAD)" = "$(git -C {{shellQuote .CHECKOUT}} rev-parse FETCH_HEAD)"

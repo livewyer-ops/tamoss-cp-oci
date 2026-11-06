@@ -18,7 +18,7 @@ task check
 | Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; Git preparation without cloud outputs |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
-| Handover flow | Production Task sequencing with local substitutes for external actions; interruption around IAM/Git/shutdown, failed readiness and repeat without restarting Kind |
+| Handover flow | Public command wiring and production Task sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
 The check builds the container for the selected release's unchanged browser tests.
@@ -51,7 +51,8 @@ recovery from an invalid blueprint without pod replacement.
 Bootstrap checks use the real Crossplane and ESO controllers with fixture child
 compositions that create no cloud resources. They cover dependency readiness,
 controller restart with unchanged child identities, rejection of a replaced root,
-preservation of current settings after release and the pause before deletion.
+preservation of current settings after release, teardown retaining Kind ownership
+before handover and the pause before deletion.
 Flux installs the Kind controller releases from a local chart artefact. Further
 checks cover chart failure/recovery, controller-derived secret/IAM releases,
 irreversible credential retirement and a suspended instance across controller
@@ -157,9 +158,12 @@ differ. Native API tests cover the deletion-policy transition and interrupted
 ownership return. An uninterrupted lifecycle from the corrected product remains
 unqualified.
 
-Deployment readiness currently omits Authentik's public certificate. Up can
-therefore complete while SSO TLS is unavailable; qualification catches this.
-Including public certificate readiness in the native health checks remains open.
+Deployment readiness now includes current-generation public certificates for
+Authentik, TAMOSS and enabled TADOSS. Native Flux checks cover missing, false,
+unknown and stale certificate readiness and recovery. This prevents false
+success while TLS is unavailable; it does not resolve or qualify the original
+ACME connection timeout. The separate `up` and `handover` commands still need
+a fresh uninterrupted OCI lifecycle.
 
 | Behaviour | Observed status |
 | --- | --- |
@@ -171,7 +175,7 @@ Including public certificate readiness in the native health checks remains open.
 | Public GitOps lifecycle | Resumed bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
 | Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media and persistence after four verified pod replacements passed with Kind stopped; all 34 OCI resource IDs were unchanged |
 | Combined environment cleanup | Resumed public down passed after the comparison and interrupted-return corrections, with the pinned host checkout retained throughout. Current-Git ownership return, application finalisation, all 21 hardware categories empty, scheduled Vault secret deletion and Kind removal passed |
-| Workload convergence | Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs/restart counts. Authentik public certificate readiness remains the gap described above |
+| Workload convergence | Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs/restart counts. Cold public certificate issuance remains subject to the ACME qualification limit above |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 

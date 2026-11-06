@@ -47,7 +47,7 @@ image digests and published asset checksums. To select another release, update
 requirements, then run `task check`. Upstream interface changes may require local
 overlay or test-selection changes. Verified database TLS remains mandatory.
 
-Initial deployment verifies the repository lock. After handover, `qualify` verifies
+Initial deployment verifies the repository lock. Before or after handover, `qualify` verifies
 the current environment Git selection, records it in `tamoss-release.yaml` and
 retains the initial lock as `tamoss-release.bootstrap.yaml`. Repeat deployment
 preserves Git-owned configuration. This bookkeeping alone does not qualify an

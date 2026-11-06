@@ -18,10 +18,11 @@ TAMOSS source, charts, profiles and release assets remain read-only.
 The preceding bootstrap passed live OCI checks for repeat, workload authentication, persisted secret
 delivery, private Git/GHCR pulls, ownership transfer in both directions, Kind-off
 application operation and interrupted/resumed teardown. The Flux-managed Kind
-bootstrap and controller-delivered binding workflow still require fresh OCI qualification. A supported TAMOSS upgrade
+bootstrap and controller-delivered bindings passed an assisted OCI run. The split
+deployment/handover commands still require fresh OCI qualification. A supported TAMOSS upgrade
 and package-read credential rotation/revocation remain unqualified. See
 [verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
-The public `up`, `qualify` and `down` commands sequence this workflow. The
+The public `up`, `handover`, `qualify` and `down` commands sequence this workflow. The
 `bootstrap`, `gitops` and `transfer` namespaces remain internal implementation
 tasks. See [setup](../../docs/getting-started.md#git-and-vault-preparation).
 
@@ -47,8 +48,8 @@ repository. Before cloud provisioning, initialisation writes one cluster directo
 Export validates the checkout's origin, branch, path and deployment identity.
 It writes this directory once and preserves subsequent user changes. Incomplete
 existing configuration stops initialisation. Generated cloud bindings are not required. `up` commits
-and pushes only the generated cluster files, then publishes the ownership-policy
-change after Kind is quiesced. It preserves unrelated staged files and does not
+and pushes only the generated cluster files. `handover` publishes the ownership-policy
+change after Kind is quiesced. Publication preserves unrelated staged files and does not
 force-push. Secrets, Kubernetes status, kubeconfigs and owner references are
 excluded. Generated resource identifiers and the original creation UID are
 persisted in Vault; they are not deployment-time Git edits.
@@ -147,8 +148,9 @@ verify the actual OCI setting and require `Synced=True` before ownership changes
 2. When OKE and runtime IAM are ready, authenticate and seed remote Flux while the
    database may still be provisioning. Flux installs controllers and ESO. Persisted
    bindings enable observe-only infrastructure adoption; observed outputs enable
-   application releases.
-3. Compare exact external names, provider configuration, cloud status and ownership
+   application releases. `up` finishes after deployment and public TLS readiness,
+   leaving Kind owning infrastructure and OKE observing it.
+3. `handover` verifies the published deployment, then compares exact external names, provider configuration, cloud status and ownership
    tags. Stop in-flight Helm actions and suspend the bootstrap instance release
    before releasing and pausing its root. Set Kind to observation, wait for operations to finish, pause reconciliation
    and persist its non-writing configuration locally.
@@ -179,7 +181,7 @@ Readiness checks observe the expected environment and runtime commits, the produ
 chart revisions, and the current HelmRelease generation before accepting workload
 health. Kustomize changes the values ConfigMap name and HelmRelease reference when
 environment values change. The `deployment-ready` Kustomization checks current
-generations and health, including TADOSS when enabled. Earlier non-secret values
+generations and health, including public TLS and TADOSS when enabled. Earlier non-secret values
 ConfigMaps remain until cluster teardown because the root deliberately disables
 pruning. Application and handover reconciliation proceed without a host trigger;
 ownership transfer retains explicit identity, quiescence and single-writer checks.
@@ -211,7 +213,7 @@ preserves original cloud ownership tags when the Kubernetes composite UID change
 
 Transfer gates compare both inventories, provider configuration, cloud status and
 tags before changing the writer. Interrupted handover accepts only the published
-configuration or its ownership-policy change. Once teardown starts, `up` refuses
+configuration or its ownership-policy change. Once teardown starts, `up` and `handover` refuse
 to recreate resources; resume `down`.
 
 The [provider package chart](../../charts/packages/) accepts

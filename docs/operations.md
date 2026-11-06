@@ -94,13 +94,27 @@ Treat diagnostic output as private and redact it before sharing. Report location
 
 ## Convergence and handover
 
-`task up` observes the initial GitOps deployment, explicitly transfers ownership,
-then observes the promoted Git revision before stopping Kind. A repeated `up`
-checks the current deployment once and leaves Kind stopped after completed handover.
+`task up` completes deployment with Kind running and owning infrastructure; OKE
+Crossplane observes the same resources. `task handover` checks current deployment
+readiness, transfers ownership and observes the promoted Git revision before
+stopping Kind. Flux already manages applications in both states.
+
+```bash
+task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
+task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
+```
+
+Repeating `up` after deployment observes readiness once without changing ownership.
+Repeating completed `handover` observes readiness once without restarting Kind or
+publishing another commit. `qualify` works in either state. `down` also supports
+cleanup before handover and after an interrupted transfer.
+Keep the host checkout at the product commit selected in environment Git;
+handover rejects a different revision before changing ownership.
 
 | Stage after remote seeding | Native actions |
 | --- | --- |
-| Initial convergence | Observe bootstrap readiness, record bindings and inventory, then run the deployment-readiness assertions and OKE managed-resource checks |
+| Initial convergence (`up`) | Observe bootstrap readiness, record bindings and inventory, then check deployment/public TLS readiness and OKE managed resources |
+| Begin handover | Verify the published deployment revision and health; an unpublished ownership-only change is allowed on retry |
 | Verify adoption | Read and compare both control planes' resource identities and configuration |
 | Quiesce Kind | Freeze the instance HelmRelease, release and pause the bootstrap, set infrastructure to Observe, and wait for managed resources to acknowledge their pause |
 | Enable OKE ownership | Refresh both inventories, verify Kind has stopped writing, enable runtime IAM writes, and commit/push the promotion to the environment repository |
@@ -124,16 +138,17 @@ task up ENV_DIR=.local/environment CHECKOUT=.local/gitops
 Run `task check` first if configuration or dependencies changed. `up` verifies and
 prepares its deployment assets independently; a previous check cache is not required.
 Unchanged repeats reuse identities and persisted credentials. After handover,
-`up` reconciles the current published Git selection and keeps Kind stopped. It
-resumes an interrupted promotion only when the checkout matches the published
-configuration or its ownership-policy change. Resolve input/ownership mismatches
+`up` observes the current published Git selection and keeps Kind stopped. Resume
+an interrupted transfer with `task handover` using the same inputs. It accepts
+the published configuration or its pending ownership-policy change; `up` rejects
+unpublished changes and directs a pending transfer back to `handover`. Resolve input/ownership mismatches
 and missing established credentials before retrying. Once teardown starts, use
 `down` to finish it.
 
 During initial provisioning, Flux and Crossplane continue reconciling if
 Task exits. After credential retirement, Kind's `oke-bootstrap` Job can retrieve
 the remote connection, install Flux and seed GitOps without the Task process.
-Resume `up` to observe completion and perform handover. Preserve
+Resume `up` to observe deployment completion, then run `handover` separately. Preserve
 `bootstrap.yaml`, `management-values.yaml` and the recorded
 bootstrap UID alongside the existing environment identity. Do not manually unpause a released root during
 operations or deletion; `down` verifies and preserves the paused boundary.
@@ -283,7 +298,7 @@ Do not edit records to bypass mismatches or remove finalisers to simulate deleti
 
 ## Retained management state
 
-`up` stops original Kind after verified handover. Keep those containers and the
+`handover` stops original Kind after verified transfer. Keep those containers and the
 private identity records intact; do not create a replacement cluster with the
 same name. `down` starts and verifies the original cluster automatically. A
 failed API readiness or identity check stops the operation without deleting it.

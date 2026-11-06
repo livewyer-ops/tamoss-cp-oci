@@ -169,11 +169,49 @@ spec:
               metadata: {name: connection-readiness, namespace: flux-check}
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
-    - name: reject stale child readiness and recover through ordinary reconciliation
+    - name: wait for a public certificate to exist and report current readiness
       try:
+        - apply:
+            file: ../../.local/tmp/check/certificate-crd.yaml
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: certificates.cert-manager.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
         - apply:
             file: ../../.local/tmp/check/gitops-adoption-readiness.yaml
             template: false
+        - assert: &aggregateNotReady
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+                (conditions[?type == 'Ready'] | [0].reason): HealthCheckFailed
+        - apply:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              spec:
+                secretName: public-tls
+                dnsNames: [public.example.invalid]
+                issuerRef: {name: fixture}
+        - assert: *aggregateNotReady
+        - patch: &certificateReady
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status:
+                conditions:
+                  - type: Ready
+                    status: 'True'
+                    observedGeneration: (x_k8s_get($client, 'cert-manager.io/v1', 'Certificate', 'flux-check', 'public-tls').metadata.generation)
         - assert: &aggregateReady
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -182,6 +220,51 @@ spec:
               (status.observedGeneration == metadata.generation): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: certificate failures and stale generations block readiness until recovery
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status:
+                conditions: [{type: Ready, status: 'False', observedGeneration: 1}]
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status:
+                conditions: [{type: Ready, status: Unknown, observedGeneration: 1}]
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+        - patch:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              spec: {dnsNames: [changed.example.invalid]}
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status: {conditions: null}
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+    - name: reject stale child readiness and recover through ordinary reconciliation
+      try:
         - patch:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1

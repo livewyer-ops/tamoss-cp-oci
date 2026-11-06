@@ -5,19 +5,52 @@ vars:
 tasks:
   prepare:
     cmds:
-      - mkdir -p -m 700 '{{.DIRECTORY}}'
+      - rm -rf '{{.DIRECTORY}}'
+      - mkdir -p -m 700 '{{.DIRECTORY}}/checkout/clusters/fixture/infrastructure' '{{.DIRECTORY}}/checkout/clusters/fixture/runtime'
       - >-
         yq 'load("{{.PROJECT_ROOT}}/tasks/bootstrap.yaml").tasks as $production |
         .tasks.up = $production.up | .tasks.handover = $production.handover |
+        .tasks.promote = $production.promote | .tasks.ready = $production.ready |
         .tasks."complete-handover" = $production."complete-handover" |
-        (.tasks[].cmds[] | select(has("task"))).task |= sub("^:", "")'
+        .tasks."gitops:current-checkout" = load("{{.PROJECT_ROOT}}/tasks/gitops.yaml").tasks."current-checkout" |
+        .tasks."gitops:promotion-checkout" = load("{{.PROJECT_ROOT}}/tasks/gitops.yaml").tasks."promotion-checkout" |
+        .tasks."public-up" = load("{{.PROJECT_ROOT}}/Taskfile.yaml").tasks.up |
+        .tasks."public-handover" = load("{{.PROJECT_ROOT}}/Taskfile.yaml").tasks.handover |
+        .vars = {"ROOT_DIR": "{{.PROJECT_ROOT}}", "ENV_PATH": "{{.DIRECTORY}}", "CHECKOUT_PATH": "{{.DIRECTORY}}/checkout"} |
+        (.tasks[].cmds[] | select(has("task"))).task |= sub("^:", "") |
+        (.tasks."gitops:current-checkout".cmds[], .tasks."gitops:promotion-checkout".cmds[] | select(has("task"))).task = "gitops:export-inputs" |
+        (.tasks."public-up".cmds[], .tasks."public-handover".cmds[] | select(has("task"))).task |= sub("^bootstrap:", "")'
         '{{.PROJECT_ROOT}}/tests/contracts/handover/boundaries.yaml' > '{{.DIRECTORY}}/Taskfile.yaml'
       - >-
         yq -n '{"deploymentUID": "original", "gitopsEstablished": true,
-        "starts": 0, "publications": 0, "observations": 0}' > '{{.DIRECTORY}}/identity.yaml'
+        "provisions": 0, "starts": 0, "publications": 0, "observations": 0}' > '{{.DIRECTORY}}/identity.yaml'
+      - 'yq -n ''{"branch": "main", "path": "clusters/fixture"}'' > {{.DIRECTORY}}/gitops.yaml'
+      - 'yq -n ''{"spec": {"managementPolicies": ["Observe"]}}'' > {{.DIRECTORY}}/checkout/clusters/fixture/infrastructure/environment.yaml'
+      - >-
+        PRODUCT_COMMIT="$(git -C '{{.PROJECT_ROOT}}' rev-parse HEAD)"
+        yq -n '{"metadata": {"name": "tamoss-product"}, "spec": {"ref": {"commit": strenv(PRODUCT_COMMIT)}}}'
+        > '{{.DIRECTORY}}/checkout/clusters/fixture/sources.yaml'
+      - touch '{{.DIRECTORY}}/checkout/clusters/fixture/values.yaml' '{{.DIRECTORY}}/checkout/clusters/fixture/runtime/release.yaml'
+      - git init --initial-branch=main '{{.DIRECTORY}}/checkout'
+      - git init --bare --initial-branch=main '{{.DIRECTORY}}/origin.git'
+      - git -C '{{.DIRECTORY}}/checkout' config user.name 'Handover fixture'
+      - git -C '{{.DIRECTORY}}/checkout' config user.email fixture@example.invalid
+      - git -C '{{.DIRECTORY}}/checkout' add clusters
+      - git -C '{{.DIRECTORY}}/checkout' commit -m 'Initial deployment'
+      - git -C '{{.DIRECTORY}}/checkout' remote add origin '{{.DIRECTORY}}/origin.git'
+      - git -C '{{.DIRECTORY}}/checkout' push origin main
   run:
     cmds:
-      - task -t '{{.DIRECTORY}}/Taskfile.yaml' up ENV_DIR='{{.DIRECTORY}}' CHECKOUT='{{.DIRECTORY}}' STOP_AT='{{.STOP_AT | default "none"}}'
+      - task -t '{{.DIRECTORY}}/Taskfile.yaml' public-handover ENV_DIR='{{.DIRECTORY}}' CHECKOUT='{{.DIRECTORY}}/checkout' STOP_AT='{{.STOP_AT | default "none"}}'
+  up:
+    cmds:
+      - task -t '{{.DIRECTORY}}/Taskfile.yaml' public-up ENV_DIR='{{.DIRECTORY}}' CHECKOUT='{{.DIRECTORY}}/checkout' STOP_AT=none
+  deployed:
+    cmds:
+      - >-
+        yq -e '[.deploymentUID == "original", .gitopsEstablished == true,
+        .handoverComplete != true, .quiesced != true, .runtimeWritesEnabled != true,
+        .starts == 0, .publications == 0, .stopped != true] | all' '{{.DIRECTORY}}/identity.yaml'
   complete:
     cmds:
       - >-
