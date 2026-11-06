@@ -114,8 +114,26 @@ spec:
             args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.state = "AVAILABLE" | .status.atProvider.assignedEntityType = "")', ../../.local/tmp/check/transfer/management-resources.json]
         - command:
             entrypoint: yq
-            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.state = "ASSIGNED" | .status.atProvider.assignedEntityType = "PRIVATE_IP" | .status.atProvider.assignedEntityId = "ocid1.privateip.oc1..loadbalancer" | .status.atProvider.privateIpId = "ocid1.privateip.oc1..loadbalancer")', ../../.local/tmp/check/transfer/remote-resources.json]
+            args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .spec.forProvider.privateIpId = "ocid1.privateip.oc1..loadbalancer" | .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.state = "ASSIGNED" | .status.atProvider.assignedEntityType = "PRIVATE_IP" | .status.atProvider.assignedEntityId = "ocid1.privateip.oc1..loadbalancer" | .status.atProvider.privateIpId = "ocid1.privateip.oc1..loadbalancer")', ../../.local/tmp/check/transfer/remote-resources.json]
         - command: *compare
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "Bucket"); .status.atProvider.approximateCount = "3" | .status.atProvider.approximateSize = "32000")', ../../.local/tmp/check/transfer/management-resources.json]
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "Bucket"); .status.atProvider.approximateCount = "5" | .status.atProvider.approximateSize = "51364")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command: *compare
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "Bucket"); .spec.forProvider.accessType = "ObjectRead")', ../../.local/tmp/check/transfer/remote-resources.json]
+        - command:
+            <<: *compare
+            check:
+              ($error != null): true
+              (contains($stderr, 'accessType')): true
+        - command:
+            entrypoint: yq
+            args: [-i, 'with(.resources[] | select(.kind == "Bucket"); .spec.forProvider.accessType = "NoPublicAccess")', ../../.local/tmp/check/transfer/remote-resources.json]
         - command:
             entrypoint: yq
             args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.2")', ../../.local/tmp/check/transfer/remote-resources.json]

@@ -50,7 +50,32 @@ spec:
                 managementPolicies: [Observe]
         - command:
             entrypoint: kubectl
-            args: [patch, tamossenvironment, qualification, -n, tamoss-infra, --type=merge, --dry-run=server, -p, '{"spec":{"managementPolicies":["Observe","Delete"]}}']
+            args: [wait, tamossenvironment/qualification, -n, tamoss-infra, '--for=jsonpath={.spec.managementPolicies[-1]}=Delete', --timeout=1s]
+            check:
+              ($error != null): true
+              (contains($stderr, 'timed out waiting')): true
+        - command:
+            entrypoint: yq
+            args: [-i, '.spec.managementPolicies = ["Observe", "Delete"]', ../../.local/tmp/check/adoption-admission.yaml]
+        - command:
+            entrypoint: kubectl
+            args: [apply, --server-side, -f, ../../.local/tmp/check/adoption-admission.yaml]
+        - command:
+            entrypoint: kubectl
+            args: [wait, tamossenvironment/qualification, -n, tamoss-infra, '--for=jsonpath={.spec.managementPolicies[-1]}=Delete', --timeout=1s]
+        - command:
+            entrypoint: yq
+            args: [-i, '.spec.managementPolicies = ["Observe"]', ../../.local/tmp/check/adoption-admission.yaml]
+        - command:
+            entrypoint: kubectl
+            args: [apply, --server-side, -f, ../../.local/tmp/check/adoption-admission.yaml]
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: qualification, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
         - command:
             entrypoint: kubectl
             args: [patch, tamossenvironment, qualification, -n, tamoss-infra, --type=merge, --dry-run=server, -p, '{"spec":{"managementPolicies":["*"]}}']
@@ -70,6 +95,9 @@ spec:
             entrypoint: kubectl
             args: [apply, --server-side, --dry-run=server, -f, ../../.local/tmp/check/workload-identity.yaml]
       finally:
+        - command:
+            entrypoint: yq
+            args: [-i, '.spec.managementPolicies = ["Observe"]', ../../.local/tmp/check/adoption-admission.yaml]
         - command:
             entrypoint: kubectl
             args: [delete, tamossenvironment, qualification, -n, tamoss-infra, --ignore-not-found, --wait=false]

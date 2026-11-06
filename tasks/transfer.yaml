@@ -29,15 +29,17 @@ tasks:
   compare:
     requires: {vars: [ENV_DIR]}
     cmds:
-      # OKE owns public-IP attachment; Crossplane observations can differ in age.
+      # OKE owns public-IP attachment, including its late-initialised provider field.
       # OCI returns adminUsername; credentials retains creation-only provider state.
+      # Bucket usage counters are approximate, periodically refreshed observations.
       - for: [management, remote]
         cmd: >-
           yq '.resources | map(with(select(.kind == "PsqlDbSystem");
           .spec.initProvider.credentials = (.spec.initProvider.credentials // .spec.forProvider.credentials) |
           del(.spec.forProvider.credentials, .status.atProvider.credentials)) |
-          with(select(.kind == "PublicIp"); del(.status.atProvider.assignedEntityId,
+          with(select(.kind == "PublicIp"); del(.spec.forProvider.privateIpId, .status.atProvider.assignedEntityId,
           .status.atProvider.assignedEntityType, .status.atProvider.privateIpId, .status.atProvider.state)) |
+          with(select(.kind == "Bucket"); del(.status.atProvider.approximateCount, .status.atProvider.approximateSize)) |
           {"apiVersion": .apiVersion, "kind": .kind,
           "metadata": {"name": .metadata.name, "namespace": .metadata.namespace,
           "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}},
@@ -216,8 +218,8 @@ tasks:
       - task: assert-quiesced
         vars: {FILE: '{{.ENV_DIR}}/remote-resources.json'}
       - 'yq -i ''.spec.managementPolicies = ["Observe", "Delete"]'' {{.ENV_DIR}}/environment.yaml'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra patch tamossenvironment/{{.NAME}} --type=merge -p '{"spec":{"managementPolicies":["Observe","Delete"]}}'
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.spec.managementPolicies[1]}=Delete' --timeout=300s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' apply --server-side -f '{{.ENV_DIR}}/environment.yaml'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.spec.managementPolicies[-1]}=Delete' --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
   start-kind:
     requires: {vars: [ENV_DIR]}
