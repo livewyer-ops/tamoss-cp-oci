@@ -22,6 +22,8 @@ tasks:
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
       - task: ready
         vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+      - task: complete-handover
+        vars: {ENV_DIR: '{{.ENV_DIR}}'}
   initialise-runtime:
     requires: {vars: [ENV_DIR, CHECKOUT]}
     vars:
@@ -250,8 +252,11 @@ tasks:
           CHECKOUT: '{{.CHECKOUT}}'
           MESSAGE: 'feat: transfer infrastructure ownership to OKE'
           FILES: [infrastructure/environment.yaml]
-      - task: ready
-        vars: {ENV_DIR: '{{.ENV_DIR}}', CHECKOUT: '{{.CHECKOUT}}'}
+  complete-handover:
+    requires: {vars: [ENV_DIR]}
+    status:
+      - 'yq -e ''.handoverComplete == true'' {{.ENV_DIR}}/identity.yaml > /dev/null'
+    cmds:
       - task: :transfer:stop-kind
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -i ''.handoverComplete = true'' {{.ENV_DIR}}/identity.yaml'
@@ -428,8 +433,6 @@ tasks:
   bindings:
     requires: {vars: [ENV_DIR]}
     cmds:
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=create --timeout=1800s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra get secret/adoption-bindings -o json > '{{.ENV_DIR}}/bindings-observed.json'
       - >-
         yq -p=json -e 'select(.data.SCHEMA_VERSION == "MQ==") | .data.ADOPTION_YAML | @base64d | from_yaml |

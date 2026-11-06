@@ -92,6 +92,26 @@ Treat diagnostic output as private and redact it before sharing. Report location
 | Cloud baseline and subsequent inventory | `.local/environment/inventory-before/`, other `inventory-*` directories |
 | Recorded resource ownership | `.local/environment/resources.yaml`, `owned-cloud.yaml` |
 
+## Convergence and handover
+
+`task up` observes the initial GitOps deployment, explicitly transfers ownership,
+then observes the promoted Git revision before stopping Kind. A repeated `up`
+checks the current deployment once and leaves Kind stopped after completed handover.
+
+| Stage after remote seeding | Native actions |
+| --- | --- |
+| Initial convergence | Observe bootstrap readiness, record bindings and inventory, then run the deployment-readiness assertions and OKE managed-resource checks |
+| Verify adoption | Read and compare both control planes' resource identities and configuration |
+| Quiesce Kind | Freeze the instance HelmRelease, release and pause the bootstrap, set infrastructure to Observe, and wait for managed resources to acknowledge their pause |
+| Enable OKE ownership | Refresh both inventories, verify Kind has stopped writing, enable runtime IAM writes, and commit/push the promotion to the environment repository |
+| Verify promotion | Observe the published infrastructure and runtime Git revision, chart generation and deployment health through Chainsaw |
+| Complete handover | Refresh both inventories, verify ownership and OKE managed-resource readiness, stop the original Kind containers, and record completion |
+
+The inventory comparisons occur before quiescing, before enabling OKE writes and
+before stopping Kind. Readiness observations do not trigger Flux reconciliation.
+A failed promotion observation leaves handover incomplete and preserves the state for retry.
+Teardown retains its binding-delivery waits because the bootstrap is paused then.
+
 ## Retry a failed deployment
 
 Resolve the reported problem, preserve its evidence, then repeat with the original

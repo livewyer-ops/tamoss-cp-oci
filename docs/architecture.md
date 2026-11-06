@@ -95,11 +95,13 @@ recreated after it has been removed. Subsequent operations use Git and the OKE
 controllers. The host uses the pinned native OCI CLI for renewable kubeconfig
 tokens, inventory, qualification and cleanup.
 
-Deployment completion observes the selected Git revision, current product chart
+Deployment completion observes the selected infrastructure and runtime Git revision, current product chart
 and HelmRelease generation, then the `deployment-ready` Flux health check.
 That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS.
 Routine `up` and `qualify` readiness checks do not force application reconciliation;
 ownership promotion also observes normal Flux reconciliation at the published revision.
+Initial deployment health is checked before handover and the promoted revision
+is checked before Kind stops. Completion is recorded only after that stop succeeds.
 
 Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
 the load balancer. Handover compares the address, resource identity and desired

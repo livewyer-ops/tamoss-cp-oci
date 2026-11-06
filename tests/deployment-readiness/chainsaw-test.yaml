@@ -75,6 +75,40 @@ spec:
             file: resources.yaml
             subresource: status
         - command: *check
+    - name: reject missing revisions and stale infrastructure observations before promotion completes
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: tamoss-infra}
+              status: {lastAppliedRevision: null}
+        - command: *waiting
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: tamoss-infra}
+              status:
+                lastAppliedRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        - command: *waiting
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: infrastructure, namespace: tamoss-infra}
+              status: {observedGeneration: 0}
+        - command: *waiting
+        - patch:
+            file: resources.yaml
+            subresource: status
+        - command: *check
     - name: reject a stale runtime revision
       try:
         - patch:

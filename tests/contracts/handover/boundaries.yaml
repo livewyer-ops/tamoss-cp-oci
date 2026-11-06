@@ -1,0 +1,43 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+# Exercise the production Task flow with local substitutes for external actions.
+tasks:
+  lifecycle:time-window: {cmds: ['true']}
+  gitops:export-inputs: {cmds: ['true']}
+  provision: {cmds: ['true']}
+  initialise-runtime: {cmds: ['true']}
+  checkpoint:
+    preconditions:
+      - sh: test '{{.STOP_AT}}' != '{{.POINT}}'
+        msg: Injected interruption at {{.POINT}}
+    cmds: ['true']
+  transfer:start-kind:
+    cmds:
+      - 'yq -i ''.starts += 1 | .stopped = false'' {{.ENV_DIR}}/identity.yaml'
+  transfer:prepare-promotion:
+    cmds:
+      - task: checkpoint
+        vars: {POINT: before-promotion}
+      - 'yq -i ''.quiesced = true'' {{.ENV_DIR}}/identity.yaml'
+  transfer:runtime-writes:
+    cmds:
+      - 'yq -e ''.quiesced == true'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.runtimeWritesEnabled = true'' {{.ENV_DIR}}/identity.yaml'
+      - task: checkpoint
+        vars: {POINT: after-iam}
+  gitops:publish:
+    cmds:
+      - 'yq -e ''.quiesced == true and .runtimeWritesEnabled == true'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.publications += 1 | .published = true'' {{.ENV_DIR}}/identity.yaml'
+      - task: checkpoint
+        vars: {POINT: after-publication}
+  ready:
+    cmds:
+      - 'yq -e ''.published == true and .unhealthy != true'' {{.ENV_DIR}}/identity.yaml'
+      - 'yq -i ''.observations += 1'' {{.ENV_DIR}}/identity.yaml'
+  transfer:stop-kind:
+    cmds:
+      - 'yq -e ''.quiesced == true and .published == true and .observations > 0'' {{.ENV_DIR}}/identity.yaml'
+      - task: checkpoint
+        vars: {POINT: before-stop}
+      - 'yq -i ''.stopped = true'' {{.ENV_DIR}}/identity.yaml'

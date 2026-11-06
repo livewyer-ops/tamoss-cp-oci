@@ -18,6 +18,7 @@ task check
 | Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; Git preparation without cloud outputs |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
+| Handover flow | Production Task sequencing with local substitutes for external actions; interruption around IAM/Git/shutdown, failed readiness and repeat without restarting Kind |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
 The check builds the container for the selected release's unchanged browser tests.
@@ -71,7 +72,7 @@ reconciliation. They reject changed bindings and retain the persisted record whe
 its PushSecret is removed. Credential tests verify that ESO adopts a seeded Git
 Secret without replacing its UID.
 
-Readiness checks wait for initial source revisions, reject stale Git/chart
+Readiness checks wait for initial source revisions, reject stale infrastructure/runtime Git and chart
 observations and old Ready conditions after a values change. Real Flux checks
 cover delayed dependencies and recovery without forced reconciliation.
 Media-fixture preparation belongs to `qualify`;

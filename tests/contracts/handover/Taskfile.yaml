@@ -1,0 +1,39 @@
+version: '3'
+set: [errexit, nounset, pipefail]
+vars:
+  DIRECTORY: '{{.PROJECT_ROOT}}/.local/tmp/check/handover-flow'
+tasks:
+  prepare:
+    cmds:
+      - mkdir -p -m 700 '{{.DIRECTORY}}'
+      - >-
+        yq 'load("{{.PROJECT_ROOT}}/tasks/bootstrap.yaml").tasks as $production |
+        .tasks.up = $production.up | .tasks.handover = $production.handover |
+        .tasks."complete-handover" = $production."complete-handover" |
+        (.tasks[].cmds[] | select(has("task"))).task |= sub("^:", "")'
+        '{{.PROJECT_ROOT}}/tests/contracts/handover/boundaries.yaml' > '{{.DIRECTORY}}/Taskfile.yaml'
+      - >-
+        yq -n '{"deploymentUID": "original", "gitopsEstablished": true,
+        "starts": 0, "publications": 0, "observations": 0}' > '{{.DIRECTORY}}/identity.yaml'
+  run:
+    cmds:
+      - task -t '{{.DIRECTORY}}/Taskfile.yaml' up ENV_DIR='{{.DIRECTORY}}' CHECKOUT='{{.DIRECTORY}}' STOP_AT='{{.STOP_AT | default "none"}}'
+  complete:
+    cmds:
+      - >-
+        yq -e '[.deploymentUID == "original", .handoverComplete == true,
+        .quiesced == true, .runtimeWritesEnabled == true, .published == true,
+        .stopped == true, .observations > 0] | all' '{{.DIRECTORY}}/identity.yaml'
+  incomplete:
+    cmds:
+      - 'yq -e ''.handoverComplete != true and .stopped != true'' {{.DIRECTORY}}/identity.yaml'
+  repeat:
+    cmds:
+      - cp '{{.DIRECTORY}}/identity.yaml' '{{.DIRECTORY}}/before-repeat.yaml'
+      - task: run
+        vars: {STOP_AT: before-promotion}
+      - >-
+        yq -e 'load("{{.DIRECTORY}}/before-repeat.yaml") as $before |
+        [.starts == $before.starts, .publications == $before.publications,
+        .observations == ($before.observations + 1), .stopped == true] | all'
+        '{{.DIRECTORY}}/identity.yaml'

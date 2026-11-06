@@ -67,9 +67,8 @@ tasks:
       - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f '{{.ROOT_DIR}}/deploy/contracts/quiesced.yaml'
       - 'yq -e ''(.spec.managementPolicies | join(",")) == "Observe" and .metadata.annotations."crossplane.io/paused" == "true"'' {{.ENV_DIR}}/composite.json > /dev/null'
       - 'yq -e ''(.spec.managementPolicies | join(",")) == "Observe" and .metadata.annotations."crossplane.io/paused" == "true"'' {{.ENV_DIR}}/environment.yaml > /dev/null'
+    # prepare-promotion supplies fresh inventories before evaluating this status.
     cmds:
-      - task: inspect
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - 'yq -e ''.spec.managementPolicies | join(",") == "Observe"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - chainsaw assert --timeout 1s -r '{{.ENV_DIR}}/management-resources.json' -f deploy/contracts/quiesce-input.yaml
@@ -83,10 +82,6 @@ tasks:
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{.NAME}} crossplane.io/paused=true --overwrite
       - 'yq -i ''.metadata.annotations."crossplane.io/paused" = "true"'' {{.ENV_DIR}}/environment.yaml'
-      - task: inspect
-        vars: {ENV_DIR: '{{.ENV_DIR}}'}
-      - task: assert-quiesced
-        vars: {FILE: '{{.ENV_DIR}}/management-resources.json'}
   assert-quiesced:
     requires: {vars: [FILE]}
     cmds:
@@ -129,7 +124,6 @@ tasks:
       - 'yq -e ''.spec.managementPolicies | join(",") == "*"'' {{.ENV_DIR}}/runtime-composite.json > /dev/null'
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Ready --timeout=300s
       - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{.NAME}}' --for=condition=Synced --timeout=300s
-      - kubectl --kubeconfig '{{.ENV_DIR}}/remote.kubeconfig' -n auth wait kustomization/tamoss --for=condition=Ready --timeout=1800s
       - for: {var: NODES}
         cmd: docker stop '{{.ITEM}}'
   freeze-runtime:
@@ -197,6 +191,8 @@ tasks:
           ENV_DIR: '{{.ENV_DIR}}'
           GITOPS_VALUES: '{{.ENV_DIR}}/gitops-current-values.yaml'
           PRODUCT_COMMIT: '{{.PRODUCT_COMMIT}}'
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=create --timeout=1800s
+      - kubectl --kubeconfig '{{.ENV_DIR}}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=condition=Ready --timeout=300s
       - task: :bootstrap:bindings
         vars: {ENV_DIR: '{{.ENV_DIR}}'}
       - >-

@@ -346,4 +346,4 @@ tasks:
       - crossplane resource validate '{{.CACHE}}/schemas' '{{.CACHE}}/tadoss-{{.COMPONENT}}-render.yaml' --crossplane-image={{.CORE}} --cache-dir='{{.CACHE}}/crossplane' --error-on-missing-schemas --skip-success-results
   contracts:
     cmds:
-      - chainsaw test --no-cluster --test-dir tests/contracts --report-format JUNIT-TEST --report-path .local/reports --report-name contracts
+      - chainsaw test --no-cluster --test-dir tests/contracts --set-string root='{{.ROOT_DIR}}' --report-format JUNIT-TEST --report-path .local/reports --report-name contracts
