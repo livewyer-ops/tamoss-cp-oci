@@ -104,6 +104,7 @@ tasks:
       - task --taskfile tests/oke-bootstrap/Taskfile.yaml render ROOT='{{.ROOT_DIR}}'
       - task: secrets
       - task: connection-details
+      - task: operations
       - task: gitops
       - task: tadoss
       - task --taskfile tests/setup/Taskfile.yaml check ROOT='{{.ROOT_DIR}}'
@@ -203,6 +204,7 @@ tasks:
       - 'yq ''.metadata.name = "retirement-fetch-failed" | .spec.backoffLimit = 0 | .spec.template.spec.initContainers[0].command = ["false"] | .spec.template.spec.initContainers[0].args = []'' {{.CACHE}}/secret-retirement-fixture.yaml > {{.CACHE}}/secret-retirement-fetch-failed.yaml'
   connection-details:
     cmds:
+      - helm dependency build --skip-refresh charts/database-connection
       - >-
         yq -n '{"databaseId": "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example", "region": "eu-frankfurt-1",
         "images": {"oci": load("dependencies.yaml").oci.image,
@@ -224,6 +226,11 @@ tasks:
       - for: [stale, invalid]
         cmd: 'yq ''select(.kind == "Job") | .metadata.name = "connection-{{.ITEM}}"'' {{.CACHE}}/database-connection-fixture.yaml > {{.CACHE}}/database-connection-{{.ITEM}}.yaml'
       - 'yq ''select(.kind == "Job") | .metadata.name = "connection-failed" | .spec.template.spec.initContainers[0].command = ["false"] | .spec.template.spec.initContainers[0].args = []'' {{.CACHE}}/database-connection-fixture.yaml > {{.CACHE}}/database-connection-failed.yaml'
+  operations:
+    cmds:
+      - 'yq ''select(.kind == "Job") | del(.spec.activeDeadlineSeconds)'' {{.CACHE}}/database-connection.yaml > {{.CACHE}}/operation-no-deadline.yaml'
+      - 'yq ''select(.kind == "Job") | .spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation = true'' {{.CACHE}}/database-connection.yaml > {{.CACHE}}/operation-unsafe.yaml'
+      - chainsaw test --no-cluster --test-dir tests/operations/render --report-format JUNIT-TEST --report-path .local/reports --report-name operations
   database:
     env:
       TEST_DB_IMAGE:

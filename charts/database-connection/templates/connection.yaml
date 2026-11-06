@@ -57,11 +57,7 @@ spec:
       serviceAccountName: database-connection
       restartPolicy: Never
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        seccompProfile: {type: RuntimeDefault}
+        {{- include "operation-common.podSecurity" . | nindent 8 }}
       initContainers:
         - name: retrieve
           image: {{ .Values.images.oci | quote }}
@@ -78,15 +74,11 @@ spec:
             - {name: OCI_RESOURCE_PRINCIPAL_REGION, value: {{ .Values.region | quote }}}
             - {name: OCI_RESOURCE_PRINCIPAL_WORKLOAD_IDENTITY, value: '1'}
           resources: &resources
-            requests: {cpu: 100m, memory: 64Mi}
-            limits: {memory: 256Mi}
+            {{- include "operation-common.resources" . | nindent 12 }}
           securityContext: &security
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities: {drop: [ALL]}
+            {{- include "operation-common.containerSecurity" . | nindent 12 }}
           volumeMounts: &mounts
-            - {name: work, mountPath: /work}
-            - {name: temporary, mountPath: /tmp}
+            {{- include "operation-common.mounts" . | nindent 12 }}
         - name: validate
           image: {{ .Values.images.yq | quote }}
           command: [yq]
@@ -118,7 +110,4 @@ spec:
           securityContext: *security
           volumeMounts: *mounts
       volumes:
-        - name: work
-          emptyDir: {medium: Memory, sizeLimit: 1Mi}
-        - name: temporary
-          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        {{- include "operation-common.volumes" . | nindent 8 }}

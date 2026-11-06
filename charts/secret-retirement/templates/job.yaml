@@ -14,11 +14,7 @@ spec:
       automountServiceAccountToken: false
       restartPolicy: Never
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        seccompProfile: {type: RuntimeDefault}
+        {{- include "operation-common.podSecurity" . | nindent 8 }}
       initContainers:
         - name: retrieve
           image: {{ required "OCI CLI image is required" .Values.images.oci | quote }}
@@ -41,15 +37,11 @@ spec:
               valueFrom:
                 secretKeyRef: {name: oci-vault-bootstrap, key: privatekey}
           resources: &resources
-            requests: {cpu: 100m, memory: 64Mi}
-            limits: {memory: 256Mi}
+            {{- include "operation-common.resources" . | nindent 12 }}
           securityContext: &security
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities: {drop: [ALL]}
+            {{- include "operation-common.containerSecurity" . | nindent 12 }}
           volumeMounts: &mounts
-            - {name: work, mountPath: /work}
-            - {name: temporary, mountPath: /tmp}
+            {{- include "operation-common.mounts" . | nindent 12 }}
       containers:
         - name: validate
           image: {{ required "yq image is required" .Values.images.yq | quote }}
@@ -67,7 +59,4 @@ spec:
           securityContext: *security
           volumeMounts: *mounts
       volumes:
-        - name: work
-          emptyDir: {medium: Memory, sizeLimit: 1Mi}
-        - name: temporary
-          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        {{- include "operation-common.volumes" . | nindent 8 }}

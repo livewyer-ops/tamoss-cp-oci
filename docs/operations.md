@@ -93,6 +93,23 @@ Treat diagnostic output as private and redact it before sharing. Report location
 | Cloud baseline and subsequent inventory | `.local/environment/inventory-before/`, other `inventory-*` directories |
 | Recorded resource ownership | `.local/environment/resources.yaml`, `owned-cloud.yaml` |
 
+## Operational Job recovery
+
+Inspect the Job conditions and failed init-container logs before retrying the
+owning command. Deadlines and backoff limits remain specific to each operation;
+the common chart does not choose retry policy or manage the workflow.
+
+| Job | Interruption and retry behaviour |
+| --- | --- |
+| Kind `tamoss-infra/oke-bootstrap` | Preserve its `oke-connection` Secret and original cluster. Repeat `task up` with the same inputs. Identity checks reject a different target; the durable completion receipt prevents reseeding a completed or released bootstrap. |
+| OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
+| Kind `tamoss-infra/secret-retirement` | Repeat `task down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
+
+Do not delete identity receipts or clear finalisers to bypass a failed operation.
+Database hostname/CA validation failures leave the previously published connection
+data intact. Secret-retirement failure keeps Kind and its credentials available
+for a later teardown attempt.
+
 ## Convergence and handover
 
 `task up` completes deployment with Kind running and owning infrastructure; OKE

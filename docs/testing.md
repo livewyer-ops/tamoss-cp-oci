@@ -18,6 +18,7 @@ task check
 | Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; local seed preparation without cloud outputs and identical configuration export |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
+| Operational Jobs | Shared retry bounds, security, image and temporary-storage contract across Helm and Crossplane; rejection of missing deadlines and unsafe container permissions |
 | Handover flow | Public command wiring and production Task sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
@@ -35,6 +36,8 @@ This includes `check`, then creates and removes a disposable, credential-free Ki
 cluster. It tests provider package health, real API admission, required database
 CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
 include partial installs and retention of state when the cloud audit fails.
+Flux also packages both operational charts from a source archive without generated
+dependency packages, verifying that the shared Helm library resolves from source.
 
 The OKE bootstrap test adds a second disposable Kind cluster. Crossplane creates
 the production Job with a fixture replacing OCI kubeconfig retrieval. The Job

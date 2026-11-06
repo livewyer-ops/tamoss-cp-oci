@@ -128,6 +128,31 @@ are consumed read-only. Git enablement, authenticated linked-media checks and
 persistence after pod replacement passed with Kind stopped. OCI resource IDs
 remained unchanged across enablement. See the [qualification limits](testing.md#verified-coverage-and-limits).
 
+## Operational Jobs
+
+The OKE bootstrap, database connection and secret-retirement Jobs use native CLI
+commands in ordered init containers. Kubernetes owns retries and deadlines.
+Images are pinned through `dependencies.yaml`; containers run without root or
+privilege escalation, with read-only root filesystems and bounded memory-backed
+temporary storage. Credentials use Secret references. Validated non-secret
+outputs may use ConfigMaps; credential payloads stay in Secrets and Vault.
+
+The database connection and secret-retirement charts share these settings through
+the [operation-common library](../charts/operation-common/). Helmfile and Flux
+resolve its local chart dependency. Local rendering builds it through the existing
+checks. The Crossplane bootstrap template has a separate rendering stage and
+conforms to the same tested contract without importing Helm helpers.
+
+| Operation | Owner and location | Inputs and completion |
+| --- | --- | --- |
+| OKE bootstrap | Crossplane in original Kind | Cluster/deployment identity, seed ConfigMap and OCI Secret references; identity-bound `oke-connection` Secret records completion |
+| Database connection | Flux HelmRelease in OKE, namespace `auth` | Database ID, refresh revision and workload identity; validates hostname/CA before patching the named `database-connection` ConfigMap |
+| Secret retirement | Helmfile during teardown in original Kind | Deployment prefix, Vault/compartment IDs and OCI Secret references; completes when listed matching secrets are pending deletion or deleted |
+
+Jobs can execute more than once. Each operation therefore keeps its own recovery
+and identity checks; Job completion alone does not provide exactly-once execution.
+See [recovery procedures](operations.md#operational-job-recovery).
+
 ## Configuration flow
 
 | Source | Purpose |

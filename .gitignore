@@ -1,3 +1,5 @@
 /.local/
 /AGENTS.md
 /CLAUDE.md
+/charts/database-connection/charts/
+/charts/secret-retirement/charts/

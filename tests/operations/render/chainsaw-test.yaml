@@ -1,0 +1,30 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: bounded-operation-contract}
+spec:
+  steps:
+    - name: apply the same contract to Helm and Crossplane Jobs
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../../.local/tmp/check/database-connection.yaml, -f, ../job.yaml, --timeout, 1ms]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../../.local/tmp/check/secret-retirement.yaml, -f, ../job.yaml, --timeout, 1ms]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../../.local/tmp/check/oke-bootstrap/ready.yaml, -f, ../job.yaml, --timeout, 1ms]
+    - name: reject an unbounded Job
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../../.local/tmp/check/operation-no-deadline.yaml, -f, ../job.yaml, --timeout, 1ms]
+            check: &rejected
+              ($error != null): true
+              (contains($stderr, 'assertion failed')): true
+    - name: reject unsafe container permissions
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../../.local/tmp/check/operation-unsafe.yaml, -f, ../job.yaml, --timeout, 1ms]
+            check: *rejected
