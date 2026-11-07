@@ -2,6 +2,8 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
 spec:
+  commonMetadata:
+    labels: {tamoss.livewyer.io/deployment-id: REPLACE}
   interval: 5m
   timeout: 10m
   releaseName: tamoss-gitops-bootstrap
@@ -25,6 +27,8 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: platform-defaults, namespace: flux-system}
 spec:
+  commonMetadata:
+    labels: {tamoss.livewyer.io/deployment-id: REPLACE}
   interval: 1m
   timeout: 2m
   prune: true
@@ -39,6 +43,8 @@ metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
+  commonMetadata:
+    labels: {tamoss.livewyer.io/deployment-id: REPLACE}
   interval: 5m
   timeout: 15m
   prune: false
@@ -51,6 +57,7 @@ spec:
   dependsOn: [{name: adoption-bindings}]
   postBuild:
     substituteFrom: [{kind: Secret, name: adoption-bindings}]
+    substitute: {ENVIRONMENT_NAME: REPLACE}
   healthChecks:
     - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossEnvironment, name: REPLACE, namespace: tamoss-infra}
 ---
@@ -58,6 +65,8 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: runtime, namespace: tamoss-infra}
 spec:
+  commonMetadata:
+    labels: {tamoss.livewyer.io/deployment-id: REPLACE}
   interval: 1m
   retryInterval: 30s
   timeout: 15m
@@ -78,6 +87,8 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: infrastructure-controllers, namespace: flux-system}
 spec:
+  commonMetadata:
+    labels: {tamoss.livewyer.io/deployment-id: REPLACE}
   interval: 1m
   timeout: 10m
   prune: false

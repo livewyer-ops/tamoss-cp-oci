@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The host establishes temporary OKE ServiceAccount access in Kind. Native Flux
+  Kustomizations install and seed OKE; `up` retires their authority after successful
+  deployment. Repeats renew active bootstrap credentials or finish interrupted
+  retirement; Git attachment requires retirement first.
+- Initial deployment and Git export share one Kustomize base. Crossplane supplies
+  observed Vault information in Kind. Remove the OKE bootstrap Job and connection
+  receipt. Existing environments require their recorded product revision
+  for recovery and teardown.
 - Crossplane creates the storage user, group and bucket policy in Kind. Setup
   discovers the Default identity domain and no longer accepts `storage.userId`.
   Storage IAM remains with retained Kind after handover. Existing deployments

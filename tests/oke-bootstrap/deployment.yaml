@@ -1,35 +1,9 @@
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
-metadata: {name: tamoss-product, namespace: flux-system}
-spec:
-  interval: 1m
-  suspend: true
-  url: https://github.com/example/fixture
----
-apiVersion: v1
-kind: Namespace
-metadata: {name: tamoss-infra}
----
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
-metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
+metadata: {name: seed-proof, namespace: tamoss-infra}
 spec:
-  interval: 1m
-  suspend: true
+  interval: 10s
   chart:
     spec:
-      chart: ./charts/gitops-bootstrap
+      chart: ./chart
       sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
-  values: {vaultId: REPLACE}
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata: {name: runtime, namespace: tamoss-infra}
-spec:
-  interval: 1m
-  suspend: true
-  prune: false
-  path: ./deploy/gitops/runtime
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
-  postBuild:
-    substitute: {VAULT_ID: REPLACE}

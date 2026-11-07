@@ -1,213 +1,440 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
-metadata: {name: remote-bootstrap-job}
+metadata: {name: kind-remote-bootstrap}
 spec:
-  concurrent: false
   steps:
-    - name: wait for prerequisites without creating a Job
+    - name: establish the observed management prerequisites
       try:
-        - apply:
-            resource: {apiVersion: v1, kind: Namespace, metadata: {name: oke-check}}
-        - apply: {file: barrier-access.yaml}
-        - apply:
+        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/bootstrap.yaml'}
+        - apply: {file: credentials.yaml}
+        - apply: {file: source.yaml}
+        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml'}
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: host-seed, namespace: tamoss-infra}
+              status:
+                bootstrapReady: true
+                observedGeneration: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'TamossBootstrap', 'tamoss-infra', 'host-seed').metadata.generation)
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-secrets, namespace: tamoss-infra}
+              status:
+                observedGeneration: (x_k8s_get($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra', 'tamoss-secrets').metadata.generation)
+                conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
+              status:
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').metadata.generation)
+                conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
+    - name: provide the product artifact before credentials arrive
+      bindings:
+        - name: sourcePod
+          value: (x_k8s_list($client, 'v1', 'Pod', 'flux-system').items[?metadata.labels.app == 'source-controller'] | [0].metadata.name)
+      try:
+        - command:
+            entrypoint: kubectl
+            env:
+              - {name: DIRECTORY, value: ($values.directory)}
+              - {name: SOURCE_POD, value: ($sourcePod)}
+            args: [-n, flux-system, cp, '$DIRECTORY/product.tar.gz', '$SOURCE_POD:/data/oke-product.tar.gz']
+        - command:
+            entrypoint: sha256sum
+            env: [{name: DIRECTORY, value: ($values.directory)}]
+            args: ['$DIRECTORY/product.tar.gz']
+            outputs:
+              - name: digest
+                value: (join('', ['sha256:', split($stdout, ' ')[0]]))
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: oke-bootstrap-fixture, namespace: tamoss-infra}
+              status:
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'oke-bootstrap-fixture').metadata.generation)
+                conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
+                artifact:
+                  path: oke-product.tar.gz
+                  url: http://source-controller.flux-system.svc.cluster.local./oke-product.tar.gz
+                  revision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                  digest: ($digest)
+                  lastUpdateTime: '2026-01-01T00:00:00Z'
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-flux, namespace: tamoss-infra}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - error:
+            cluster: remote
+            resource: {apiVersion: apps/v1, kind: Deployment, metadata: {name: source-controller, namespace: flux-system}}
+    - name: retire a partial installation before remote workloads exist
+      try:
+        - command:
+            entrypoint: mise
+            env: &environment
+              - {name: ENV_DIR, value: ($values.directory)}
+              - {name: DIRECTORY, value: ($values.directory)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: [run, bootstrap:remote-retire]
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-retire]
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-retired]
+        - error:
+            cluster: remote
+            resource: {apiVersion: apps/v1, kind: Deployment, metadata: {name: source-controller, namespace: flux-system}}
+    - name: reset the disposable fixture for the independent full bootstrap case
+      try:
+        - command:
+            entrypoint: kubectl
+            args: [-n, flux-system, scale, deployment/kustomize-controller, --replicas=1]
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-seed, --timeout=60s]
+        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml'}
+    - name: Kind installs Flux and seeds OKE after the credential process exits
+      try:
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-seed, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            cluster: remote
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
+              spec: {values: {vaultId: ocid1.vault.oc1.fixture}}
+        - assert:
+            cluster: remote
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: runtime, namespace: tamoss-infra}
+              spec: {postBuild: {substitute: {VAULT_ID: ocid1.vault.oc1.fixture}}}
+        - error:
+            resource: {apiVersion: batch/v1, kind: Job, metadata: {name: oke-bootstrap, namespace: tamoss-infra}}
+    - name: reject a changed remote identity
+      try:
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:reject-identity]
+            check: {($error != null): true}
+    - name: replay the same seed without replacing resources
+      cluster: remote
+      bindings:
+        - name: originalUID
+          value: (x_k8s_get($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra', 'tamoss-gitops-bootstrap').metadata.uid)
+      try:
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra, uid: ($originalUID)}
+    - name: request a short-lived token to exercise actual API expiry
+      try:
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:short-access]
+    - name: Flux converges after the host seed process has exited
+      cluster: remote
+      bindings:
+        - name: sourcePod
+          value: (x_k8s_list($client, 'v1', 'Pod', 'flux-system').items[?metadata.labels.app == 'source-controller'] | [0].metadata.name)
+      try:
+        - command:
+            entrypoint: kubectl
+            env:
+              - {name: DIRECTORY, value: ($values.directory)}
+              - {name: SOURCE_POD, value: ($sourcePod)}
+            args: [--kubeconfig, '$DIRECTORY/target.kubeconfig', -n, flux-system, cp, '$DIRECTORY/seed-proof.tar.gz', '$SOURCE_POD:/data/seed-proof.tar.gz']
+        - command:
+            entrypoint: sha256sum
+            env: *environment
+            args: ['$DIRECTORY/seed-proof.tar.gz']
+            outputs:
+              - name: digest
+                value: (join('', ['sha256:', split($stdout, ' ')[0]]))
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: tamoss-product, namespace: flux-system}
+              status:
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'flux-system', 'tamoss-product').metadata.generation)
+                conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
+                artifact:
+                  path: seed-proof.tar.gz
+                  url: http://source-controller.flux-system.svc.cluster.local./seed-proof.tar.gz
+                  revision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                  digest: ($digest)
+                  lastUpdateTime: '2026-01-01T00:00:00Z'
+        - assert:
             resource:
               apiVersion: v1
               kind: ConfigMap
-              metadata: {name: prerequisites, namespace: oke-check}
-              data: {ready: 'false'}
-        - apply:
-            resource:
-              apiVersion: v1
-              kind: Secret
-              metadata: {name: oci-vault-bootstrap, namespace: oke-check}
-              stringData: {fingerprint: fixture, privatekey: fixture}
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/fixture-secret.yaml'}
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/input.yaml'}
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/composition.yaml'}
+              metadata: {name: seed-proof, namespace: tamoss-infra}
+              data: {reconciled: 'true'}
+    - name: reject insecure TLS before remote writes
+      try:
         - command:
-            entrypoint: kubectl
-            args: [create, --dry-run=server, -f, ../../../.local/tmp/check/oke-bootstrap/missing-auth.yaml]
-            check:
-              ($error != null): true
-              (contains($stderr, 'Remote bootstrap requires the Kind OCI identity')): true
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/management-root.yaml'}
-        - assert:
-            resource:
-              apiVersion: tamoss.livewyer.io/v1alpha1
-              kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              status: {remoteBootstrapPhase: Waiting, remoteBootstrapReady: false}
-        - error:
-            resource: {apiVersion: batch/v1, kind: Job, metadata: {name: oke-bootstrap, namespace: oke-check}}
+            entrypoint: yq
+            env: *environment
+            args: [-i, '.clusters[0].cluster."insecure-skip-tls-verify" = true', '$DIRECTORY/remote.kubeconfig']
         - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, patch, tamossbootstrap, oke-check, --type=merge, '-p={"spec":{"remoteBootstrap":{"fluxVersion":"v2.0.0"}}}']
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
             check: {($error != null): true}
-    - name: controller installs Flux and survives an interrupted Pod
+        - command:
+            entrypoint: cp
+            env: *environment
+            args: ['$DIRECTORY/remote.saved.kubeconfig', '$DIRECTORY/remote.kubeconfig']
+    - name: reject a stale management observation
       try:
         - patch:
-            resource: {apiVersion: v1, kind: ConfigMap, metadata: {name: prerequisites, namespace: oke-check}, data: {ready: 'true'}}
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Pod
-              metadata: {namespace: oke-check, labels: {job-name: oke-bootstrap}}
-              status:
-                (initContainerStatuses[?name == 'before-seed'] | [0].started): true
-        - command:
-            entrypoint: kubectl
-            env:
-              - {name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}
-            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, flux-system, get, deployment, kustomize-controller]
-        - command:
-            entrypoint: kubectl
-            args: [auth, can-i, get, secrets/oke-connection, -n, oke-check, '--as=system:serviceaccount:oke-check:oke-bootstrap']
-            check: {($stdout): "yes\n"}
-        - command:
-            entrypoint: kubectl
-            args: [auth, can-i, get, secrets/github-app, -n, oke-check, '--as=system:serviceaccount:oke-check:oke-bootstrap']
-            check: {($error != null): true, ($stdout): "no\n"}
-    - name: reject a changed remote identity and retry the interrupted seed
-      bindings:
-        - name: originalUID
-          value: (x_k8s_get($client, 'v1', 'Secret', 'oke-check', 'oke-connection').data.remoteUID)
-      try:
-        - patch:
-            resource:
-              apiVersion: v1
-              kind: Secret
-              metadata: {name: oke-connection, namespace: oke-check}
-              data: {remoteUID: ZGlmZmVyZW50}
-        - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, delete, pod, -l, job-name=oke-bootstrap, --wait=true, --timeout=120s]
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Pod
-              metadata: {namespace: oke-check, labels: {job-name: oke-bootstrap}}
-              status:
-                (initContainerStatuses[?name == 'validate'] | [0].state.terminated.exitCode): 1
-        - patch:
-            resource:
-              apiVersion: v1
-              kind: Secret
-              metadata: {name: oke-connection, namespace: oke-check}
-              data: {remoteUID: ($originalUID)}
-        - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, delete, pod, -l, job-name=oke-bootstrap, --field-selector=status.phase=Failed, --wait=true, --timeout=120s]
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Pod
-              metadata: {namespace: oke-check, labels: {job-name: oke-bootstrap}}
-              status:
-                (initContainerStatuses[?name == 'before-seed'] | [0].started): true
-        - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, annotate, secret, oke-connection, allow-seed=true]
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Pod
-              metadata: {namespace: oke-check, labels: {job-name: oke-bootstrap}}
-              status:
-                (initContainerStatuses[?name == 'before-complete'] | [0].started): true
-        - command:
-            entrypoint: kubectl
-            env:
-              - {name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}
-            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, flux-system, get, gitrepository/tamoss-product, configmap/bootstrap-facts]
-        - command:
-            entrypoint: kubectl
-            env: [{name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}]
-            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, flux-system, get, secrets, github-app, ghcr, --ignore-not-found, -o, name]
-            check: {($error == null): true, ($stdout == ''): true}
-        - command:
-            entrypoint: kubectl
-            env: [{name: TARGET_KUBECONFIG, value: "(join('', [$values.directory, '/target.kubeconfig']))"}]
-            args: [--kubeconfig, $TARGET_KUBECONFIG, -n, tamoss-infra, get, helmrelease/tamoss-gitops-bootstrap, '-o=jsonpath={.spec.values.vaultId}']
-            check: {($error == null): true, ($stdout == 'ocid1.vault.oc1.fixture'): true}
-        - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, delete, pod, -l, job-name=oke-bootstrap, --wait=true, --timeout=120s]
-        - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, annotate, secret, oke-connection, allow-complete=true]
-        - assert:
-            resource:
-              apiVersion: batch/v1
-              kind: Job
-              metadata: {name: oke-bootstrap, namespace: oke-check}
-              status: {succeeded: 1}
-        - assert:
+            subresource: status
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              status: {remoteBootstrapPhase: Succeeded, remoteBootstrapReady: true, remoteBootstrapCompleted: true}
-    - name: recorded completion prevents replay after Job removal
-      try:
+              metadata: {name: host-seed, namespace: tamoss-infra}
+              status: {observedGeneration: 0}
         - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, delete, job, oke-bootstrap, --cascade=foreground, --wait=true, --timeout=120s]
-        - command:
-            entrypoint: kubectl
-            args: [-n, oke-check, annotate, tamossbootstrap, oke-check, crossplane.io/reconcile=receipt]
-        - assert:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-guard]
+            check: {($error != null): true, "(contains($stderr, 'Bootstrap must be current'))": true}
+        - patch:
+            subresource: status
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              status: {remoteBootstrapReady: true}
+              metadata: {name: host-seed, namespace: tamoss-infra}
+              status:
+                observedGeneration: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'TamossBootstrap', 'tamoss-infra', 'host-seed').metadata.generation)
+    - name: observe actual token expiry and recover through the production credential task
+      try:
+        - assert:
+            timeout: 14m
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-flux, namespace: tamoss-infra}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+                (contains(conditions[?type == 'Ready'] | [0].message, 'credentials')): true
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:retired-access]
+            check: {($error != null): true}
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-seed, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            cluster: remote
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: seed-proof, namespace: tamoss-infra}
+              data: {reconciled: 'true'}
+    - name: refuse completed or retiring deployments before contacting a cluster
+      try:
+        - command:
+            entrypoint: yq
+            env: *environment
+            args: [-i, '.teardownStarted = true', '$DIRECTORY/identity.yaml']
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+            check: {($error != null): true, "(contains($stderr, 'cannot be seeded'))": true}
+        - command:
+            entrypoint: yq
+            env: *environment
+            args: [-i, '.teardownStarted = false | .handoverComplete = true', '$DIRECTORY/identity.yaml']
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+            check: {($error != null): true, "(contains($stderr, 'cannot be seeded'))": true}
+        - command:
+            entrypoint: yq
+            env: *environment
+            args: [-i, '.handoverComplete = false | .deploymentReady = true', '$DIRECTORY/identity.yaml']
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+            check: {($error != null): true, "(contains($stderr, 'cannot be seeded'))": true}
+    - name: reject released bootstrap authority even with an incomplete local record
+      try:
+        - command:
+            entrypoint: yq
+            env: *environment
+            args: [-i, '.deploymentReady = false | .handoverComplete = false | .teardownStarted = false', '$DIRECTORY/identity.yaml']
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: host-seed, namespace: tamoss-infra}
+              spec: {released: true}
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-guard]
+            check: {($error != null): true, "(contains($stderr, 'Bootstrap must be current'))": true}
+    - name: retain the retirement decision across an interruption
+      try:
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:capture-access]
+        - command:
+            entrypoint: kubectl
+            env: *environment
+            args: [--kubeconfig, '$DIRECTORY/management.kubeconfig', apply, --server-side, -f, '$DIRECTORY/expired-access.yaml']
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-stop]
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-seed, namespace: tamoss-infra}
+              spec: {suspend: true, prune: false, deletionPolicy: Orphan}
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+            check: {($error != null): true}
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-retire]
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:retired-access]
+            check: {($error != null): true}
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-retired]
+        - error:
+            cluster: remote
+            resource:
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: ClusterRoleBinding
+              metadata: {name: tamoss-oke-bootstrap}
+        - error:
+            cluster: remote
+            resource:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata: {name: oke-bootstrap, namespace: tamoss-bootstrap}
+        - assert:
+            cluster: remote
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: seed-proof, namespace: tamoss-infra}
+              data: {reconciled: 'true'}
+    - name: retain OKE and prevent replay after the Kind controller restarts
+      try:
+        - patch:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: kustomize-controller, namespace: flux-system}
+              spec: {replicas: 1}
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: kustomize-controller, namespace: flux-system}
+              status: {availableReplicas: 1}
+        - apply:
+            cluster: remote
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: handover-proof, namespace: flux-system}
               spec:
-                crossplane:
-                  (resourceRefs[?kind == 'Job'] | length(@)): 0
-        - error:
-            resource: {apiVersion: batch/v1, kind: Job, metadata: {name: oke-bootstrap, namespace: oke-check}}
-        - patch:
-            resource:
-              apiVersion: tamoss.livewyer.io/v1alpha1
-              kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              spec: {released: true}
+                interval: 10s
+                prune: false
+                deletionPolicy: Orphan
+                path: ./handover
+                sourceRef: {kind: GitRepository, name: tamoss-product}
         - assert:
+            cluster: remote
             resource:
-              apiVersion: tamoss.livewyer.io/v1alpha1
-              kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              status: {released: true, remoteBootstrapPhase: Released}
-      catch:
-        - podLogs: {namespace: oke-check, selector: job-name=oke-bootstrap, tail: 30}
-        - events: {namespace: oke-check}
-    - name: release removes an active Job before reporting completion
-      try:
-        - delete:
-            ref: {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossBootstrap, name: oke-check, namespace: oke-check}
-        - error:
-            resource: {apiVersion: v1, kind: Secret, metadata: {name: oke-connection, namespace: oke-check}}
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/management-root.yaml'}
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Pod
-              metadata: {namespace: oke-check, labels: {job-name: oke-bootstrap}}
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: handover-proof, namespace: flux-system}
               status:
-                (initContainerStatuses[?name == 'before-seed'] | [0].started): true
-        - patch:
-            resource:
-              apiVersion: tamoss.livewyer.io/v1alpha1
-              kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              spec: {released: true}
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, test:oke-bootstrap:seed]
+            check: {($error != null): true}
+        - command:
+            entrypoint: mise
+            env: *environment
+            args: [run, bootstrap:remote-retire]
         - assert:
+            cluster: remote
             resource:
-              apiVersion: tamoss.livewyer.io/v1alpha1
-              kind: TamossBootstrap
-              metadata: {name: oke-check, namespace: oke-check}
-              status: {released: true, remoteBootstrapPhase: Released, remoteBootstrapCompleted: false}
-        - error:
-            resource: {apiVersion: batch/v1, kind: Job, metadata: {name: oke-bootstrap, namespace: oke-check}}
-        - error:
-            resource: {apiVersion: v1, kind: Pod, metadata: {namespace: oke-check, labels: {job-name: oke-bootstrap}}}
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
+              spec: {values: {vaultId: ocid1.vault.oc1.changed-after-retirement}}
+        - assert:
+            cluster: remote
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: kustomize-controller, namespace: flux-system}
+              status: {availableReplicas: 1}

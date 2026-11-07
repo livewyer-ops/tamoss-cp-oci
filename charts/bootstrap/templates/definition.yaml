@@ -33,10 +33,6 @@ spec:
                   message: Bootstrap creates a new environment; ownership return uses the existing child directly
                 - rule: self.environment.database.credentialsSecret == "database-admin"
                   message: Bootstrap requires the scoped database-admin delivery
-                - rule: has(self.remoteBootstrap) == has(oldSelf.remoteBootstrap)
-                  message: Remote bootstrap ownership cannot change
-                - rule: '!has(self.remoteBootstrap) || has(self.vaultAuth)'
-                  message: Remote bootstrap requires the Kind OCI identity
                 - rule: has(self.vaultAuth) == has(oldSelf.vaultAuth)
                   message: Bootstrap credential ownership cannot change
                 - rule: has(self.storageCredentials) == has(oldSelf.storageCredentials)
@@ -44,16 +40,6 @@ spec:
                 - rule: '!has(self.storageCredentials) || has(self.vaultAuth)'
                   message: Automatic storage identity requires the Kind provisioner
               properties:
-                remoteBootstrap:
-                  type: object
-                  required: [image, fluxVersion, seedConfigMap]
-                  x-kubernetes-validations:
-                    - rule: self == oldSelf
-                      message: Remote bootstrap inputs are immutable
-                  properties:
-                    image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
-                    fluxVersion: {type: string, pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'}
-                    seedConfigMap: {type: string, enum: [oke-bootstrap-input]}
                 storageCredentials:
                   type: object
                   required: [domainId, idcsEndpoint, email, image]
@@ -120,7 +106,4 @@ spec:
                 bindingsReady: {type: boolean}
                 bootstrapReady: {type: boolean}
                 runtimeAccessReady: {type: boolean}
-                remoteBootstrapReady: {type: boolean}
-                remoteBootstrapCompleted: {type: boolean}
-                remoteBootstrapPhase: {type: string}
                 released: {type: boolean}

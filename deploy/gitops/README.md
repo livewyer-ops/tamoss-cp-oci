@@ -42,7 +42,8 @@ its declared files, preserves unrelated staged changes and never force-pushes.
 Secrets, kubeconfigs and Kubernetes status are excluded. A recorded Vault ID
 connects the exported configuration to the same retained foundation.
 
-Native Flux bootstrap adds its controller and synchronisation manifests. Handover
+Kind's remote bootstrap must be retired before Git attachment. Native Flux
+bootstrap adds its controller and synchronisation manifests. Handover
 includes these in the existing root and disables root pruning. Application
 resources retain their existing names, release names and configuration.
 
@@ -96,10 +97,12 @@ this product has not qualified automated rotation. See [Flux's native procedure]
 1. `up` validates inputs and anonymous package access, creates original Kind and
    applies the private bootstrap declaration. Flux, Crossplane and ESO reconcile
    controllers, foundation, credentials, infrastructure and runtime access.
-2. Once OKE and runtime IAM are ready, a Crossplane-owned Job obtains OKE access,
-   installs Flux and applies the shared deployment seed. Persisted bindings enable
+2. Once OKE and runtime IAM are ready, the host establishes a temporary
+   ServiceAccount credential in Kind. Kind Flux installs OKE Flux and applies
+   the shared deployment seed. Persisted bindings enable
    observe-only infrastructure adoption; current outputs enable applications.
-   `up` finishes after public TLS and application readiness, leaving Kind writing.
+   After public TLS and application readiness, `up` retires remote bootstrap
+   access. Kind retains infrastructure ownership.
 3. `handover` creates or connects a private Git repository, exports the configuration,
    runs native Flux bootstrap and persists the SSH key. It checks the applied Git
    revision and credential ownership before quiescing Kind.

@@ -111,11 +111,19 @@ and pinned worker image. Default placement requires three availability domains;
 Frankfurt is the previously qualified region. Unavailable or ambiguous selections
 stop the build rather than silently choosing another image.
 
-Kind starts Flux, Crossplane and Vault credential persistence. Its Crossplane-owned
-Job obtains OKE access, installs Flux and applies the deployment seed. Controllers
-reconcile infrastructure, secret delivery and applications. `up` waits for public
-TLS and application readiness, prints URLs and writes initial login details to
-`.local/environment/access/ui-login.json` with owner-only permissions.
+Kind starts Flux, Crossplane and Vault credential persistence. Once OKE is ready,
+the host validates its identity and creates a temporary bootstrap ServiceAccount.
+It requests a one-hour token and submits a self-contained kubeconfig Secret to
+Kind. Keep `up` running until that submission; afterwards Kind's Flux installs
+and seeds OKE through declared dependencies. OKE's Flux reconciles the platform
+and applications independently of the host.
+
+After public TLS and application readiness pass, `up` suspends Kind's remote
+bootstrap Kustomizations, stops their controller and revokes the bootstrap
+ServiceAccount. It then prints URLs and writes initial login details to
+`.local/environment/access/ui-login.json` with owner-only permissions. If setup
+outlives the server-issued token, rerun `up` to renew it. An interrupted retirement
+resumes cleanup without renewing access or resubmitting workloads.
 
 Kind remains the infrastructure writer. Applications run on OKE. Repeating `up`
 reuses the original identity and does not replay a completed remote seed. Keep

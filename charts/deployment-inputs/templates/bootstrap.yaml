@@ -1,0 +1,27 @@
+{{- if .Values.files.foundation }}
+{{- $e := .Values.files.environment | fromYaml -}}
+{{- $f := .Values.files.foundation | fromYaml -}}
+{{- $id := .Values.files.identity | fromYaml -}}
+{{- $settings := .Values.files.settings | fromYaml -}}
+{{- $dependencies := .Values.files.dependencies | fromYaml }}
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossBootstrap
+metadata:
+  name: {{ $e.metadata.name }}
+  namespace: {{ $e.metadata.namespace }}
+spec:
+  deploymentId: {{ required "deployment identity is required" $id.deploymentUID | quote }}
+  released: false
+  credentialsEstablished: {{ $id.credentialsEstablished | default false }}
+  storageCredentials:
+{{ required "storage identity discovery is required" $settings.storageIdentity | toYaml | indent 4 }}
+    image: {{ $dependencies.bootstrapTools.image | quote }}
+  vaultAuth:
+    user: {{ $id.oci.user | quote }}
+    tenancy: {{ $id.oci.tenancy | quote }}
+  foundationName: {{ $f.metadata.name }}
+  foundation:
+{{ $f.spec | toYaml | indent 4 }}
+  environment:
+{{ $e.spec | toYaml | indent 4 }}
+{{- end }}

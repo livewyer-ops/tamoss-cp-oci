@@ -67,5 +67,4 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:observe-inputs",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:inputs",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
 ]

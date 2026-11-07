@@ -1,0 +1,37 @@
+{{- if .Values.files.releaseLock }}
+{{- $d := .Values.files.dependencies | fromYaml -}}
+{{- $lock := .Values.files.releaseLock | fromYaml -}}
+{{- $release := .Values.files.release | fromJson -}}
+{{- $tadoss := .Values.files.tadossRelease | fromJson }}
+tadoss:
+  enabled: false
+  release:
+    version: {{ $tadoss.version | quote }}
+    releaseSha256: {{ .Values.tadossKey | quote }}
+    runtimeImage: {{ printf "docker.io/%s" $tadoss.runtimeImage | quote }}
+dependencies:
+  crossplane:
+{{ $d.crossplane | toYaml | indent 4 }}
+  externalSecrets:
+{{ $d.externalSecrets | toYaml | indent 4 }}
+  platform:
+{{ (.Values.files.platform | fromYaml).spec | toYaml | indent 4 }}
+{{- range $d.artifacts }}
+{{- if eq .path "calico/calico-policy-only.yaml" }}
+  calicoCommit: {{ index (splitList "/" .url) 5 | quote }}
+{{- end }}
+{{- end }}
+packages:
+{{ .Values.files.packages | fromYaml | toYaml | indent 2 }}
+externalSecrets:
+{{ .Values.files.externalSecrets | fromYaml | toYaml | indent 2 }}
+connectionImages:
+  oci: {{ $d.oci.image | quote }}
+  yq: {{ $d.connectionDetails.yqImage | quote }}
+  kubectl: {{ $d.connectionDetails.kubectlImage | quote }}
+release:
+  tag: {{ $lock.tag | quote }}
+  releaseSha256: {{ $lock.releaseSha256 | quote }}
+  sourceSha256: {{ $lock.sourceSha256 | quote }}
+  postgresImage: {{ regexReplaceAll "^postgres:" $release.runtime.images.postgresClient "docker.io/library/postgres:" | quote }}
+{{- end }}

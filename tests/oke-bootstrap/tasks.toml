@@ -1,148 +1,131 @@
-
 ["test:oke-bootstrap:render"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "mkdir -p -m 700 '{{ env.TASKV_DIRECTORY }}'",
-  '''yq '.spec.remoteBootstrap = {"image": "{{ env.TASKV_IMAGE }}", "fluxVersion": "{{ env.TASKV_FLUX_VERSION }}", "seedConfigMap": "oke-bootstrap-input"}' '{{ vars.ROOT }}/.local/tmp/check/bootstrap/native-retired-root.yaml' > '{{ env.TASKV_DIRECTORY }}/root.yaml'''',
-  '''yq 'select(.kind != "TamossBootstrap") | with(select(.kind == "HelmRelease"); .metadata.generation = 2 | .status.observedGeneration = 2 | .status.conditions = [{"type": "Ready", "status": "True"}]) | with(select(.kind == "SecretFoundation"); .status = {"vaultId": "ocid1.vault.oc1.fixture", "keyId": "ocid1.key.oc1.fixture", "conditions": [{"type": "Ready", "status": "True"}]}) | with(select(.kind == "TamossEnvironment"); .status.bootstrapReady = true | .status.outputs.clusterId = "ocid1.cluster.oc1.fixture")' '{{ vars.ROOT }}/.local/tmp/check/bootstrap/native-retired.yaml' > '{{ env.TASKV_DIRECTORY }}/observed.yaml'''',
-  "cp '{{ vars.ROOT }}/.local/tmp/check/controller-state/policies.yaml' '{{ env.TASKV_DIRECTORY }}/required.yaml'",
-  '''yq 'select(.kind == "ExternalSecret") | .status.conditions = [{"type": "Ready", "status": "True"}]' '{{ vars.ROOT }}/.local/tmp/check/bootstrap/native-deliveries.yaml' >> '{{ env.TASKV_DIRECTORY }}/required.yaml'''',
-  '''CASE={{ ("ready") | quote }} mise run test:oke-bootstrap:render-case''',
-  '''yq eval-all -e '[select(.kind == "Job")] | length == 1' {{ env.TASKV_DIRECTORY }}/ready.yaml''',
-  '''yq -e 'select(.kind == "Job") | [.spec.parallelism == 1, .spec.completions == 1, .spec.activeDeadlineSeconds == 1800, .spec.podReplacementPolicy == "Failed", .spec.template.spec.automountServiceAccountToken == false] | all' {{ env.TASKV_DIRECTORY }}/ready.yaml''',
-  '''yq -e 'select(.kind == "Role") | [(.rules | length == 1), (.rules[0].resources | join(",") == "secrets"), (.rules[0].resourceNames | join(",") == "oke-connection"), (.rules[0].verbs | join(",") == "get,patch")] | all' {{ env.TASKV_DIRECTORY }}/ready.yaml''',
-  '''{% for item in ["credentials", "access", "retired", "released", "completed"] %}
-CASE={{ ((item)) | quote }} mise run test:oke-bootstrap:blocked
-{% endfor %}''',
-  '''yq 'with(select(.kind == "ExternalSecret" and .metadata.name == "s3"); .metadata.name = "unrelated")' {{ env.TASKV_DIRECTORY }}/required.yaml > {{ env.TASKV_DIRECTORY }}/wrong-credential-required.yaml''',
-  '''CASE={{ ("wrong-credential") | quote }} REQUIRED_FILE={{ ((env.TASKV_DIRECTORY) ~ "/wrong-credential-required.yaml") | quote }} mise run test:oke-bootstrap:render-case''',
-  '''yq eval-all -e '[select(.kind == "Job")] | length == 0' {{ env.TASKV_DIRECTORY }}/wrong-credential.yaml''',
-  "cp '{{ env.TASKV_DIRECTORY }}/required.yaml' '{{ env.TASKV_DIRECTORY }}/extra-credential-required.yaml'",
-  "echo '---' >> '{{ env.TASKV_DIRECTORY }}/extra-credential-required.yaml'",
-  '''yq 'select(.kind == "ExternalSecret" and .metadata.name == "s3") | .metadata.name = "gitops" | .status.conditions[0].status = "False"' {{ env.TASKV_DIRECTORY }}/required.yaml >> {{ env.TASKV_DIRECTORY }}/extra-credential-required.yaml''',
-  '''CASE={{ ("extra-credential") | quote }} REQUIRED_FILE={{ ((env.TASKV_DIRECTORY) ~ "/extra-credential-required.yaml") | quote }} mise run test:oke-bootstrap:render-case''',
-  '''yq eval-all -e '[select(.kind == "Job")] | length == 1' {{ env.TASKV_DIRECTORY }}/extra-credential.yaml''',
-  '''yq 'select(.metadata.annotations."crossplane.io/composition-resource-name" | test("^remote-"))' {{ env.TASKV_DIRECTORY }}/ready.yaml > {{ env.TASKV_DIRECTORY }}/resources.yaml''',
-  "crossplane resource validate '{{ vars.ROOT }}/.local/tmp/check/bootstrap/api.yaml' '{{ env.TASKV_DIRECTORY }}/resources.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT }}/.local/tmp/check/crossplane' --error-on-missing-schemas --skip-success-results",
-  "chainsaw test --no-cluster --test-dir '{{ vars.ROOT }}/tests/oke-bootstrap/retry' --set-string root='{{ vars.ROOT }}' --report-format JUNIT-TEST --report-path '{{ vars.ROOT }}/.local/reports' --report-name oke-bootstrap-retry",
+  "mkdir -p .local/tmp/check/remote-render/flux-manifests",
+  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.environment=environments/example/environment.yaml,files.seedEnvironment=environments/example/environment.yaml,files.dependencies=dependencies.yaml > .local/tmp/check/remote-render/controllers.yaml",
+  '''yq 'select(.kind == "Kustomization" and .metadata.name == "oke-flux")' .local/tmp/check/remote-render/controllers.yaml > .local/tmp/check/remote-render/flux.yaml''',
+  '''flux pull artifact "oci://ghcr.io/fluxcd/flux-manifests@$(yq -r .flux.manifestsDigest dependencies.yaml)" --output .local/tmp/check/remote-render/flux-manifests --timeout=60s''',
+  "flux build kustomization oke-flux -n tamoss-infra --dry-run --in-memory-build --path .local/tmp/check/remote-render/flux-manifests --kustomization-file .local/tmp/check/remote-render/flux.yaml > .local/tmp/check/remote-render/installed.yaml",
+  '''yq eval-all -e '[select(.kind == "Deployment") | .metadata.name] | sort | join(",") == "helm-controller,kustomize-controller,notification-controller,source-controller"' .local/tmp/check/remote-render/installed.yaml''',
+  '''yq eval-all -e '[select(.kind == "Deployment") | .metadata.labels."app.kubernetes.io/version" == strenv(TASKV_FLUX_VERSION)] | all' .local/tmp/check/remote-render/installed.yaml''',
+  '''yq eval-all -e '[select(.kind == "Job" and .metadata.name == "oke-bootstrap")] | length == 0' '{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap/native.yaml'''',
+  '''yq -e 'select(.kind == "CompositeResourceDefinition") | .spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.remoteBootstrap == null' '{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap/api.yaml'''',
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT) ~ "/mise.toml") }}{% endif %}'''
-env.TASKV_IMAGE = '''{% if env.IMAGE is defined %}{{ env.IMAGE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .bootstrapTools.image " ~ (vars.ROOT) ~ "/dependencies.yaml") }}{% endif %}'''
 
-["test:oke-bootstrap:guarded-retry"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "mkdir -p '{{ env.TASKV_DIRECTORY }}/retry'",
-  '''yq -n -o=json '{"metadata": {"uid": "original"}, "spec": {"released": ("{{ env.TASKV_CASE }}" == "released"), "remoteBootstrap": {}}, "status": {"remoteBootstrapCompleted": ("{{ env.TASKV_CASE }}" == "completed")}}' > '{{ env.TASKV_DIRECTORY }}/retry/bootstrap-observed.json'''',
-  '''yq -n -o=json '{"items": [{"metadata": {"ownerReferences": [{"uid": "original"}]}, "status": {"conditions": [{"type": "Failed", "status": "True"}]}}]} | with(select("{{ env.TASKV_CASE }}" == "active"); .items[0].status.conditions = []) | with(select("{{ env.TASKV_CASE }}" == "absent"); .items = []) | with(select("{{ env.TASKV_CASE }}" == "foreign"); .items[0].metadata.ownerReferences[0].uid = "different")' > '{{ env.TASKV_DIRECTORY }}/retry/bootstrap-jobs.json'''',
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/retry") | quote }} mise run bootstrap:retry-remote''',
-]
-env.TASKV_CASE = '''{{ env.CASE | default(value="") }}'''
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
+env.TASKV_FLUX_VERSION = '''{{ exec(command="yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR | quote) ~ "/mise.toml") }}'''
 
-["test:oke-bootstrap:blocked"]
+["test:oke-bootstrap:retirement"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "cp '{{ env.TASKV_DIRECTORY }}/root.yaml' '{{ env.TASKV_DIRECTORY }}/{{ env.TASKV_CASE }}-root.yaml'",
-  "cp '{{ env.TASKV_DIRECTORY }}/observed.yaml' '{{ env.TASKV_DIRECTORY }}/{{ env.TASKV_CASE }}-observed.yaml'",
-  '''yq -i 'with(select("{{ env.TASKV_CASE }}" == "credentials"); .spec.credentialsEstablished = false) | with(select("{{ env.TASKV_CASE }}" == "released"); .spec.released = true) | with(select("{{ env.TASKV_CASE }}" == "completed"); .status.remoteBootstrapCompleted = true)' '{{ env.TASKV_DIRECTORY }}/{{ env.TASKV_CASE }}-root.yaml'''',
-  '''yq -i 'with(select("{{ env.TASKV_CASE }}" == "access" and .metadata.name == "runtime-access"); .status.conditions[0].status = "False") | with(select("{{ env.TASKV_CASE }}" == "retired" and .metadata.name == "tamoss-secrets"); .status.observedGeneration = 1)' '{{ env.TASKV_DIRECTORY }}/{{ env.TASKV_CASE }}-observed.yaml'''',
-  '''CASE={{ ((env.TASKV_CASE)) | quote }} ROOT_FILE={{ ((env.TASKV_DIRECTORY) ~ "/" ~ (env.TASKV_CASE) ~ "-root.yaml") | quote }} OBSERVED={{ ((env.TASKV_DIRECTORY) ~ "/" ~ (env.TASKV_CASE) ~ "-observed.yaml") | quote }} mise run test:oke-bootstrap:render-case''',
-  '''yq eval-all -e '[select(.kind == "Job")] | length == 0' {{ env.TASKV_DIRECTORY }}/{{ env.TASKV_CASE }}.yaml''',
+  "install -d -m 700 '{{ env.ENV_DIR }}'",
+  '''yq -n '{"teardownStarted": false}' > '{{ env.ENV_DIR }}/identity.yaml'''',
+  '''yq -n '[]' > '{{ env.ENV_DIR }}/owned-current.yaml'''',
+  "chainsaw test --no-cluster --test-dir tests/oke-bootstrap/retirement --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ env.ENV_DIR }}' --exec-timeout=30s --report-format JUNIT-TEST --report-path .local/reports --report-name remote-retirement",
 ]
-env.TASKV_CASE = '''{{ env.CASE | default(value="") }}'''
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-
-["test:oke-bootstrap:render-case"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "crossplane composition render '{{ env.TASKV_ROOT_FILE }}' '{{ vars.ROOT }}/.local/tmp/check/bootstrap/native-composition.yaml' '{{ vars.ROOT }}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{ env.TASKV_OBSERVED }}' --required-resources='{{ env.TASKV_REQUIRED_FILE }}' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/{{ env.TASKV_CASE }}.yaml'",
-]
-env.TASKV_CASE = '''{{ env.CASE | default(value="") }}'''
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-env.TASKV_OBSERVED = '''{% if env.OBSERVED is defined %}{{ env.OBSERVED }}{% else %}{{ env.OBSERVED | default(value=(env.TASKV_DIRECTORY) ~ "/observed.yaml") }}{% endif %}'''
-env.TASKV_REQUIRED_FILE = '''{% if env.REQUIRED_FILE is defined %}{{ env.REQUIRED_FILE }}{% else %}{{ env.REQUIRED_FILE | default(value=(env.TASKV_DIRECTORY) ~ "/required.yaml") }}{% endif %}'''
-env.TASKV_ROOT_FILE = '''{% if env.ROOT_FILE is defined %}{{ env.ROOT_FILE }}{% else %}{{ env.ROOT_FILE | default(value=(env.TASKV_DIRECTORY) ~ "/root.yaml") }}{% endif %}'''
-
-["test:oke-bootstrap:check:protected:protected"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ env.TASKV_MANAGEMENT_NAME | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_NAME" >&2; exit 1; }''',
-  "kind create cluster --name '{{ env.TASKV_TARGET }}' --config '{{ vars.ROOT }}/deploy/management/kind.yaml' --kubeconfig '{{ env.TASKV_DIRECTORY }}/target.kubeconfig' --wait 120s",
-  "install -m 600 /dev/null '{{ env.TASKV_DIRECTORY }}/internal.kubeconfig'",
-  "kind get kubeconfig --name '{{ env.TASKV_TARGET }}' --internal > '{{ env.TASKV_DIRECTORY }}/internal.kubeconfig'",
-  '''yq -i '.users[0].user.exec = {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "oci", "args": ["ce", "cluster", "generate-token", "--cluster-id", "ocid1.cluster.oc1.fixture"], "interactiveMode": "Never"}' '{{ env.TASKV_DIRECTORY }}/internal.kubeconfig'''',
-  "kind load docker-image tamoss-bootstrap-tools:check --name '{{ env.TASKV_MANAGEMENT_NAME }}'",
-  "mise run test:oke-bootstrap:prepare",
-  "chainsaw test --test-dir '{{ vars.ROOT }}/tests/oke-bootstrap/management' --set-string root='{{ vars.ROOT }}' --set-string directory='{{ env.TASKV_DIRECTORY }}' --exec-timeout 180s --assert-timeout 600s --report-format JUNIT-TEST --report-path '{{ vars.ROOT }}/.local/reports' --report-name oke-bootstrap",
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-env.TASKV_MANAGEMENT_NAME = '''{{ env.MANAGEMENT_NAME | default(value="") }}'''
-env.TASKV_TARGET = '''{% if env.TARGET is defined %}{{ env.TARGET }}{% else %}tamoss-oke-check-{{ now() | date(format="%s") }}{% endif %}'''
-depends_post = ["test:oke-bootstrap:check:protected:cleanup"]
-
-["test:oke-bootstrap:check:protected:cleanup"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ env.TASKV_MANAGEMENT_NAME | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_NAME" >&2; exit 1; }''',
-  "rm -f '{{ env.TASKV_DIRECTORY }}/target.kubeconfig' '{{ env.TASKV_DIRECTORY }}/internal.kubeconfig' '{{ env.TASKV_DIRECTORY }}/fixture-secret.yaml'",
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-env.TASKV_MANAGEMENT_NAME = '''{{ env.MANAGEMENT_NAME | default(value="") }}'''
-
-["test:oke-bootstrap:check:protected"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ env.TASKV_MANAGEMENT_NAME | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_NAME" >&2; exit 1; }''',
-  "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} IMAGE={{ env.TASKV_IMAGE | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} TARGET={{ env.TASKV_TARGET | quote }} mise run test:oke-bootstrap:check:protected:protected",
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT) ~ "/mise.toml") }}{% endif %}'''
-env.TASKV_IMAGE = '''{% if env.IMAGE is defined %}{{ env.IMAGE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .bootstrapTools.image " ~ (vars.ROOT) ~ "/dependencies.yaml") }}{% endif %}'''
-env.TASKV_MANAGEMENT_NAME = '''{{ env.MANAGEMENT_NAME | default(value="") }}'''
-env.TASKV_TARGET = '''{% if env.TARGET is defined %}{{ env.TARGET }}{% else %}tamoss-oke-check-{{ now() | date(format="%s") }}{% endif %}'''
-depends_post = ["test:oke-bootstrap:check:cleanup"]
-
-["test:oke-bootstrap:check:cleanup"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ env.TASKV_MANAGEMENT_NAME | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_NAME" >&2; exit 1; }''',
-  "kind delete cluster --name '{{ env.TASKV_TARGET }}'",
-]
-env.TASKV_MANAGEMENT_NAME = '''{{ env.MANAGEMENT_NAME | default(value="") }}'''
-env.TASKV_TARGET = '''{% if env.TARGET is defined %}{{ env.TARGET }}{% else %}tamoss-oke-check-{{ now() | date(format="%s") }}{% endif %}'''
+env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/remote-retirement"
 
 ["test:oke-bootstrap:check"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ env.TASKV_MANAGEMENT_NAME | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_NAME" >&2; exit 1; }''',
-  '''docker build -t tamoss-bootstrap-tools:check --build-arg OCI_IMAGE="$(yq -r .oci.image '{{ vars.ROOT }}/dependencies.yaml')" --build-arg FLUX_IMAGE="$(yq -r .bootstrapTools.fluxImage '{{ vars.ROOT }}/dependencies.yaml')" --build-arg KUBECTL_IMAGE="$(yq -r .connectionDetails.kubectlImage '{{ vars.ROOT }}/dependencies.yaml')" --build-arg YQ_IMAGE="$(yq -r .connectionDetails.yqImage '{{ vars.ROOT }}/dependencies.yaml')" '{{ vars.ROOT }}/deploy/oke-bootstrap'''',
-  "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} IMAGE={{ env.TASKV_IMAGE | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} TARGET={{ env.TASKV_TARGET | quote }} mise run test:oke-bootstrap:check:protected",
+  "install -d -m 700 '{{ env.DIRECTORY }}'",
+  "TARGET={{ env.TARGET | quote }} DIRECTORY={{ env.DIRECTORY | quote }} mise run test:oke-bootstrap:run",
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT) ~ "/mise.toml") }}{% endif %}'''
-env.TASKV_IMAGE = '''{% if env.IMAGE is defined %}{{ env.IMAGE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .bootstrapTools.image " ~ (vars.ROOT) ~ "/dependencies.yaml") }}{% endif %}'''
-env.TASKV_MANAGEMENT_NAME = '''{{ env.MANAGEMENT_NAME | default(value="") }}'''
-env.TASKV_TARGET = '''{% if env.TARGET is defined %}{{ env.TARGET }}{% else %}tamoss-oke-check-{{ now() | date(format="%s") }}{% endif %}'''
+env.DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/oke-bootstrap"
+env.TARGET = 'tamoss-remote-seed-{{ now() | date(format="%s") }}'
+
+["test:oke-bootstrap:run"]
+hide = true
+run = [
+  "kind create cluster --name '{{ env.TARGET }}' --config deploy/management/kind.yaml --kubeconfig '{{ env.DIRECTORY }}/target.kubeconfig' --wait 120s",
+  "mise run test:oke-bootstrap:prepare",
+  "chainsaw test --skip-delete --test-dir tests/oke-bootstrap/management --cluster remote='{{ env.DIRECTORY }}/target.kubeconfig' --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ env.DIRECTORY }}' --exec-timeout 180s --assert-timeout 600s --report-format JUNIT-TEST --report-path .local/reports --report-name oke-bootstrap",
+]
+depends_post = ["test:oke-bootstrap:cleanup"]
+
+["test:oke-bootstrap:cleanup"]
+hide = true
+run = [
+  "kind delete cluster --name '{{ env.TARGET }}'",
+  "kubectl -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
+  "kubectl -n flux-system scale deployment/kustomize-controller --replicas=1",
+  "kubectl -n tamoss-infra delete kustomization oke-flux oke-seed --ignore-not-found --timeout=60s",
+  "rm -f '{{ env.DIRECTORY }}/target.kubeconfig' '{{ env.DIRECTORY }}/management.kubeconfig' '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.pending.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig' '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' '{{ env.DIRECTORY }}/remote-token.json' '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
+]
 
 ["test:oke-bootstrap:prepare"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "kubectl create secret generic fixture-kubeconfig -n oke-check --from-file=kubeconfig='{{ env.TASKV_DIRECTORY }}/internal.kubeconfig' --dry-run=client -o yaml > '{{ env.TASKV_DIRECTORY }}/fixture-secret.yaml'",
-  "kubectl create configmap oke-bootstrap-input -n oke-check --from-file=deployment.yaml='{{ vars.ROOT }}/tests/oke-bootstrap/deployment.yaml' --dry-run=client -o yaml > '{{ env.TASKV_DIRECTORY }}/input.yaml'",
-  '''yq '.spec.pipeline[0].input.inline.template |= (split("__SECRET_VALUES__") | join(load("{{ vars.ROOT }}/deploy/secrets/bootstrap-values.yaml") | to_json(0) | @json)) | .spec.pipeline[0].input.inline.template |= (split("__REMOTE_BOOTSTRAP__") | join(load_str("{{ vars.ROOT }}/charts/bootstrap/remote.gotmpl"))) | .spec.pipeline[0].input.inline.template |= sub("image: &image .*", "image: &image tamoss-bootstrap-tools:check") | .spec.pipeline[0].input.inline.template |= sub("command: \\[oci\\]", "command: [cp]") | .spec.pipeline[0].input.inline.template |= sub("args: \\[--auth, api_key,.*", "args: [/fixture/kubeconfig, /work/remote.kubeconfig]") | .spec.pipeline[0].input.inline.template |= sub("- \\{name: oci, mountPath: /oci, readOnly: true\\}", "- {name: oci, mountPath: /oci, readOnly: true}\n            - {name: fixture, mountPath: /fixture, readOnly: true}") | .spec.pipeline[0].input.inline.template |= sub("volumes:", "volumes:\n        - name: fixture\n          secret: {secretName: fixture-kubeconfig}") | .spec.pipeline[0].input.inline.template |= sub("        - name: seed\n          image:", load_str("{{ vars.ROOT }}/tests/oke-bootstrap/before-seed.gotmpl") + "        - name: seed\n          image:") | .spec.pipeline[0].input.inline.template |= sub("      containers:", load_str("{{ vars.ROOT }}/tests/oke-bootstrap/before-complete.gotmpl") + "      containers:")' '{{ vars.ROOT }}/tests/oke-bootstrap/composition.yaml' > '{{ env.TASKV_DIRECTORY }}/composition.yaml'''',
-  '''yq '.metadata.name = "oke-check" | .metadata.namespace = "oke-check" | .spec.crossplane.compositionRef.name = "oke-bootstrap-check"' '{{ env.TASKV_DIRECTORY }}/root.yaml' > '{{ env.TASKV_DIRECTORY }}/management-root.yaml'''',
-  '''yq 'del(.spec.vaultAuth) | .metadata.name = "missing-auth"' {{ env.TASKV_DIRECTORY }}/management-root.yaml > {{ env.TASKV_DIRECTORY }}/missing-auth.yaml''',
+  '''cp "$KUBECONFIG" '{{ env.DIRECTORY }}/management.kubeconfig'''',
+  '''yq '.metadata.name = "host-seed" | .metadata.namespace = "tamoss-infra" | .metadata.annotations."crossplane.io/paused" = "true" | .spec.credentialsEstablished = true' '.local/tmp/check/bootstrap/native-root.yaml' > '{{ env.DIRECTORY }}/bootstrap.yaml'''',
+  '''yq '{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": {"name": .metadata.name, "namespace": .metadata.namespace}, "spec": .spec.environment}' '{{ env.DIRECTORY }}/bootstrap.yaml' > '{{ env.DIRECTORY }}/environment.yaml'''',
+  "ENV_DIR={{ env.DIRECTORY | quote }} mise run identity:observe-inputs",
+  "kubectl get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ env.DIRECTORY }}/management-uid'",
+  '''yq '.deploymentUID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" | .managementUID = load_str("{{ env.DIRECTORY }}/management-uid")' '{{ env.DIRECTORY }}/identity-inputs.yaml' > '{{ env.DIRECTORY }}/identity.yaml'''',
+  '''yq '.users[0].user.exec = {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "oci", "args": ["ce", "cluster", "generate-token", "--cluster-id", "ocid1.cluster.oc1.fixture"], "interactiveMode": "Never"}' '{{ env.DIRECTORY }}/target.kubeconfig' > '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
+  '''docker inspect '{{ env.TARGET }}-control-plane' --format '{{"{{"}}(index .NetworkSettings.Networks "kind").IPAddress{{"}}"}}' > '{{ env.DIRECTORY }}/target-address'''',
+  '''yq -i '.clusters[0].cluster.server = ("https://" + (load_str("{{ env.DIRECTORY }}/target-address") | trim) + ":6443")' '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
+  "ENV_DIR={{ env.DIRECTORY | quote }} CLUSTER_ID=ocid1.cluster.oc1.fixture mise run cloud:remote:record",
+  "cp '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig'",
+  "mkdir -p '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote'",
+  "cp deploy/bootstrap/remote/*.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/'",
+  "cp tests/oke-bootstrap/deployment.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/proof.yaml'",
+  '''yq -i '.resources += ["proof.yaml"]' '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/kustomization.yaml'''',
+  "tar -czf '{{ env.DIRECTORY }}/product.tar.gz' -C '{{ env.DIRECTORY }}/product' .",
+  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.environment='{{ env.DIRECTORY }}/environment.yaml',files.seedEnvironment='{{ env.DIRECTORY }}/environment.yaml',files.dependencies=dependencies.yaml > '{{ env.DIRECTORY }}/remote-bootstrap.yaml'",
+  '''yq -i 'with(select(.metadata.name == "oke-seed"); .spec.sourceRef.name = "oke-bootstrap-fixture" | .spec.patches += [{"target": {"kind": "HelmRelease|Kustomization", "name": "tamoss-gitops-bootstrap|platform-defaults|infrastructure|runtime|infrastructure-controllers"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}, {"target": {"kind": "GitRepository"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml'''',
+  "tar -czf '{{ env.DIRECTORY }}/seed-proof.tar.gz' -C tests/oke-bootstrap chart handover",
+  '''yq -n '{"vaultId": "ocid1.vault.oc1.fixture"}' > '{{ env.DIRECTORY }}/foundation-record.yaml'''',
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/oke-bootstrap{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ vars.ROOT_DIR }}/tests/lifecycle/oci-config"
+
+["test:oke-bootstrap:reject-identity"]
+hide = true
+run = [
+  '''yq '.remoteUID = "different-cluster"' '{{ env.DIRECTORY }}/identity.yaml' > '{{ env.DIRECTORY }}/identity.wrong.yaml'''',
+  "cp '{{ env.DIRECTORY }}/identity.yaml' '{{ env.DIRECTORY }}/identity.saved.yaml'",
+  "mv '{{ env.DIRECTORY }}/identity.wrong.yaml' '{{ env.DIRECTORY }}/identity.yaml'",
+  "ENV_DIR={{ env.DIRECTORY | quote }} mise run test:oke-bootstrap:seed",
+]
+depends_post = ["test:oke-bootstrap:restore-identity"]
+
+["test:oke-bootstrap:restore-identity"]
+hide = true
+run = ["mv '{{ env.DIRECTORY }}/identity.saved.yaml' '{{ env.DIRECTORY }}/identity.yaml'"]
+
+["test:oke-bootstrap:seed"]
+hide = true
+run = [
+  "mise run bootstrap:remote-guard",
+  "mise run identity:remote",
+  "mise run bootstrap:remote-access:issue",
+]
+
+["test:oke-bootstrap:capture-access"]
+hide = true
+quiet = true
+run = [
+  "install -m 600 /dev/null '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig'",
+  '''kubectl --kubeconfig '{{ env.DIRECTORY }}/management.kubeconfig' -n tamoss-infra get secret oke-bootstrap-access -o json | yq -p=json -r '.data."value.yaml" | @base64d' > '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' ''',
+  "kubectl --kubeconfig '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' --request-timeout=10s get namespace kube-system -o name",
+]
+
+["test:oke-bootstrap:retired-access"]
+hide = true
+quiet = true
+run = [
+  "kubectl --kubeconfig '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' --request-timeout=10s get namespace kube-system -o name",
+]
+
+["test:oke-bootstrap:short-access"]
+hide = true
+quiet = true
+run = [
+  "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-token.json'",
+  "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-access.yaml'",
+  "kubectl --kubeconfig '{{ env.DIRECTORY }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=10m -o json > '{{ env.DIRECTORY }}/remote-token.json'",
+  "helm template inputs charts/deployment-inputs --show-only templates/remote-access.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.remoteConfig='{{ env.DIRECTORY }}/remote.kubeconfig',files.remoteToken='{{ env.DIRECTORY }}/remote-token.json' > '{{ env.DIRECTORY }}/remote-access.yaml'",
+  "kubectl --kubeconfig '{{ env.DIRECTORY }}/management.kubeconfig' apply --server-side -f '{{ env.DIRECTORY }}/remote-access.yaml'",
+  "install -m 600 '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
+  "mise run test:oke-bootstrap:capture-access",
+]
+depends_post = ["bootstrap:remote-access:cleanup"]

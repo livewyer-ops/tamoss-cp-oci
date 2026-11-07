@@ -105,20 +105,6 @@ requirements:
     kind: ExternalSecret
     namespace: {{ $xr.metadata.namespace }}
     matchName: database-admin
-{{- if hasKey $p "remoteBootstrap" }}
-  remotePods:
-    apiVersion: v1
-    kind: Pod
-    namespace: {{ $xr.metadata.namespace }}
-    matchLabels:
-      tamoss.livewyer.io/bootstrap: oke
-      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
-  remoteCredentials:
-    apiVersion: external-secrets.io/v1
-    kind: ExternalSecret
-    namespace: {{ $xr.metadata.namespace }}
-    matchLabels: {tamoss.livewyer.io/credential: 'true'}
-{{- end }}
 ---
 apiVersion: tamoss.livewyer.io/v1alpha1
 kind: SecretFoundation
@@ -133,6 +119,19 @@ spec:
 {{- if hasKey $p "vaultAuth" }}
 {{- $vault := dig "status" "vaultId" "" $foundation | default (dig "spec" "values" "oracle" "vault" "" $secretRelease) -}}
 {{- $key := dig "status" "keyId" "" $foundation | default (dig "spec" "values" "oracle" "encryptionKey" "" $secretRelease) -}}
+{{- if $vault }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oke-bootstrap-facts
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-facts" }}
+    gotemplating.fn.crossplane.io/ready: 'True'
+data:
+  VAULT_ID: {{ $vault | quote }}
+{{- end }}
 {{- if and $vault $key (or $storageIdentityReady $secretRelease (not (hasKey $p "storageCredentials"))) }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -272,13 +271,12 @@ metadata:
 spec:
 {{ $spec | toYaml | indent 2 }}
 {{- end }}
-__REMOTE_BOOTSTRAP__
 ---
 apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 metadata:
   annotations:
-    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady) $remoteReady) | toString | title | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady)) | toString | title | quote }}
 status:
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
@@ -291,7 +289,4 @@ status:
   bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady ($p.credentialsEstablished | default false) }}
   bindingsReady: {{ $bindingsReady }}
   runtimeAccessReady: {{ $accessReady }}
-  remoteBootstrapReady: {{ $remoteReady }}
-  remoteBootstrapCompleted: {{ $remoteCompleted }}
-  remoteBootstrapPhase: {{ $remotePhase | quote }}
-  released: {{ and $p.released $storageRetired $storageQuiesced (eq (len $remotePods) 0) (empty $remoteJob) (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}
+  released: {{ and $p.released $storageRetired $storageQuiesced (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}

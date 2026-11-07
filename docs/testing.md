@@ -18,7 +18,8 @@ mise run check
 | Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; local seed preparation without cloud outputs and identical configuration export |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
-| Operational Jobs | Shared retry bounds, security, image and temporary-storage contract across Helm and Crossplane; rejection of missing deadlines and unsafe container permissions |
+| Operational Jobs | Shared retry bounds, security, image and temporary-storage contract for the remaining Jobs; rejection of missing deadlines and unsafe container permissions |
+| Remote OKE seed | Shared seed/export rendering, Flux distribution component selection and repeated retirement after cluster deletion; two-cluster credential, convergence and retirement checks run in the management suite |
 | Handover flow | Public command wiring and production mise sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
@@ -32,19 +33,23 @@ private under `.local/tmp/`; reports and browser build logs are under `.local/re
 mise run check:management
 ```
 
-This includes `check`, then creates and removes a disposable, credential-free Kind
-cluster. It tests provider package health, real API admission, required database
+This includes `check`, then creates and removes a disposable Kind cluster without
+cloud credentials. It tests provider package health, real API admission, required database
 CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
 include partial installs and retention of state when the cloud audit fails.
 Flux also packages the operational charts from a source archive without generated
 dependency packages, verifying that the shared Helm library resolves from source.
 
-The OKE bootstrap test adds a second disposable Kind cluster. Crossplane creates
-the production Job with a fixture replacing OCI kubeconfig retrieval. The Job
-installs Flux and submits the seed on that target. The tests exercise prerequisite
-gating, restricted Secret permissions, interruption around the seed, completion
-recording and replay prevention. The fixture uses Kind certificates; this does
-not qualify OCI token authentication or cloud IAM propagation.
+The OKE bootstrap test adds a second disposable Kind cluster. The host establishes
+a real Kubernetes ServiceAccount token through the production credential tasks.
+Kind's Flux installs the pinned distribution on the target and applies the shared
+seed after the host process exits. Product source transport is a local fixture;
+remote reconciliation and authentication use the real controllers and API servers.
+The suite checks identity/TLS rejection, replay, partial-install cleanup and
+retirement across controller restart. It waits for a real ten-minute token to
+expire before verifying renewal and remote Flux changes after retirement.
+Kind's certificate supplies initial administrator access in this fixture; it does
+not qualify OCI user authentication, OKE token lifetime or cloud IAM propagation.
 
 Authentik startup checks use the selected release's chart and image with an
 external PostgreSQL database and verified TLS. They require bounded OAuth setup

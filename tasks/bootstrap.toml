@@ -56,7 +56,9 @@ run = [
   "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' '{{ vars.ENV_DIR }}/foundation.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:prepare",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run gitops:render",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:render",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:baseline",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run lifecycle:create-management",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:seed",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:foundation",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:secrets",
@@ -103,12 +105,8 @@ run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''CREDENTIAL_DIR={{ ((vars.ENV_DIR) ~ "/provider") | quote }} mise run cloud:credentials''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:secret-inputs",
-  '''yq -n 'load("{{ vars.ENV_DIR }}/environment.yaml") as $e | load("{{ vars.ENV_DIR }}/foundation.yaml") as $f | {"apiVersion": "tamoss.livewyer.io/v1alpha1", "kind": "TamossBootstrap", "metadata": {"name": $e.metadata.name, "namespace": $e.metadata.namespace}, "spec": {"deploymentId": load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID, "released": false, "credentialsEstablished": (load("{{ vars.ENV_DIR }}/identity.yaml").credentialsEstablished == true), "storageCredentials": (load("{{ vars.ENV_DIR }}/settings.yaml").storageIdentity * {"image": load("{{ vars.ROOT_DIR }}/dependencies.yaml").bootstrapTools.image}), "vaultAuth": (load("{{ vars.ENV_DIR }}/identity.yaml").oci | {"user": .user, "tenancy": .tenancy}), "foundationName": $f.metadata.name, "foundation": $f.spec, "environment": $e.spec, "remoteBootstrap": {"image": load("{{ vars.ROOT_DIR }}/dependencies.yaml").bootstrapTools.image, "fluxVersion": "{{ env.TASKV_FLUX_VERSION }}", "seedConfigMap": "oke-bootstrap-input"}}}' > '{{ vars.ENV_DIR }}/bootstrap.yaml'''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run management:render",
-  "kubectl create configmap oke-bootstrap-input -n tamoss-infra --from-file=deployment.yaml='{{ vars.ENV_DIR }}/deployment.yaml' --dry-run=client -o yaml | yq '.immutable = true' > '{{ vars.ENV_DIR }}/oke-bootstrap-input.yaml'",
   "cp deploy/management/kustomization.yaml '{{ vars.ENV_DIR }}/kustomization.yaml'",
-  '''yq -i '.resources += ["provider", "secrets", "oke-bootstrap-input.yaml"]' {{ vars.ENV_DIR }}/kustomization.yaml''',
-  "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' install --version='{{ env.TASKV_FLUX_VERSION }}' --components=source-controller,helm-controller --timeout=5m",
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' install --version='{{ env.TASKV_FLUX_VERSION }}' --components=source-controller,helm-controller,kustomize-controller --timeout=5m",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -k '{{ vars.ENV_DIR }}'",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-bootstrap-instance --for=condition=Ready --timeout=1200s",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:observe",
@@ -215,8 +213,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
 run = [
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remote-bootstrap",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:connection",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remote-seed",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:infrastructure-ready",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:resources",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:bindings",
@@ -239,6 +236,7 @@ run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Ready --timeout=300s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=300s",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:runtime-composite",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-retire",
   "yq -i '.deploymentReady = true' {{ vars.ENV_DIR }}/identity.yaml",
 ]
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
@@ -306,75 +304,6 @@ run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "mise run bootstrap:complete-handover:apply",
 ]
-
-["bootstrap:remote-bootstrap"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:observe",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get jobs -l 'tamoss.livewyer.io/bootstrap=oke,tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o json > '{{ vars.ENV_DIR }}/bootstrap-jobs.json'",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:retry-remote",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for=jsonpath='{.status.remoteBootstrapReady}=true' --timeout=1800s",
-]
-env.TASKV_DEPLOYMENT = '''{% if env.DEPLOYMENT is defined %}{{ env.DEPLOYMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .deploymentUID " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
-env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
-
-["bootstrap:retry-remote:apply"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-skip_if = '''(yq -e 'load("{{ vars.ENV_DIR }}/bootstrap-observed.json").status.remoteBootstrapCompleted == true or ([.items[].status.conditions[] | select(.type == "Failed" and .status == "True")] | length == 0)' {{ vars.ENV_DIR }}/bootstrap-jobs.json > /dev/null)'''
-run = [
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:replace-remote",
-]
-
-["bootstrap:retry-remote"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "mise run bootstrap:retry-remote:apply",
-]
-
-["bootstrap:replace-remote"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''yq -e '.spec.released != true and .status.remoteBootstrapCompleted != true' {{ vars.ENV_DIR }}/bootstrap-observed.json > /dev/null || { printf '%s\n' "A released or completed bootstrap cannot be retried" >&2; exit 1; }''',
-  '''yq -e 'load("{{ vars.ENV_DIR }}/bootstrap-observed.json").metadata.uid as $uid | [.items | length == 1, (.items[0].metadata.ownerReferences | map(.uid) | contains([$uid]))] | all' '{{ vars.ENV_DIR }}/bootstrap-jobs.json' > /dev/null || { printf '%s\n' "Retry requires the original bootstrap Job ownership" >&2; exit 1; }''',
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json | yq -p=json -e '.data.complete != "dHJ1ZQ=="' > /dev/null || { printf '%s\n' "A recorded successful seed must not be replayed" >&2; exit 1; }''',
-  "mkdir -p -m 700 '{{ env.TASKV_REPORT }}'",
-  "cp '{{ vars.ENV_DIR }}/bootstrap-jobs.json' '{{ env.TASKV_REPORT }}/jobs.json'",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra logs -l job-name=oke-bootstrap --all-containers=true --prefix=true --max-log-requests=7 > '{{ env.TASKV_REPORT }}/pods.log' 2>&1 || true",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get events -o json > '{{ env.TASKV_REPORT }}/events.json'",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete job oke-bootstrap --cascade=foreground --wait=true --timeout=180s",
-]
-env.TASKV_REPORT = '''{% if env.REPORT is defined %}{{ env.REPORT }}{% else %}{{ vars.ENV_DIR }}/reports/bootstrap-{{ now() | date(format="%s") }}{% endif %}'''
-
-["bootstrap:connection"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-quiet = true
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
-  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/oke-connection.json'",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json > '{{ vars.ENV_DIR }}/oke-connection.json'",
-  '''yq -p=json -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | select(.metadata.annotations."tamoss.livewyer.io/deployment-id" == $i.deploymentUID) | (.data.clusterID | @base64d) as $id | [.data.complete == "dHJ1ZQ==", .metadata.annotations."tamoss.livewyer.io/cluster-id" == $id, ($i.clusterID == null or $i.clusterID == $id), (load("{{ vars.ENV_DIR }}/owned-current.yaml") | map(.id) | contains([$id])), ($i.remoteUID == null or ($i.remoteUID == (.data.remoteUID | @base64d) and $i.remoteServer == (.data.remoteServer | @base64d)))] | all' '{{ vars.ENV_DIR }}/oke-connection.json' > /dev/null''',
-  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
-  "yq -p=json -r '.data.kubeconfig | @base64d' '{{ vars.ENV_DIR }}/oke-connection.json' > '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
-  '''yq -e 'load("{{ vars.ENV_DIR }}/oke-connection.json").data as $d | [.users[0].user.exec.command == "oci", (.users[0].user.exec.args | contains([($d.clusterID | @base64d)])), .clusters[0].cluster.server == ($d.remoteServer | @base64d), .clusters[0].cluster."insecure-skip-tls-verify" != true] | all' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' > /dev/null''',
-  '''yq -i '.users[].user.exec.env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)}, {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}]' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'''',
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == (load("{{ vars.ENV_DIR }}/oke-connection.json").data.remoteUID | @base64d)' > /dev/null''',
-  '''yq -i 'load("{{ vars.ENV_DIR }}/oke-connection.json").data as $d | .clusterID = ($d.clusterID | @base64d) | .remoteUID = ($d.remoteUID | @base64d) | .remoteServer = ($d.remoteServer | @base64d)' '{{ vars.ENV_DIR }}/identity.yaml'''',
-  "mv '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
-]
-env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
-env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
-env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
-env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
 
 ["bootstrap:foundation"]
 hide = true
@@ -526,6 +455,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:start-kind",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "yq -i '.teardownStarted = true' {{ vars.ENV_DIR }}/identity.yaml",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-stop",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:release",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:record-observed-composite",
@@ -533,6 +463,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:resources",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:observe-owned",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:remote",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-revoke",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-application",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:prepare-deletion",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{ env.TASKV_NAME }} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
@@ -548,7 +479,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retained-foundation",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'",
-  "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/oke-connection.json'",
+  "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
   "echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{ vars.ENV_DIR }}/retained-foundation.yaml'",
 ]
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''

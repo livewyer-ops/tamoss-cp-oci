@@ -11,7 +11,7 @@ kind: GitRepository
 metadata: {name: tamoss-product, namespace: flux-system}
 spec:
   interval: 10m
-  url: REPLACE
+  url: https://github.com/REPLACE/REPLACE
   ref: {commit: REPLACE}
   include:
     - repository: {name: tamoss-upstream}

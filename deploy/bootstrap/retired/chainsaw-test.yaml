@@ -1,0 +1,24 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: remote-bootstrap-retired}
+spec:
+  steps:
+    - name: require suspended declarations and absent remote credentials
+      try:
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-flux, namespace: tamoss-infra}
+              spec: {suspend: true, prune: false, deletionPolicy: Orphan}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-seed, namespace: tamoss-infra}
+              spec: {suspend: true, prune: false, deletionPolicy: Orphan}
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: oke-bootstrap-access, namespace: tamoss-infra}

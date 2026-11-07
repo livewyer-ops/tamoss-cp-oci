@@ -1,0 +1,22 @@
+{{- if .Values.files.pins }}
+{{- $e := (.Values.files.environment | fromYaml).spec -}}
+{{- $s := .Values.files.settings | fromYaml -}}
+{{- $g := .Values.files.product | fromYaml -}}
+{{- $tadoss := $g.tadoss | default dict -}}
+{{- $pins := .Values.files.pins | fromYaml -}}
+{{- $_ := set $pins.release "bundleURL" $g.bundle.url -}}
+{{- $_ := set $pins.release "digest" $g.bundle.digest -}}
+{{- with $tadoss.bundle -}}
+{{- $_ := set $pins.tadoss.release "bundleURL" .url -}}
+{{- $_ := set $pins.tadoss.release "digest" .digest -}}
+{{- end }}
+{{ $pins | toYaml }}
+deploymentId: {{ (.Values.files.identity | fromYaml).deploymentUID | quote }}
+region: {{ $e.region | quote }}
+databaseAdministrator: {{ $e.database.administrator | quote }}
+runtime:
+  bucket: {{ $e.storage.bucket | quote }}
+  objectEndpoint: {{ printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $e.storage.namespace $e.region | quote }}
+  acmeEmail: {{ $s.acmeEmail | quote }}
+  adminEmail: {{ $s.adminEmail | quote }}
+{{- end }}

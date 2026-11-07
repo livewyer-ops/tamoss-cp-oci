@@ -1,0 +1,123 @@
+{{- if .Values.files.seedValues }}
+{{- $identity := .Values.files.identity | fromYaml -}}
+{{- $product := (.Values.files.product | fromYaml).product -}}
+{{- $environment := .Values.files.environment | fromYaml }}
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: flux-distribution
+  namespace: tamoss-infra
+spec:
+  interval: 1h
+  url: oci://ghcr.io/fluxcd/flux-manifests
+  ref:
+    digest: {{ (.Values.files.dependencies | fromYaml).flux.manifestsDigest | quote }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: oke-flux
+  namespace: tamoss-infra
+  labels:
+    tamoss.livewyer.io/remote-bootstrap: 'true'
+    tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 10m
+  prune: false
+  deletionPolicy: Orphan
+  sourceRef: {kind: OCIRepository, name: flux-distribution}
+  path: ./
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
+  patches:
+    - target:
+        labelSelector: app.kubernetes.io/component in (image-reflector-controller,image-automation-controller,source-watcher)
+      patch: |-
+        $patch: delete
+        apiVersion: v1
+        kind: List
+        metadata: {name: unused}
+    - target: {kind: ClusterRoleBinding, name: crd-controller-flux-system}
+      patch: |-
+        - op: replace
+          path: /subjects
+          value:
+            - {kind: ServiceAccount, name: source-controller, namespace: flux-system}
+            - {kind: ServiceAccount, name: kustomize-controller, namespace: flux-system}
+            - {kind: ServiceAccount, name: helm-controller, namespace: flux-system}
+            - {kind: ServiceAccount, name: notification-controller, namespace: flux-system}
+  healthChecks:
+    - {apiVersion: apps/v1, kind: Deployment, name: source-controller, namespace: flux-system}
+    - {apiVersion: apps/v1, kind: Deployment, name: kustomize-controller, namespace: flux-system}
+    - {apiVersion: apps/v1, kind: Deployment, name: helm-controller, namespace: flux-system}
+    - {apiVersion: apps/v1, kind: Deployment, name: notification-controller, namespace: flux-system}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: oke-seed
+  namespace: tamoss-infra
+  labels:
+    tamoss.livewyer.io/remote-bootstrap: 'true'
+    tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 5m
+  prune: false
+  deletionPolicy: Orphan
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  path: ./deploy/bootstrap/remote
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
+  dependsOn: [{name: oke-flux}]
+  commonMetadata:
+    labels:
+      tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: oke-bootstrap-facts}]
+  patches:
+    - target: {kind: 'HelmRelease|Kustomization'}
+      patch: |-
+        - op: add
+          path: /spec/commonMetadata
+          value:
+            labels: {tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}}
+    - target: {kind: ConfigMap, name: tamoss-gitops-values}
+      patch: |
+        apiVersion: v1
+        kind: ConfigMap
+        metadata: {name: tamoss-gitops-values, namespace: tamoss-infra}
+        data:
+          values.yaml: {{ .Values.files.seedValues | toJson }}
+    - target: {kind: ConfigMap, name: infrastructure-intent}
+      patch: |
+        apiVersion: v1
+        kind: ConfigMap
+        metadata: {name: infrastructure-intent, namespace: tamoss-infra}
+        data:
+          environment.yaml: {{ .Values.files.seedEnvironment | toJson }}
+    - target: {kind: GitRepository, name: tamoss-upstream}
+      patch: |-
+        - op: replace
+          path: /spec/ref/commit
+          value: {{ (.Values.files.upstreamRelease | fromJson).sourceCommit | quote }}
+    - target: {kind: GitRepository, name: tamoss-product}
+      patch: |-
+        - op: replace
+          path: /spec/url
+          value: {{ $product.url | quote }}
+        - op: replace
+          path: /spec/ref/commit
+          value: {{ $product.commit | quote }}
+    - target: {kind: Kustomization, name: infrastructure}
+      patch: |-
+        - op: replace
+          path: /spec/postBuild/substitute/ENVIRONMENT_NAME
+          value: {{ $environment.metadata.name | quote }}
+        - op: replace
+          path: /spec/healthChecks/0/name
+          value: {{ $environment.metadata.name | quote }}
+{{- end }}

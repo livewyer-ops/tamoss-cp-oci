@@ -35,6 +35,9 @@ env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
+  '''yq eval-all -o=json '[select(.kind != null) | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace")] | sort_by(.kind, .metadata.namespace, .metadata.name) | sort_keys(..)' '{{ env.TASKV_DIRECTORY }}/inputs/deployment.yaml' > '{{ env.TASKV_DIRECTORY }}/native-seed.json'''',
+  '''kubectl kustomize '{{ env.TASKV_DIRECTORY }}/inputs/deployment' | yq eval-all -o=json '[select(.kind != null)] | sort_by(.kind, .metadata.namespace, .metadata.name) | sort_keys(..)' > '{{ env.TASKV_DIRECTORY }}/export-seed.json'''',
+  "diff -u '{{ env.TASKV_DIRECTORY }}/native-seed.json' '{{ env.TASKV_DIRECTORY }}/export-seed.json'",
   "cmp '{{ env.TASKV_DIRECTORY }}/inputs/deployment/values.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/values.yaml'",
   "cmp '{{ env.TASKV_DIRECTORY }}/inputs/deployment/infrastructure/environment.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/infrastructure/environment.yaml'",
   '''kubectl kustomize '{{ env.TASKV_DIRECTORY }}/inputs/deployment' | yq 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap"); .spec.values.vaultId = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId) | with(select(.kind == "Kustomization" and .metadata.name == "runtime"); .spec.postBuild.substitute.VAULT_ID = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId)' > '{{ env.TASKV_DIRECTORY }}/seed-resolved.yaml'''',

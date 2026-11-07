@@ -29,7 +29,8 @@ Flux, Crossplane and External Secrets on OKE. The Flux-managed Kind bootstrap,
 OKE bootstrap Job and Vault-delivered adoption bindings have run on OCI, with
 application qualification while Kind was stopped. The run required IAM propagation
 retries, host transfer corrections and certificate renewal; an uninterrupted
-lifecycle remains unqualified. The Git-free seed and SSH handover require fresh OCI qualification. Release
+lifecycle remains unqualified. The current remote Flux bootstrap, automatic storage IAM and SSH handover require
+fresh OCI qualification. Release
 upgrades and credential rotation also remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
@@ -85,7 +86,7 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 | --- | --- |
 | `mise run setup` | Install the pinned OCI CLI and create private settings without overwriting existing deployment state. |
 | `mise run check` | Validate releases, rendering, TLS and local contracts. |
-| `mise run check:management` | Also test a disposable, credential-free Kind bootstrap. |
+| `mise run check:management` | Also test controller reconciliation in disposable Kind clusters. |
 | `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |
 | `mise run check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
 | `mise run up` | Provision OCI and install TAMOSS with public TLS ready; Kind retains infrastructure ownership. |

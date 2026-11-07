@@ -146,8 +146,8 @@ quiet = true
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:inputs",
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' config view --minify -o json | yq -p=json -e '.clusters[0].cluster.server == load("{{ vars.ENV_DIR }}/identity.yaml").remoteServer and ([.users[0].user.exec.args[]] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").clusterID]))' > /dev/null''',
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").remoteUID' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' config view --minify -o json | yq -p=json -e '.clusters[0].cluster.server == load("{{ vars.ENV_DIR }}/identity.yaml").remoteServer and .clusters[0].cluster."insecure-skip-tls-verify" != true and .clusters[0].cluster."certificate-authority-data" != null and .users[0].user.exec.command == "oci" and ([.users[0].user.exec.args[]] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").clusterID]))' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' --request-timeout=30s get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").remoteUID' > /dev/null''',
 ]
 
 ["identity:runtime-composite"]

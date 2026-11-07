@@ -3,7 +3,7 @@ kind: Test
 metadata: {name: bounded-operation-contract}
 spec:
   steps:
-    - name: apply the same contract to Helm and Crossplane Jobs
+    - name: apply the contract to the remaining operational Jobs
       try:
         - command:
             entrypoint: chainsaw
@@ -11,9 +11,6 @@ spec:
         - command:
             entrypoint: chainsaw
             args: [assert, -r, ../../../.local/tmp/check/secret-retirement.yaml, -f, ../job.yaml, --timeout, 1ms]
-        - command:
-            entrypoint: chainsaw
-            args: [assert, -r, ../../../.local/tmp/check/oke-bootstrap/ready.yaml, -f, ../job.yaml, --timeout, 1ms]
     - name: reject an unbounded Job
       try:
         - command:

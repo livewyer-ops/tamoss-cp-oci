@@ -109,12 +109,14 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "mise run test:s3:composition",
   "ROOT={{ vars.ROOT_DIR }} mise run test:controller-state:render",
   "ROOT={{ vars.ROOT_DIR }} mise run test:oke-bootstrap:render",
+  "mise run test:oke-bootstrap:retirement",
   "mise run verify:secrets",
   "mise run verify:connection-details",
   "mise run verify:operations",
   "mise run verify:gitops",
   "mise run verify:tadoss",
   "ROOT={{ vars.ROOT_DIR }} mise run test:setup:check",
+  "mise run test:bootstrap:inputs",
   '''{% for item in ["open-api", "overlap", "outside-vcn", "service-overlap", "catalogue-shape", "unsupported-oke", "duplicate-placement", "name-length"] %}
 kubectl kustomize tests/invalid/{{ item }} > '{{ env.TASKV_CACHE }}/rejected-{{ item }}.yaml'
 {% endfor %}''',

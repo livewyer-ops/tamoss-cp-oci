@@ -1,0 +1,12 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata: {name: oke-bootstrap-fixture, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  suspend: true
+  url: https://example.invalid/fixture
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: oke-bootstrap-facts, namespace: tamoss-infra}
+data: {VAULT_ID: ocid1.vault.oc1.fixture}

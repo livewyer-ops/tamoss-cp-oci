@@ -1,0 +1,21 @@
+{{- if .Values.files.environmentDefinition }}
+{{- $e := .Values.files.environment | fromYaml -}}
+{{- $definition := .Values.files.environmentDefinition | fromYaml }}
+apiVersion: {{ $e.apiVersion }}
+kind: {{ $e.kind }}
+metadata:
+  name: {{ $e.metadata.name }}
+  namespace: {{ $e.metadata.namespace }}
+  annotations:
+    tamoss.livewyer.io/deployment-id: {{ (.Values.files.identity | fromYaml).deploymentUID | quote }}
+spec:
+{{ omit $e.spec "crossplane" "managementPolicies" "adoption" | toYaml | indent 2 }}
+  managementPolicies: [Observe]
+  adoption:
+    deploymentId: ${DEPLOYMENT_ID}
+    creationCompositeUID: ${CREATION_COMPOSITE_UID}
+    externalNames:
+{{- range (first $definition.spec.versions).schema.openAPIV3Schema.properties.spec.properties.adoption.properties.externalNames.required }}
+      {{ . }}: {{ printf "${%s}" (. | upper | replace "-" "_") }}
+{{- end }}
+{{- end }}

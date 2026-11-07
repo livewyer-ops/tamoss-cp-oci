@@ -434,13 +434,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "install -m 600 /dev/null '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
   "{{ env.TASKV_OCI }} ce cluster create-kubeconfig --cluster-id {{ (env.TASKV_CLUSTER_ID) | quote }} --file - --token-version 2.0.0 --kube-endpoint PUBLIC_ENDPOINT > {{ vars.ENV_DIR }}/remote.pending.kubeconfig",
-  '''yq -i '.users[].user.exec |= (.command = "oci" | .env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)}, {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}])' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'''',
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/remote-uid'",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' config view --minify -o jsonpath='{.clusters[0].cluster.server}' > '{{ vars.ENV_DIR }}/remote-server'",
-  '''yq -e '.remoteUID == null or (.remoteUID == load_str("{{ vars.ENV_DIR }}/remote-uid") and .remoteServer == load_str("{{ vars.ENV_DIR }}/remote-server"))' {{ vars.ENV_DIR }}/identity.yaml > /dev/null''',
-  '''yq -i '.clusterID = "{{ env.TASKV_CLUSTER_ID }}" | .remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load_str("{{ vars.ENV_DIR }}/remote-server")' {{ vars.ENV_DIR }}/identity.yaml''',
-  "mv '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "CLUSTER_ID={{ env.TASKV_CLUSTER_ID | quote }} mise run cloud:remote:record",
 ]
 env.TASKV_CLUSTER_ID = '''{% if env.CLUSTER_ID is defined %}{{ env.CLUSTER_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '[.[] | select(.id | test(\"^ocid1[.]cluster[.]\"))] | .[0].id // \"\"' " ~ (vars.ENV_DIR) ~ "/owned-current.yaml") }}{% endif %}'''
 env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
@@ -448,6 +442,22 @@ env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE
 env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
 env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
 env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:remote:record"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''yq -e '[.clusters | length == 1, .users | length == 1, .users[0].user.exec.command == "oci", (.users[0].user.exec.args | contains(["{{ env.TASKV_CLUSTER_ID }}"])), (.clusters[0].cluster.server | test("^https://")), (.clusters[0].cluster."certificate-authority-data" | length > 0), .clusters[0].cluster."insecure-skip-tls-verify" != true] | all' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' > /dev/null''',
+  '''yq -i '.users[].user.exec |= (.command = "oci" | .env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)}, {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}])' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' --request-timeout=30s get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/remote-uid'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' config view --minify -o jsonpath='{.clusters[0].cluster.server}' > '{{ vars.ENV_DIR }}/remote-server'",
+  '''yq -e '.remoteUID == null or (.remoteUID == load_str("{{ vars.ENV_DIR }}/remote-uid") and .remoteServer == load_str("{{ vars.ENV_DIR }}/remote-server"))' {{ vars.ENV_DIR }}/identity.yaml > /dev/null''',
+  '''yq -i '.clusterID = "{{ env.TASKV_CLUSTER_ID }}" | .remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load_str("{{ vars.ENV_DIR }}/remote-server")' {{ vars.ENV_DIR }}/identity.yaml''',
+  "mv '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+]
+env.TASKV_CLUSTER_ID = '''{{ env.CLUSTER_ID | default(value=env.TASKV_CLUSTER_ID | default(value="")) }}'''
 
 ["cloud:remote"]
 hide = true
@@ -457,6 +467,7 @@ run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''yq -e '[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length <= 1' {{ vars.ENV_DIR }}/owned-current.yaml || { printf '%s\n' "Expected at most one owned OKE cluster" >&2; exit 1; }''',
   '''test -z '{{ env.TASKV_CLUSTER_ID }}' || yq -e '.clusterID == null or .clusterID == "{{ env.TASKV_CLUSTER_ID }}"' '{{ vars.ENV_DIR }}/identity.yaml' || { printf '%s\n' "OKE identity changed; retain management state and investigate" >&2; exit 1; }''',
+  '''test -z '{{ env.TASKV_CLUSTER_ID }}' || yq -e 'map(.id) | contains(["{{ env.TASKV_CLUSTER_ID }}"])' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null || { printf '%s\n' "OKE cluster is not in the owned resource inventory" >&2; exit 1; }''',
   "mise run cloud:remote:apply",
 ]
 env.TASKV_CLUSTER_ID = '''{% if env.CLUSTER_ID is defined %}{{ env.CLUSTER_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '[.[] | select(.id | test(\"^ocid1[.]cluster[.]\"))] | .[0].id // \"\"' " ~ (vars.ENV_DIR) ~ "/owned-current.yaml") }}{% endif %}'''

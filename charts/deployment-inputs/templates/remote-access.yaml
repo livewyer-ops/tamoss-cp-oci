@@ -1,0 +1,34 @@
+{{- if .Values.files.remoteToken }}
+{{- $identity := .Values.files.identity | fromYaml -}}
+{{- $config := .Values.files.remoteConfig | fromYaml -}}
+{{- $request := .Values.files.remoteToken | fromJson }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oke-bootstrap-access
+  namespace: tamoss-infra
+  labels:
+    tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
+  annotations:
+    tamoss.livewyer.io/cluster-id: {{ $identity.clusterID | quote }}
+    tamoss.livewyer.io/cluster-uid: {{ $identity.remoteUID | quote }}
+    tamoss.livewyer.io/token-expires: {{ required "TokenRequest expiry is required" $request.status.expirationTimestamp | quote }}
+type: Opaque
+stringData:
+  value.yaml: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: oke
+        cluster:
+          server: {{ $identity.remoteServer | quote }}
+          certificate-authority-data: {{ required "OKE CA is required" (index (first $config.clusters).cluster "certificate-authority-data") | quote }}
+    users:
+      - name: bootstrap
+        user:
+          token: {{ required "TokenRequest token is required" $request.status.token | quote }}
+    contexts:
+      - name: oke
+        context: {cluster: oke, user: bootstrap}
+    current-context: oke
+{{- end }}

@@ -22,24 +22,33 @@ separately; application readiness remains the responsibility of the OKE controll
 The root also composes HelmReleases for secret delivery and runtime IAM, deriving
 their values from observed Vault/key and OKE IDs. Flux owns their Helm operations.
 
-Once OKE and its workers, runtime IAM and persisted credentials are ready, the
-root creates the `oke-bootstrap` Job in Kind. Its pinned OCI CLI retrieves the
-OKE kubeconfig; native init containers validate cluster identity, install Flux
-and apply the deployment seed. Kubernetes owns retries and the execution deadline.
-The database can continue provisioning during this work. A restricted local
-ServiceAccount records the connection and successful seed in `oke-connection`;
-it cannot read other Secrets through the API. The OCI signing key stays in Kind.
+Once the OKE API and initial worker, runtime IAM and persisted credentials are
+ready, the host retrieves the OKE kubeconfig with the pinned OCI CLI and checks
+the recorded identity and TLS. It creates a dedicated bootstrap ServiceAccount,
+requests a one-hour token and submits a self-contained kubeconfig Secret to Kind.
+Kind's `oke-flux` Kustomization installs the pinned official Flux OCI manifests;
+`oke-seed` depends on its readiness and applies the product's shared seed base.
+Crossplane supplies the Vault identifier through `oke-bootstrap-facts` in Kind.
+The database can continue provisioning while these controllers reconcile.
 
-mise still supplies the initial credential imports, verifies persistence and
-retires staging credentials and reads the completed connection. Git publication
-and deploy-key establishment occur only during optional handover.
+After deployment readiness passes, both remote Kustomizations are suspended and
+Kind's kustomize-controller is stopped before bootstrap RBAC and credentials are
+removed. The suspended declarations retain the retirement decision across host
+interruption and Kind restart. They use non-pruning, orphan deletion semantics.
+OKE keeps its controllers and applications; Kind's Crossplane retains OCI
+infrastructure ownership until the separate Git handover.
+
+The host supplies initial credential imports, verifies persistence and retires
+staging credentials. Git publication and deploy-key establishment occur only
+during optional handover. Helm renders local inputs and the initial Git files.
+The shared Kustomize base supplies initial deployment and Git export; Flux
+substitutes observed Vault information during remote reconciliation.
 Ownership transfer, qualification and cleanup remain explicit
 operations. Before handover or teardown, mise freezes the bootstrap-instance
 HelmRelease and excludes an in-flight Helm action. It then irreversibly releases the root's
 configuration authority and confirms its reconciliation is paused. This prevents
 bootstrap settings or child recreation from competing with subsequent operations.
-Release also removes the bootstrap Job and waits for its Pods to disappear before
-ownership transfer or teardown. Release and pause are both required: the release flag alone can still reapply an observed
+Release also waits for credential Jobs and Pods to retire before transfer. Release and pause are both required: the release flag alone can still reapply an observed
 child snapshot. Repeated release keeps an already released root paused, including
 after its inputs change.
 
@@ -47,8 +56,9 @@ after its inputs change.
 flowchart LR
     Inputs[Private environment inputs] --> Kind[Kind / Flux / Crossplane / ESO]
     Kind --> OCI[OKE, networking, PostgreSQL and bucket]
-    Kind --> Job[OKE bootstrap Job]
-    Job --> Flux
+    Host[Host OCI CLI / temporary OKE credential] --> Kind
+    Kind -->|Remote Flux bootstrap| Flux
+    OCI --> Host
     Kind --> Vault[Retained OCI Vault/key]
     Git[Optional environment Git configuration]
     Kind --> Bindings[Immutable adoption bindings in Vault]
@@ -84,18 +94,19 @@ provider bindings. Only one control plane may write at a time. The original Kind
 is retained without write authority, stopped, and later receives current Git/live
 configuration for deletion. This does not recover lost Kind state.
 
-After the remote Flux seed is submitted, its controllers fetch Git and create
-the runtime releases through their declared dependencies. The Kind Job seeds Flux with
-the already persisted, read-only Git App credential and the Vault identifier.
-Flux installs ESO and infrastructure controllers independently of database outputs.
-ESO takes ownership of the seeded credential and delivers GHCR credentials and
-adoption bindings. This lets OKE bootstrap while PostgreSQL is still provisioning.
+After Kind's Flux submits the remote seed, OKE's Flux fetches the pinned public product
+sources and creates runtime releases through their declared dependencies. The
+seed contains the Vault identifier and non-secret configuration. Flux installs
+ESO and infrastructure controllers independently of database outputs; ESO delivers
+application credentials and adoption bindings from Vault. An environment Git
+repository and its SSH deploy key are needed only for optional handover.
 
-The connection record contains the deployment ID, OCI cluster ID, remote
-namespace UID, API server and kubeconfig. Completion prevents the Job being
-recreated after it has been removed. Subsequent operations use Git and the OKE
-controllers. The host uses the pinned native OCI CLI for renewable kubeconfig
-tokens, inventory, qualification and cleanup.
+The private local identity record binds the deployment to the OCI cluster ID,
+remote namespace UID and API server. The host obtains renewable kubeconfig tokens
+through the pinned OCI CLI for observation and teardown. These credentials are
+separate from the temporary ServiceAccount token used by Kind Flux. Completed
+deployment, suspended remote Kustomizations and released or retiring
+bootstrap state prevent the original seed being replayed after ownership changes.
 
 Deployment completion observes the selected infrastructure and runtime Git revision, current product chart
 and HelmRelease generation, then the `deployment-ready` Flux health check.
@@ -131,7 +142,7 @@ remained unchanged across enablement. See the [qualification limits](testing.md#
 
 ## Operational Jobs
 
-The OKE bootstrap, database connection and secret-retirement Jobs use native CLI
+The S3 credential, database connection and secret-retirement Jobs use native CLI
 commands in ordered init containers. Kubernetes owns retries and deadlines.
 Images are pinned through `dependencies.yaml`; containers run without root or
 privilege escalation, with read-only root filesystems and bounded memory-backed
@@ -141,18 +152,17 @@ outputs may use ConfigMaps; credential payloads stay in Secrets and Vault.
 The database connection and secret-retirement charts share these settings through
 the [operation-common library](../charts/operation-common/). Helmfile and Flux
 resolve its local chart dependency. Local rendering builds it through the existing
-checks. The Crossplane bootstrap template has a separate rendering stage and
-conforms to the same tested contract without importing Helm helpers.
+checks. Crossplane composition rendering remains separate from these Helm templates.
 
 | Operation | Owner and location | Inputs and completion |
 | --- | --- | --- |
-| OKE bootstrap | Crossplane in original Kind | Cluster/deployment identity, seed ConfigMap and OCI Secret references; identity-bound `oke-connection` Secret records completion |
+| S3 credentials | Crossplane-managed secret HelmRelease in Kind | Recorded storage identity, one-time key capture and Vault delivery; exact-key receipt supports safe retirement |
 | Database connection | Flux HelmRelease in OKE, namespace `auth` | Database ID, refresh revision and workload identity; validates hostname/CA before patching the named `database-connection` ConfigMap |
 | Secret retirement | Helmfile during teardown in original Kind | Deployment prefix, Vault/compartment IDs and OCI Secret references; completes when listed matching secrets are pending deletion or deleted |
 
 Jobs can execute more than once. Each operation therefore keeps its own recovery
 and identity checks; Job completion alone does not provide exactly-once execution.
-See [recovery procedures](operations.md#operational-job-recovery).
+See [recovery procedures](operations.md#operation-recovery).
 
 ## Configuration flow
 

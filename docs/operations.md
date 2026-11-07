@@ -66,8 +66,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Preflight rejection | Placeholder settings, OCI discovery, published product/public package access, file permissions and recorded-input consistency |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
-| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`, `remoteBootstrapPhase`; inspect child conditions and HelmReleases |
-| OKE Flux seed failed | Kind `tamoss-infra/oke-bootstrap` Job and init-container logs; preserve the Job and `oke-connection` Secret |
+| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
+| OKE Flux seed failed | Kind `tamoss-infra/oke-flux` and `oke-seed` Kustomization conditions and source readiness; repeat `mise run up` to renew expired bootstrap access |
 | Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
@@ -95,16 +95,31 @@ Treat diagnostic output as private and redact it before sharing. Report location
 | Cloud baseline and subsequent inventory | `.local/environment/inventory-before/`, other `inventory-*` directories |
 | Recorded resource ownership | `.local/environment/resources.yaml`, `owned-cloud.yaml` |
 
-## Operational Job recovery
+## Operation recovery
 
-Inspect the Job conditions and failed init-container logs before retrying the
-owning command. Deadlines and backoff limits remain specific to each operation;
-the common chart does not choose retry policy or manage the workflow.
+Inspect remote bootstrap without exposing its credential:
 
-| Job | Interruption and retry behaviour |
+```bash
+mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations oke-flux oke-seed
+mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra describe kustomization oke-seed
+```
+
+The OCI kubeconfig on the host remains available for observation and teardown.
+Kind's separate ServiceAccount token expires at the time recorded on its Secret;
+the API server controls the actual lifetime. Do not manually resume retired
+bootstrap declarations. `down` stops remote reconciliation before removing
+applications and revokes any remaining bootstrap access. A repeated teardown
+skips remote revocation once the current verified cloud inventory confirms that
+the cluster is gone; a failed or missing inventory cannot establish its absence.
+
+Inspect the failed host command, or the Job conditions and init-container logs,
+before retrying. Job deadlines and backoff limits remain specific to each
+operation; the common chart does not choose retry policy or manage the workflow.
+
+| Operation | Interruption and retry behaviour |
 | --- | --- |
 | Kind `tamoss-infra/s3-credentials` | Repeat `mise run up` when the response is already staged or persisted. A claimed attempt is never automatically repeated. Use the S3 recovery procedure below for a confirmed incomplete key. |
-| Kind `tamoss-infra/oke-bootstrap` | Preserve its `oke-connection` Secret and original cluster. Repeat `mise run up` with the same inputs. Identity checks reject a different target; the durable completion receipt prevents reseeding a completed or released bootstrap. |
+| Kind remote bootstrap | Repeat `mise run up` with the same inputs and original Kind. It can renew a token while bootstrap is active. Once either remote Kustomization is suspended for retirement, repeats finish cleanup without recreating access. Identity checks reject a different target. |
 | OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
 | Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
 
@@ -200,32 +215,33 @@ unpublished changes and directs a pending transfer back to `handover`. Resolve i
 and missing established credentials before retrying. Once teardown starts, use
 `down` to finish it.
 
-During initial provisioning, Flux and Crossplane continue reconciling if
-mise exits. After credential retirement, Kind's `oke-bootstrap` Job can retrieve
-the remote connection, install Flux and seed the deployment without the mise process.
-Resume `up` to observe deployment completion, then run `handover` separately. Preserve
-`bootstrap.yaml`, `management-values.yaml` and the recorded
-bootstrap UID alongside the existing environment identity. Do not manually unpause a released root during
-operations or deletion; `down` verifies and preserves the paused boundary.
+During initial provisioning, Flux and Crossplane continue reconciling if mise
+exits. The host must run until it has submitted the temporary OKE credential to
+Kind. Kind then installs Flux and applies the remote seed. Resume an interrupted
+`up` with the same private environment directory. Repeating an incomplete seed
+renews access while bootstrap remains active. Final readiness, credential
+retirement and access details still require `up`.
+
+Preserve `bootstrap.yaml`, `management-values.yaml`, kubeconfigs and the environment
+identity through verified teardown. Run one lifecycle command per environment at
+a time. Do not manually unpause a released root during operations or deletion.
+
 Keep `tamoss-bootstrap-instance` suspended after handover. Restarting Kind must
 not reinstall its original bootstrap intent. Teardown refreshes controller/API
 releases from current Git while leaving that instance suspended.
 
-The Job allows six retries and at most thirty minutes per attempt. A repeat `up`
-archives a terminal failure's Job, logs and events before replacing that original Job.
-An active, completed or released bootstrap is never replaced by this retry.
-Do not delete `oke-connection`: its completion record prevents replay, and its
-cluster identity prevents a retry seeding a different cluster. Inspect progress
-without exposing the connection data:
+Native OCI requests, Flux installation and readiness observations have bounded
+timeouts. A failure stops the command and preserves the environment for diagnosis.
+There is no OKE bootstrap Job or connection receipt in Kind. Inspect the root and
+remote controllers with their native tools:
 
 ```bash
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossbootstrap
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get job oke-bootstrap
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra logs job/oke-bootstrap --all-containers=true
+mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossbootstrap
+mise exec -- flux --kubeconfig .local/environment/remote.kubeconfig get all --all-namespaces
 ```
 
-The new Job contract applies to new environments. Use an existing environment's
-recorded product commit for its operations and teardown.
+Remote Flux bootstrap applies to new environments. Existing environments must retain their
+recorded product commit for operations and teardown; bootstrap state is not migrated.
 
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
 overwrites them and continue independent checks where appropriate. Remove the
@@ -255,10 +271,10 @@ mise exec -- oci os ns get
 ```
 
 Expected: the Object Storage namespace. Commands use the selected local profile
-and signing key. The bootstrap Job mounts its Kind-held key read-only and uses
-the same pinned OCI CLI version. This does not grant additional IAM access.
+and signing key. Host bootstrap and teardown share the same OCI kubeconfig path
+and identity checks. This does not grant additional IAM access.
 
-The Job's [tooling image](../deploy/oke-bootstrap/Dockerfile) contains the pinned
+The S3 credential Job's [tooling image](../deploy/oke-bootstrap/Dockerfile) contains the pinned
 OCI CLI, Flux, kubectl and yq. To change its tools, update the selections in
 `dependencies.yaml` and run the [publication workflow](../.github/workflows/bootstrap-tools.yaml)
 on the product repository's default branch. The workflow uses `GITHUB_TOKEN` to

@@ -197,3 +197,21 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "chainsaw test --no-cluster --test-dir '{{ vars.ROOT }}/tests/bootstrap/render' --set-string root='{{ vars.ROOT }}' --set-string crossplaneImage={{ vars.CORE }} --report-format JUNIT-TEST --report-path '{{ vars.ROOT }}/.local/reports' --report-name bootstrap-render",
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
+
+["test:bootstrap:inputs"]
+hide = true
+run = [
+  "mise run test:setup:fixture",
+  "mise run test:setup:render",
+  "mise run setup:publish-inputs",
+  '''yq -n '{"deploymentUID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "oci":{"user":"ocid1.user.oc1.fixture", "tenancy":"ocid1.tenancy.oc1.fixture"}}' > '{{ env.DIRECTORY }}/identity.yaml'''',
+  "test ! -e '{{ env.DIRECTORY }}/management.kubeconfig'",
+  "mise run bootstrap:render",
+  "crossplane resource validate '.local/tmp/check/bootstrap/api.yaml' '{{ env.DIRECTORY }}/bootstrap.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='.local/tmp/check/crossplane' --error-on-missing-schemas",
+  '''yq -e '.spec.credentialsEstablished == false and .spec.remoteBootstrap == null and .spec.storageCredentials.domainId == "ocid1.domain.oc1.fixture" and .spec.vaultAuth.user == "ocid1.user.oc1.fixture"' '{{ env.DIRECTORY }}/bootstrap.yaml'''',
+  '''yq -i '.credentialsEstablished = true' '{{ env.DIRECTORY }}/identity.yaml'''',
+  "mise run bootstrap:render",
+  '''yq -e '.credentialsEstablished == true and .instance.spec.credentialsEstablished == true and .instance.spec.deploymentId == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' '{{ env.DIRECTORY }}/management-values.yaml'''',
+]
+env.DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
+env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"

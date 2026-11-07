@@ -5,20 +5,17 @@ configurations: [kustomizeconfig.yaml]
 configMapGenerator:
   - name: tamoss-gitops-values
     namespace: tamoss-infra
-    files: [values.yaml]
+    literals: ['values.yaml={}']
   - name: infrastructure-intent
     namespace: tamoss-infra
-    files: [infrastructure/environment.yaml]
+    literals: ['environment.yaml={}']
 generatorOptions:
   annotations:
     kustomize.toolkit.fluxcd.io/substitute: disabled
   labels:
     reconcile.fluxcd.io/watch: Enabled
 replacements:
-  - source:
-      kind: ConfigMap
-      name: infrastructure-intent
-      fieldPath: data.environment\.yaml
+  - source: {kind: ConfigMap, name: infrastructure-intent, fieldPath: data.environment\.yaml}
     targets:
       - select: {kind: Kustomization, name: infrastructure}
         fieldPaths: [spec.patches.0.patch]

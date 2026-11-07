@@ -7,6 +7,8 @@ oci:
 bootstrapTools:
   image: ghcr.io/dodwyer/tamoss-bootstrap-tools@sha256:a0e761a80b375e4b669fc656905f723faefc7df14133368a8754fd1fccc75259
   fluxImage: ghcr.io/fluxcd/flux-cli:v2.9.6@sha256:b1ac18156f227af9a524b842a96f2c20986c7a779ef721df3ba4e4540f449d76
+flux:
+  manifestsDigest: sha256:e007ec3c575b9089fc7e96ad1d2159407be03450da7c220c6d25c8e8c1b42d01
 crossplane:
   version: 2.4.2
 externalSecrets:
