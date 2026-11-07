@@ -167,19 +167,15 @@ spec:
     - name: allow local cleanup after the original composite has disappeared
       try:
         - command: *localOwner
-    - name: reject credential files with line endings
+    - name: reject a malformed storage identity
       try:
         - command:
             entrypoint: env
             env: *paths
-            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:secrets"]
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:reject-secret-newline"]
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:invalid-storage"]
             check:
               ($error != null): true
-              (contains($stderr, 'without line endings')): true
+              (contains($stderr, 'Provide a separate storage user OCID')): true
     - name: reject a missing identity record for existing state
       try:
         - command:

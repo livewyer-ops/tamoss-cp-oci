@@ -1,0 +1,23 @@
+deploymentId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+initialise: true
+oracle:
+  region: eu-frankfurt-1
+  vault: ocid1.vault.oc1.fixture
+  compartment: ocid1.compartment.oc1.fixture
+  encryptionKey: ocid1.key.oc1.fixture
+  principalType: UserPrincipal
+  auth:
+    user: ocid1.user.oc1..provisioner
+    tenancy: ocid1.tenancy.oc1..fixture
+    secretRef:
+      privatekey: {name: oci-vault-bootstrap, key: privatekey}
+      fingerprint: {name: oci-vault-bootstrap, key: fingerprint}
+s3:
+  userId: ocid1.user.oc1..storage
+imports:
+  - {name: s3, sourceSecret: s3-input}
+deliveries:
+  - name: s3
+    data:
+      - {secretKey: accessKey, remoteKey: s3, property: accessKey}
+      - {secretKey: secretKey, remoteKey: s3, property: secretKey}

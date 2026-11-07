@@ -37,7 +37,9 @@
       "regionalStorage": {"type": "boolean"}, "availabilityDomain": {"type": "string"},
       "backupRetentionDays": {"type": "integer", "minimum": 1, "maximum": 35}
     }},
-    "storage": {"type": "object", "additionalProperties": false, "properties": {"bucket": {"type": "string"}}},
+    "storage": {"type": "object", "required": ["userId"], "additionalProperties": false, "properties": {
+      "bucket": {"type": "string"}, "userId": {"type": "string", "pattern": "^ocid1\\.user\\."}
+    }},
     "foundation": {"type": "object", "additionalProperties": false, "properties": {
       "name": {"type": "string"}, "adoption": {"type": "object"}
     }},

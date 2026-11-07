@@ -36,7 +36,7 @@ This includes `check`, then creates and removes a disposable, credential-free Ki
 cluster. It tests provider package health, real API admission, required database
 CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
 include partial installs and retention of state when the cloud audit fails.
-Flux also packages both operational charts from a source archive without generated
+Flux also packages the operational charts from a source archive without generated
 dependency packages, verifying that the shared Helm library resolves from source.
 
 The OKE bootstrap test adds a second disposable Kind cluster. Crossplane creates
@@ -69,6 +69,14 @@ Job tests exercise asynchronous secret retirement, deadlines and failed retrieva
 Kind restart checks preserve the kubeconfig and reject a mismatched identity. Git
 publication checks cover repeat pushes, interrupted promotion and unrelated edits. These
 checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
+
+S3 checks run the production credential Job with only OCI requests substituted.
+They verify empty-input blocking, creation claims, interrupted-response replay
+rejection, Vault-style persistence and Helm upgrade retention. Admission checks
+reject changed or shared storage identities. Retirement checks retain unrelated
+keys, resume after deletion and reject uncertain creation outcomes. Composition
+checks keep bootstrap authority active until the creation Job and its Pods are
+gone. These local checks do not establish live OCI IAM propagation or API outcomes.
 
 Binding-delivery checks submit Flux consumers before the snapshot exists, then
 observe ESO persistence, delivery and Crossplane convergence without forcing
@@ -179,6 +187,7 @@ a fresh uninterrupted OCI lifecycle.
 
 | Behaviour | Observed status |
 | --- | --- |
+| Automatic S3 credentials | An isolated real OCI test passed Job creation, exact Vault readback, key preservation on repeat and repeated owned-key revocation. Temporary IAM and Kind were removed; the test secret was scheduled for deletion. This did not exercise bucket access or a full deployment |
 | TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
 | Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |

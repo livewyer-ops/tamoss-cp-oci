@@ -14,7 +14,7 @@ run = [
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
   '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}')" = 700''',
   '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/values.yaml')" = 600''',
-  '''yq -i '.name = "setup-test" | .compartmentId = "ocid1.compartment.oc1.fixture" | .contactEmail = "operator@example.test" | .adminCidrs = ["192.0.2.10/32"]' '{{ env.TASKV_DIRECTORY }}/values.yaml'''',
+  '''yq -i '.storage.userId = "ocid1.user.oc1.storage" | .name = "setup-test" | .compartmentId = "ocid1.compartment.oc1.fixture" | .contactEmail = "operator@example.test" | .adminCidrs = ["192.0.2.10/32"]' '{{ env.TASKV_DIRECTORY }}/values.yaml'''',
   "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
   "cmp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",

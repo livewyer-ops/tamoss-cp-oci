@@ -1,0 +1,160 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: s3-credential-lifecycle}
+spec:
+  steps:
+    - name: do not persist an empty staging secret
+      try:
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/backend.yaml}
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: oci-vault-bootstrap, namespace: s3-check}
+              stringData: {fingerprint: fixture, privatekey: fixture}
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: s3-input
+                namespace: s3-check
+                annotations: {tamoss.livewyer.io/deployment-id: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/persistence.yaml}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              metadata: {name: s3, namespace: s3-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-s3, namespace: s3-backend}
+    - name: create and persist a credential through the production Job
+      try:
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/fixture.yaml}
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: s3-credentials, namespace: s3-check}
+              status:
+                (conditions[?type == 'Complete'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: s3-credential-operation, namespace: s3-check}
+              data:
+                keyId: fixture-key
+                (length(attempt) > `0`): true
+                (length(keys(@))): 2
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: s3, namespace: s3-check}
+              data: {accessKey: Zml4dHVyZS1rZXk=, secretKey: Zml4dHVyZS1zZWNyZXQ=}
+    - name: reject a repeated creation attempt and preserve the receipt on Helm upgrade
+      bindings:
+        - name: receipt
+          value: (x_k8s_get($client, 'v1', 'ConfigMap', 's3-check', 's3-credential-operation'))
+        - name: credential
+          value: (x_k8s_get($client, 'v1', 'Secret', 's3-check', 's3-input'))
+      try:
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/replay.yaml}
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: s3-replay, namespace: s3-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - command:
+            entrypoint: helm
+            args: [upgrade, --install, s3-retention, ../../../.local/tmp/check/s3-credentials/retention, --namespace, s3-check, --take-ownership]
+        - command:
+            entrypoint: helm
+            args: [upgrade, s3-retention, ../../../.local/tmp/check/s3-credentials/retention, --namespace, s3-check]
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: s3-credential-operation, namespace: s3-check, uid: ($receipt.metadata.uid)}
+              data: ($receipt.data)
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: s3-input, namespace: s3-check, uid: ($credential.metadata.uid)}
+              data: ($credential.data)
+    - name: preserve the first Vault credential when staging changes
+      bindings:
+        - name: refreshed
+          value: (x_k8s_get($client, 'external-secrets.io/v1alpha1', 'PushSecret', 's3-check', 's3').status.refreshTime)
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: s3-input, namespace: s3-check}
+              stringData: {credentials: '{"accessKey":"replacement","secretKey":"replacement"}'}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              metadata: {name: s3, namespace: s3-check}
+              status:
+                (refreshTime != $refreshed): true
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: s3, namespace: s3-check}
+              data: {accessKey: Zml4dHVyZS1rZXk=, secretKey: Zml4dHVyZS1zZWNyZXQ=}
+    - name: retain an interrupted claim and reject automatic replay
+      try:
+        - delete:
+            ref: {apiVersion: batch/v1, kind: Job, name: s3-credentials, namespace: s3-check}
+        - delete:
+            ref: {apiVersion: batch/v1, kind: Job, name: s3-replay, namespace: s3-check}
+        - command:
+            entrypoint: kubectl
+            args: [-n, s3-check, patch, configmap, s3-credential-operation, --type=json, '-p=[{"op":"remove","path":"/data"}]']
+        - command:
+            entrypoint: kubectl
+            args: [-n, s3-check, patch, secret, s3-input, --type=json, '-p=[{"op":"remove","path":"/data"}]']
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/interrupted.yaml}
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: s3-interrupted, namespace: s3-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: s3-credential-operation, namespace: s3-check}
+              data:
+                (length(attempt) > `0`): true
+                (keyId == null): true
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/replay.yaml}
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: s3-replay, namespace: s3-check}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: s3-input, namespace: s3-check}
+              (data.credentials == null): true

@@ -199,8 +199,12 @@ configured retention, but teardown deletes the owned system and its backups.
 
 The private OCI bucket stores media. TAMOSS registers it through an external
 StorageBackend and uses the S3-compatible HTTPS endpoint for application and
-browser media access. A separate bucket-scoped Customer Secret Key supplies
-storage access. Qualification's ingest source is restricted to its input prefix.
+browser media access. A bounded Kind Job creates a Customer Secret Key for the
+separate bucket-scoped storage user. ESO persists the one-time response in Vault
+and delivers it to OKE; Crossplane sees only references and non-secret receipts.
+The creation claim prevents a repeated Job from creating another key. Teardown
+revokes the recorded key after workload deletion. Qualification's ingest source
+is restricted to its input prefix.
 
 Worker-drain availability has passed live checks. That result does not establish
 managed-database failover, regional recovery or management-state restoration.

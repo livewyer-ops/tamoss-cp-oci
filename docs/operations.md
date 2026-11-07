@@ -103,6 +103,7 @@ the common chart does not choose retry policy or manage the workflow.
 
 | Job | Interruption and retry behaviour |
 | --- | --- |
+| Kind `tamoss-infra/s3-credentials` | Repeat `mise run up` when the response is already staged or persisted. A claimed attempt is never automatically repeated. Use the S3 recovery procedure below for a confirmed incomplete key. |
 | Kind `tamoss-infra/oke-bootstrap` | Preserve its `oke-connection` Secret and original cluster. Repeat `mise run up` with the same inputs. Identity checks reject a different target; the durable completion receipt prevents reseeding a completed or released bootstrap. |
 | OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
 | Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
@@ -111,6 +112,29 @@ Do not delete identity receipts or clear finalisers to bypass a failed operation
 Database hostname/CA validation failures leave the previously published connection
 data intact. Secret-retirement failure keeps Kind and its credentials available
 for a later teardown attempt.
+
+### S3 credential recovery
+
+The `s3-credential-operation` ConfigMap records the deployment identity, storage
+user, attempt and key ID. Preserve it and the original Kind cluster. The Job
+claims the operation before calling OCI, with automatic API retries disabled.
+An interruption after creation can lose the one-time secret response, so a
+failed Job is not evidence that OCI created no key.
+
+Correct the reported cause, then run:
+
+```bash
+mise run storage:recover
+mise run up
+```
+
+Recovery stops the owned Job, rejects an already staged or persisted response,
+and queries OCI for the exact attempt's key. It records the ID before revocation,
+verifies deletion and requests a fresh Helm reconciliation. Unrelated keys are
+retained. If the claim has no recorded ID and OCI cannot identify its key,
+recovery stops: retain the records and use OCI Audit to establish the creation
+outcome before changing the claim. A timeout or empty list alone cannot prove
+that an in-flight create failed. Do not clear the receipt to force a retry.
 
 ## Convergence and handover
 
@@ -297,7 +321,8 @@ provider credentials remain until direct OCI inventory matches the baseline.
 | --- | --- |
 | Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
 
-After the cloud audit, teardown retires the binding PushSecret and schedules
+After the cloud audit, teardown revokes the deployment's S3 key, verifies its
+absence, retires the binding PushSecret and schedules
 environment secrets for deletion. A bounded Kubernetes Job waits
 for OCI to report `PENDING_DELETION` or `DELETED`; a timeout retains Kind and the
 Job for diagnosis. `retained-foundation.yaml` records the owner, Vault/key and

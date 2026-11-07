@@ -7,7 +7,7 @@ run = [
   "install -d -m 700 '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}/secrets'",
   "install -m 600 '{{ vars.ROOT_DIR }}/environments/example/values.yaml' '{{ vars.ENV_DIR }}/values.yaml'",
   "install -m 600 '{{ vars.ROOT_DIR }}/environments/example/gitops.yaml' '{{ vars.ENV_DIR }}/gitops.yaml'",
-  "printf 'Edit %s/values.yaml and supply the credential files described in docs/getting-started.md, then run mise run up\\n' {{ (vars.ENV_DIR) | quote }}",
+  "printf 'Edit %s/values.yaml and configure the OCI profile described in docs/getting-started.md, then run mise run up\\n' {{ (vars.ENV_DIR) | quote }}",
 ]
 
 ["setup:initialise"]
@@ -77,10 +77,8 @@ run = [
   '''test "$(stat -c '%a:%u' '{{ vars.ENV_DIR }}')" = "700:$(id -u)" || { printf '%s\n' "The environment directory must be owned by the current user with mode 700" >&2; exit 1; }''',
   '''yq -e '[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0' {{ (vars.ENV_DIR) | quote }}/values.yaml || { printf '%s\n' "Replace example configuration before deploying" >&2; exit 1; }''',
   '''test -s '{{ env.TASKV_OCI_CONFIG }}' || { printf '%s\n' "Configure the OCI provisioner profile before deploying" >&2; exit 1; }''',
-  "helm lint '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml",
-  '''{% for item in ["s3-access-key", "s3-secret-key"] %}
-test -s '{{ vars.ENV_DIR }}/secrets/{{ item }}' && test -z "$(find '{{ vars.ENV_DIR }}/secrets/{{ item }}' -perm /077 -print)"
-{% endfor %}''',
+  "helm lint '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml'",
+  '''OCI_PROFILE={{ env.TASKV_OCI_PROFILE | quote }} yq -p=ini -e '(. * (.[strenv(OCI_PROFILE)] // {})) | .user != null and .user != load("{{ vars.ENV_DIR }}/values.yaml").storage.userId' {{ env.TASKV_OCI_CONFIG | quote }} > /dev/null || { printf '%s\n' 'The storage user must be separate from the infrastructure provisioner' >&2; exit 1; }''',
   "install -d -m 700 '{{ vars.ENV_DIR }}/discovery'",
   '''OCI_PROFILE={{ (env.TASKV_OCI_PROFILE) | quote }} yq -p=ini -o=yaml '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
   '''yq -e '.region | test("^[a-z]+-[a-z]+-[0-9]+$")' {{ vars.ENV_DIR }}/discovery/profile.yaml > /dev/null''',

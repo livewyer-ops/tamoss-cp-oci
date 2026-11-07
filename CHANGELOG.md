@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Generate the deployment's S3 credential in a bounded Kind Job, persist it through
+  ESO and OCI Vault, and retire only its recorded key during teardown. Setup now
+  takes a separate storage-user OCID instead of manually supplied key files.
 - mise replaces Aqua and Task for pinned tools and namespaced commands. Use
   `mise run setup`, `mise run up`, `mise run handover`, `mise run qualify` and
   `mise run down`; pass environment inputs before the command.
@@ -11,8 +14,8 @@
 - Optional `mise run handover` publishes the same configuration to private Git and
   uses native Flux bootstrap with a read-only SSH deploy key persisted in Vault.
   Git adoption precedes the existing single-writer infrastructure transfer.
-- Setup defaults to `media-demo` with three required values: compartment, contact
-  email and administrator CIDRs. Git settings are separate and used only for handover.
+- Setup defaults to `media-demo` with compartment, contact email, administrator
+  CIDRs and a separate storage-user OCID. Git settings are separate and used only for handover.
 - `mise run setup` prepares a single `values.yaml` and the pinned OCI CLI. Deployment
   supplies HA defaults and release bundle pins, discovers regional OCI values,
   and records bootstrap settings for repeat runs. After handover, operational

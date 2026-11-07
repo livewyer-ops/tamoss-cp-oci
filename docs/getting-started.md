@@ -61,28 +61,22 @@ that profile. Verify it with the installed native CLI:
 mise exec -- oci os ns get
 ```
 
-### Storage credentials
+### Storage identity
 
-The storage identity needs a Customer Secret Key scoped to the intended bucket.
+Use a separate storage user with access scoped to the intended bucket.
 The default bucket is `tamoss-media-demo-media`. Setting `name` in
 `values.yaml` changes it to `tamoss-<name>-media`. Configure the storage policy for that exact name, or set
 `storage.bucket` to the bucket name already authorised by your administrator.
 Crossplane creates the bucket during deployment.
 
-Write the credential bytes through hidden prompts:
+Set its OCID as `storage.userId` in `values.yaml`. The provisioner needs the
+[scoped key-management policy](../deploy/oci/README.md) for this user. Leave at
+least one of the user's two Customer Secret Key slots available.
 
-```bash
-umask 077
-read -r -s -p 'S3 access key: ' S3_ACCESS_KEY
-printf '%s' "$S3_ACCESS_KEY" > .local/environment/secrets/s3-access-key
-unset S3_ACCESS_KEY
-read -r -s -p 'S3 secret key: ' S3_SECRET_KEY
-printf '%s' "$S3_SECRET_KEY" > .local/environment/secrets/s3-secret-key
-unset S3_SECRET_KEY
-```
-
-Keep credentials out of manifests, shell tracing and logs. Database and application
-passwords are generated and persisted in OCI Vault during deployment.
+During `up`, a bounded Job in Kind creates the key and stages its one-time
+response in a Kubernetes Secret. ESO persists it in OCI Vault and reads it back
+before bootstrap continues. No S3 key files or copy-and-paste step are required.
+Database and application passwords are also generated and persisted in Vault.
 
 ## Quick deployment
 
@@ -96,6 +90,8 @@ Edit `.local/environment/values.yaml`:
 compartmentId: ocid1.compartment.oc1..REPLACE
 contactEmail: operator@example.com
 adminCidrs: [192.0.2.10/32]
+storage:
+  userId: ocid1.user.oc1..REPLACE
 ```
 
 Use your actual public egress IPv4 address, including any VPN gateway, for the

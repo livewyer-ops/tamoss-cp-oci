@@ -60,6 +60,9 @@ run = [
   '''KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/tadoss-startup --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-startup' --set-string databaseImage="$(yq -r .qualification.postgres16Image dependencies.yaml)" --set-string chartVersion="$(yq -r .dependencies.platform.authentik.chartVersion '{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml')" --report-format JUNIT-TEST --report-path .local/reports --report-name tadoss-startup''',
   "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 90s --test-dir tests/secret-persistence --report-format JUNIT-TEST --report-path .local/reports --report-name secret-persistence",
   "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 90s --test-dir tests/gitops-key --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops-key",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/s3-credentials/admission --set-string root='{{ vars.ROOT_DIR }}' --assert-timeout 120s --exec-timeout 120s --report-format JUNIT-TEST --report-path .local/reports --report-name s3-admission",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/s3-credentials/management --set-string root='{{ vars.ROOT_DIR }}' --assert-timeout 120s --exec-timeout 120s --report-format JUNIT-TEST --report-path .local/reports --report-name s3-management",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/s3-credentials/retirement --set-string root='{{ vars.ROOT_DIR }}' --assert-timeout 120s --exec-timeout 120s --report-format JUNIT-TEST --report-path .local/reports --report-name s3-retirement",
   "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/controller-state/management --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name controller-state-management",
   "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 120s --test-dir tests/secret-retirement --report-format JUNIT-TEST --report-path .local/reports --report-name secret-retirement",
   '''{% for item in env.TASKV_CONNECTION_IMAGES | trim | split(pat="\n") %}
@@ -90,6 +93,7 @@ run = [
   "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-tadoss'",
   "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-identity'",
   "rm -f '{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap/environment/management.kubeconfig' '{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap/restart/management.kubeconfig' '{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap/management/management.kubeconfig'",
+  "rm -f '{{ vars.ROOT_DIR }}/.local/tmp/check/s3-credentials/retirement/management.kubeconfig'",
   "rm -f '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig'",
 ]
 env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''

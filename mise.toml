@@ -17,7 +17,7 @@ min_version = "2026.11.3"
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"

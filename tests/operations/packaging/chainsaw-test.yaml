@@ -43,3 +43,22 @@ spec:
               (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
+        - apply:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: HelmChart
+              metadata: {name: operation-s3-check, namespace: tamoss-infra}
+              spec:
+                interval: 1m
+                chart: ./charts/secrets
+                reconcileStrategy: Revision
+                sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+        - assert:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: HelmChart
+              metadata: {name: operation-s3-check, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'

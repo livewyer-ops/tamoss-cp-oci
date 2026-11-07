@@ -90,28 +90,14 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
 ]
 
-["test:lifecycle:secrets"]
+["test:lifecycle:invalid-storage"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/secrets'",
-  '''{% for item in ["s3-access-key", "s3-secret-key"] %}
-install -m 600 '{{ vars.PROJECT_ROOT }}/tests/lifecycle/oci-config' '{{ vars.ENV_DIR }}/secrets/{{ item }}'
-{% endfor %}''',
-  '''{% for item in ["s3-access-key", "s3-secret-key"] %}
-printf '%s' fixture-credential > '{{ vars.ENV_DIR }}/secrets/{{ item }}'
-{% endfor %}''',
-]
-
-["test:lifecycle:reject-secret-newline"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/invalid-credentials/secrets'",
-  "touch '{{ vars.ENV_DIR }}/invalid-credentials/environment.yaml' '{{ vars.ENV_DIR }}/invalid-credentials/settings.yaml'",
-  "cp '{{ vars.ENV_DIR }}/secrets/s3-access-key' '{{ vars.ENV_DIR }}/invalid-credentials/secrets/'",
-  "install -m 600 '{{ vars.PROJECT_ROOT }}/tests/lifecycle/oci-config' '{{ vars.ENV_DIR }}/invalid-credentials/secrets/s3-secret-key'",
-  '''ENV_DIR={{ ((vars.ENV_DIR) ~ "/invalid-credentials") | quote }} mise run lifecycle:preflight''',
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/invalid-storage'",
+  "touch '{{ vars.ENV_DIR }}/invalid-storage/environment.yaml'",
+  '''yq -n '{"storageUserId":"invalid"}' > '{{ vars.ENV_DIR }}/invalid-storage/settings.yaml' ''',
+  "ENV_DIR='{{ vars.ENV_DIR }}/invalid-storage' mise run lifecycle:preflight",
 ]
 
 ["test:lifecycle:create-management"]

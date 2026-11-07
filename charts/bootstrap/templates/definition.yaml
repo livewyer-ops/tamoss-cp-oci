@@ -39,6 +39,10 @@ spec:
                   message: Remote bootstrap requires the Kind OCI identity
                 - rule: has(self.vaultAuth) == has(oldSelf.vaultAuth)
                   message: Bootstrap credential ownership cannot change
+                - rule: has(self.storageCredentials) == has(oldSelf.storageCredentials)
+                  message: Storage credential ownership cannot change
+                - rule: '!has(self.storageCredentials) || (has(self.vaultAuth) && self.storageCredentials.userId != self.vaultAuth.user)'
+                  message: Automatic S3 credentials require a separate storage user and the Kind provisioner
               properties:
                 remoteBootstrap:
                   type: object
@@ -50,6 +54,15 @@ spec:
                     image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
                     fluxVersion: {type: string, pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'}
                     seedConfigMap: {type: string, enum: [oke-bootstrap-input]}
+                storageCredentials:
+                  type: object
+                  required: [userId, image]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Storage credential ownership is immutable
+                  properties:
+                    userId: {type: string, pattern: '^ocid1\.user\.'}
+                    image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
                 credentialsEstablished:
                   type: boolean
                   default: false

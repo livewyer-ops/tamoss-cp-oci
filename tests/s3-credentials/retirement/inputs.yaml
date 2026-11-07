@@ -1,0 +1,8 @@
+identity:
+  deploymentUID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+settings:
+  storageUserId: ocid1.user.oc1..storage
+keys:
+  data:
+    - {id: fixture-key, display-name: tamoss-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fixture-attempt}
+    - {id: unrelated-key, display-name: another-deployment}

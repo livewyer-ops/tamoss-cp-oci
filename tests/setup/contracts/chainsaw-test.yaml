@@ -51,6 +51,27 @@ spec:
             check:
               ($error != null): true
               (contains($stderr, 'budget')): true
+    - name: require separate storage and provisioner users before discovery
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture"]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:validate"]
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.storage.userId = "ocid1.user.fixture"', $PROJECT_ROOT/.local/tmp/check/setup/values.yaml]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:validate"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'storage user must be separate')): true
     - name: repeat preparation without discovery and reject changes to recorded bootstrap choices
       try:
         - command:

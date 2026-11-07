@@ -1,7 +1,16 @@
 {{- $xr := .observed.composite.resource -}}
 {{- $p := $xr.spec -}}
+{{- if and (hasKey $p "storageCredentials") (or (not (hasKey $p "vaultAuth")) (eq $p.storageCredentials.userId (dig "vaultAuth" "user" "" $p))) -}}
+{{- fail "Automatic S3 credentials require a separate storage user and the Kind provisioner" -}}
+{{- end -}}
+{{- $storageJobs := dig "storageJobs" "items" (list) (.extraResources | default dict) -}}
+{{- $storagePods := dig "storagePods" "items" (list) (.extraResources | default dict) -}}
 {{- $secretDefaults := fromJson __SECRET_VALUES__ -}}
 {{- $secretRelease := (get .observed.resources "secrets" | default dict).resource | default dict -}}
+{{- $storageRetired := or (not (hasKey $p "storageCredentials")) (empty $secretRelease) -}}
+{{- range (dig "status" "conditions" (list) $secretRelease) -}}
+{{- if and (eq .type "Ready") (eq .status "True") (not (dig "spec" "values" "initialise" true $secretRelease)) (eq (dig "status" "observedGeneration" 0 $secretRelease) (dig "metadata" "generation" -1 $secretRelease)) -}}{{- $storageRetired = true -}}{{- end -}}
+{{- end -}}
 {{- $accessRelease := (get .observed.resources "runtime-access" | default dict).resource | default dict -}}
 {{- $foundation := (get .observed.resources "foundation" | default dict).resource | default dict -}}
 {{- $environment := (get .observed.resources "environment" | default dict).resource | default dict -}}
@@ -57,6 +66,22 @@
 apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
 kind: ExtraResources
 requirements:
+{{- if hasKey $p "storageCredentials" }}
+  storageJobs:
+    apiVersion: batch/v1
+    kind: Job
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/credential-operation: s3
+      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  storagePods:
+    apiVersion: v1
+    kind: Pod
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/credential-operation: s3
+      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+{{- end }}
   runtimePolicies:
     apiVersion: identity.oci.m.upbound.io/v1alpha1
     kind: Policy
@@ -121,8 +146,10 @@ spec:
   timeout: 5m
   releaseName: tamoss-secrets
   install:
+    disableWaitForJobs: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   upgrade:
+    disableWaitForJobs: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   chart:
     spec:
@@ -132,7 +159,11 @@ spec:
   values:
 {{ $secretDefaults | toYaml | indent 4 }}
     deploymentId: {{ $p.deploymentId | quote }}
-    initialise: {{ not ($p.credentialsEstablished | default false) }}
+    initialise: {{ and (not $p.released) (not ($p.credentialsEstablished | default false)) }}
+{{- with $p.storageCredentials }}
+    s3:
+{{ . | toYaml | indent 6 }}
+{{- end }}
     oracle:
       region: {{ $p.foundation.region | quote }}
       vault: {{ $vault | quote }}
@@ -256,4 +287,4 @@ status:
   remoteBootstrapReady: {{ $remoteReady }}
   remoteBootstrapCompleted: {{ $remoteCompleted }}
   remoteBootstrapPhase: {{ $remotePhase | quote }}
-  released: {{ and $p.released (eq (len $remotePods) 0) (empty $remoteJob) }}
+  released: {{ and $p.released $storageRetired (eq (len $remotePods) 0) (empty $remoteJob) (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}

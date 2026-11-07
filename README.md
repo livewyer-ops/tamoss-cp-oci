@@ -52,7 +52,7 @@ mise install --locked
 mise run setup
 ```
 
-Complete [Getting started](docs/getting-started.md) with an OCI profile, S3 key pair,
+Complete [Getting started](docs/getting-started.md) with an OCI profile, storage user,
 compartment, contact email and administrator CIDR. Then deploy:
 
 ```bash

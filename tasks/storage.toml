@@ -1,0 +1,103 @@
+["storage:observe"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run identity:management",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation -o json > '{{ vars.ENV_DIR }}/s3-operation.json' ''',
+  '''yq -e '.metadata.annotations."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .metadata.annotations."tamoss.livewyer.io/storage-user" == load("{{ vars.ENV_DIR }}/settings.yaml").storageUserId' '{{ vars.ENV_DIR }}/s3-operation.json' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get jobs,pods -l tamoss.livewyer.io/credential-operation=s3 -o json | yq -e '.items | length == 0' > /dev/null''',
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key list --user-id "$(yq -r .storageUserId '{{ vars.ENV_DIR }}/settings.yaml')" --all > '{{ vars.ENV_DIR }}/s3-keys.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/s3-keys.json' ''',
+  '''yq -e -o=json '(.data | tag) as $responseType | load("{{ vars.ENV_DIR }}/s3-operation.json") as $operation |
+    ($operation.data // {}) as $claim |
+    ("tamoss-" + $operation.metadata.annotations."tamoss.livewyer.io/deployment-id" + "-" + ($claim.attempt // "")) as $name |
+    [.data[] | select(."display-name" == $name or (.id == $claim.keyId and ($claim.keyId // "") != ""))] as $keys |
+    {"attempt": ($claim.attempt // ""), "keyId": ($claim.keyId // ""), "keys": $keys,
+    "name": $name, "resourceVersion": $operation.metadata.resourceVersion} |
+    with(select(.keys | length == 1); .keyId = .keys[0].id) |
+    select($responseType == "!!seq" and ($keys | length) <= 1 and
+    ($keys | map(."display-name" == $name and (($claim.keyId // "") == "" or .id == $claim.keyId)) | all) and
+    (($claim.attempt // "") == "" or ($claim.keyId // "") != "" or ($keys | length) == 1)) '\
+    '{{ vars.ENV_DIR }}/s3-keys.json' > '{{ vars.ENV_DIR }}/s3-key-observed.json' ||
+    { printf '%s\n' 'The S3 creation outcome is uncertain or conflicts with its receipt. Retain Kind and audit OCI before retrying.' >&2; exit 1; }''',
+]
+
+["storage:revoke"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run storage:observe",
+  "mise run storage:record-key",
+  "mise run storage:delete-key",
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key list --user-id "$(yq -r .storageUserId '{{ vars.ENV_DIR }}/settings.yaml')" --all > '{{ vars.ENV_DIR }}/s3-keys-after.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/s3-keys-after.json' ''',
+  '''yq -e 'load("{{ vars.ENV_DIR }}/s3-key-observed.json") as $owned | ((.data | tag) == "!!seq" and ([.data[] | select(.id == $owned.keyId or ."display-name" == $owned.name)] | length) == 0)' '{{ vars.ENV_DIR }}/s3-keys-after.json' > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation -o json > '{{ vars.ENV_DIR }}/s3-current.json'",
+  '''yq -e -o=json 'load("{{ vars.ENV_DIR }}/s3-key-observed.json") as $owned |
+    select((.data.attempt // "") == $owned.attempt and (.data.keyId // "") == $owned.keyId) |
+    [{"op":"test", "path":"/metadata/resourceVersion", "value":.metadata.resourceVersion},
+    {"op":"test", "path":"/metadata/annotations/tamoss.livewyer.io~1deployment-id", "value":load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID},
+    {"op":"add", "path":"/data", "value":{"attempt":$owned.attempt,"keyId":$owned.keyId,"retired":"true"}}]' '{{ vars.ENV_DIR }}/s3-current.json' > '{{ vars.ENV_DIR }}/s3-retired-patch.json' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch configmap s3-credential-operation --type=json --patch-file='{{ vars.ENV_DIR }}/s3-retired-patch.json' -o name''',
+]
+
+["storage:record-key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.keyId == ""' '{{ vars.ENV_DIR }}/s3-key-observed.json' > /dev/null'''
+run = [
+  '''yq -o=json '[{"op":"test", "path":"/metadata/resourceVersion", "value":.resourceVersion},
+    {"op":"test", "path":"/data/attempt", "value":.attempt},
+    {"op":"add", "path":"/data/keyId", "value":.keyId}]' '{{ vars.ENV_DIR }}/s3-key-observed.json' > '{{ vars.ENV_DIR }}/s3-key-patch.json' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch configmap s3-credential-operation --type=json --patch-file='{{ vars.ENV_DIR }}/s3-key-patch.json' -o name''',
+]
+
+["storage:delete-key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.keys | length == 0' '{{ vars.ENV_DIR }}/s3-key-observed.json' > /dev/null'''
+run = [
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key delete --user-id "$(yq -r .storageUserId '{{ vars.ENV_DIR }}/settings.yaml')" --customer-secret-key-id "$(yq -r .keyId '{{ vars.ENV_DIR }}/s3-key-observed.json')" --force''',
+]
+
+["storage:retire"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run identity:management",
+  '''yq -e '.teardownStarted == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap "$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')" -o json | yq -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID and .spec.released == true and .status.released == true and .metadata.annotations."crossplane.io/paused" == "true"' > /dev/null''',
+  "mise run storage:revoke",
+]
+
+["storage:recover"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+description = "Revoke a confirmed incomplete S3 key and retry its bounded creation Job"
+run = [
+  "mise run identity:management",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap "$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')" -o json | yq -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID and .spec.released != true and .spec.credentialsEstablished != true and .spec.deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .spec.storageCredentials.userId == load("{{ vars.ENV_DIR }}/settings.yaml").storageUserId' > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get job s3-credentials --ignore-not-found -o json > '{{ vars.ENV_DIR }}/s3-job.json'",
+  "mise run storage:stop-job",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret s3-input -o json | yq -e '.data.credentials == null' > /dev/null || { printf '%s\n' 'The S3 response is already staged. Resume up to persist it; do not replace it.' >&2; exit 1; }''',
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 vault secret list --compartment-id "$(yq -r .compartmentId '{{ vars.ENV_DIR }}/foundation-record.yaml')" --vault-id "$(yq -r .vaultId '{{ vars.ENV_DIR }}/foundation-record.yaml')" --all > '{{ vars.ENV_DIR }}/s3-vault-inventory.json' ''',
+  '''yq -e '[.data[] | select(."secret-name" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID + "-s3")] | length == 0' '{{ vars.ENV_DIR }}/s3-vault-inventory.json' > /dev/null || { printf '%s\n' 'The S3 credential is already in Vault. Resume up to read it back.' >&2; exit 1; }''',
+  "mise run storage:revoke",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation -o json > '{{ vars.ENV_DIR }}/s3-retired.json' ''',
+  '''yq -e -o=json 'select(.data.retired == "true") |
+    [{"op":"test", "path":"/metadata/resourceVersion", "value":.metadata.resourceVersion},
+    {"op":"test", "path":"/data/retired", "value":"true"},
+    {"op":"add", "path":"/data", "value":{}}]' '{{ vars.ENV_DIR }}/s3-retired.json' > '{{ vars.ENV_DIR }}/s3-retry-patch.json' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch configmap s3-credential-operation --type=json --patch-file='{{ vars.ENV_DIR }}/s3-retry-patch.json' -o name''',
+  '''flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra reconcile helmrelease tamoss-secrets --force --timeout=5m''',
+]
+
+["storage:stop-job"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "test ! -s '{{ vars.ENV_DIR }}/s3-job.json'"
+run = [
+  '''yq -e '.metadata.labels."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .metadata.annotations."meta.helm.sh/release-name" == "tamoss-secrets"' '{{ vars.ENV_DIR }}/s3-job.json' > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete job s3-credentials --cascade=foreground --wait=true --timeout=120s",
+]
