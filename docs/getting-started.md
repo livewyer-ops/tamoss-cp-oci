@@ -82,6 +82,9 @@ Database and application passwords are also generated and persisted in Vault.
 The quick deployment needs no GitHub login, environment repository or registry
 credentials. Product assets are public and pinned by digest. Flux runs internally
 on OKE using pinned product definitions and the locally supplied configuration.
+The product Git repository must also permit anonymous reads, including when using
+a fork. A workstation's saved GitHub login does not give Flux access to a private
+product repository. The optional environment repository remains private.
 
 Edit `.local/environment/values.yaml`:
 
@@ -105,7 +108,7 @@ administrator email use `contactEmail`. The Vault foundation defaults to
 mise run up
 ```
 
-`up` validates inputs and anonymous package access before provisioning. Native
+`up` validates inputs and anonymous product Git/package access before provisioning. Native
 OCI queries resolve the storage namespace, service network, availability domains
 and pinned worker image. Default placement requires three availability domains;
 Frankfurt is the previously qualified region. Unavailable or ambiguous selections

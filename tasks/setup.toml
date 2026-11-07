@@ -117,7 +117,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "git -C '{{ vars.ROOT_DIR }}' fetch --no-tags {{ (env.TASKV_PRODUCT_URL) | quote }} main",
+  '''GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= timeout 60s git -C '{{ vars.ROOT_DIR }}' -c credential.helper= -c core.askPass= -c http.extraHeader= fetch --no-tags {{ env.TASKV_PRODUCT_URL | quote }} main || { printf '%s\n' "The product repository must allow anonymous Git reads for Kind and OKE Flux" >&2; exit 1; }''',
   "git -C '{{ vars.ROOT_DIR }}' merge-base --is-ancestor HEAD FETCH_HEAD",
   "install -d -m 700 '{{ vars.ENV_DIR }}/registry' '{{ vars.ENV_DIR }}/discovery/tamoss-bundle' '{{ vars.ENV_DIR }}/discovery/tadoss-bundle'",
   "rm -f '{{ vars.ENV_DIR }}/registry/config.json'",

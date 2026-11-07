@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Check anonymous product Git access before provisioning, so a workstation's
+  saved GitHub login cannot hide a private source that Flux cannot fetch.
 - The host establishes temporary OKE ServiceAccount access in Kind. Native Flux
   Kustomizations install and seed OKE; `up` retires their authority after successful
   deployment. Repeats renew active bootstrap credentials or finish interrupted
