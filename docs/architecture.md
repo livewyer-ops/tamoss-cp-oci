@@ -17,7 +17,7 @@ Crossplane submits the retained foundation and infrastructure together. Networki
 OKE, the bucket and public IP can progress while Vault is unavailable. The database
 provider requires the persisted credential through its Secret reference before it
 can create the database. Those dependencies reconcile without a running
-Task process. The root reports foundation, credential, bootstrap and infrastructure readiness
+mise process. The root reports foundation, credential, bootstrap and infrastructure readiness
 separately; application readiness remains the responsibility of the OKE controllers.
 The root also composes HelmReleases for secret delivery and runtime IAM, deriving
 their values from observed Vault/key and OKE IDs. Flux owns their Helm operations.
@@ -30,11 +30,11 @@ The database can continue provisioning during this work. A restricted local
 ServiceAccount records the connection and successful seed in `oke-connection`;
 it cannot read other Secrets through the API. The OCI signing key stays in Kind.
 
-Task still supplies the initial credential imports, verifies persistence and
+mise still supplies the initial credential imports, verifies persistence and
 retires staging credentials and reads the completed connection. Git publication
 and deploy-key establishment occur only during optional handover.
 Ownership transfer, qualification and cleanup remain explicit
-operations. Before handover or teardown, Task freezes the bootstrap-instance
+operations. Before handover or teardown, mise freezes the bootstrap-instance
 HelmRelease and excludes an in-flight Helm action. It then irreversibly releases the root's
 configuration authority and confirms its reconciliation is paused. This prevents
 bootstrap settings or child recreation from competing with subsequent operations.
@@ -160,7 +160,7 @@ See [recovery procedures](operations.md#operational-job-recovery).
 | [Setup values](../environments/example/values.yaml) and [defaults](../charts/setup/values.yaml) | Operator choices and the HA configuration; regional discovery and complete declarations are recorded privately |
 | [Environment schema](../charts/environment/definition.yaml) | Typed infrastructure contract and immutable fields |
 | [Bootstrap chart](../charts/bootstrap/) | Kind root, child dependencies and release state; reuses the foundation and environment schemas |
-| [dependencies.yaml](../dependencies.yaml), [aqua.yaml](../aqua.yaml) | Infrastructure component selections/checksums and workstation tools |
+| [dependencies.yaml](../dependencies.yaml), [mise.toml](../mise.toml) | Infrastructure component selections/checksums and workstation tools |
 | [TAMOSS release lock](../deploy/tamoss/release.yaml) | Verified release record and matching source archive |
 | [TAMOSS integration](../deploy/tamoss/README.md) | Platform settings, instance overlays, database bootstrap and qualification assets |
 

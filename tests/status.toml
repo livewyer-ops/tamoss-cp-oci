@@ -1,0 +1,17 @@
+["test:status"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+env.STATUS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/status"
+run = [
+  'install -d -m 700 "$STATUS_DIRECTORY"',
+  '''PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq eval-all -p=toml -o=toml '
+select(fileIndex == 0) as $root | select(fileIndex == 1) as $source |
+select(fileIndex == 0) |
+{"vars": $root.vars, "tools": $root.tools, "task_config": {"shell": $root.task_config.shell},
+"tasks": {"status": ($source[strenv(STATUS_TASK)] | select(has("skip_if"))) // $source[strenv(STATUS_TASK) + ":apply"]}} |
+.vars.ROOT_DIR = strenv(PROJECT_ROOT) |
+.tasks.status.run = [.tasks.status.skip_if] |
+del(.tasks.status.skip_if, .tasks.status.depends, .tasks.status.depends_post)' mise.toml "$STATUS_FILE" > "$STATUS_DIRECTORY/fixture.mise.toml"''',
+  'mise trust "$STATUS_DIRECTORY/fixture.mise.toml"',
+  'MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C "$STATUS_DIRECTORY" run status',
+]

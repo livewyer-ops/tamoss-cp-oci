@@ -38,7 +38,7 @@ environments require those bootstrap prerequisites before Kind is stopped.
 
 ## Enable through Git
 
-After `task handover` completes the ownership transfer and Kind stop, change the environment
+After `mise run handover` completes the ownership transfer and Kind stop, change the environment
 repository's existing `clusters/<environment>/values.yaml`:
 
 ```yaml
@@ -58,7 +58,7 @@ appropriate `tads-api/read`, `tads-api/write` or `tads-api/delete` scopes.
 The client secret remains in Vault and the `auth/tadoss-oauth` Secret; never put
 it in Git. Bearer requests use the resulting signed JWT.
 
-Inspect native controller status:
+Enter `mise exec -- bash`, then inspect native controller status:
 
 ```bash
 kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n auth get kustomizations
@@ -85,9 +85,9 @@ Removing the enablement setting is not a database deletion procedure.
 
 ## Verification and removal
 
-`task check` validates the release bundle, Flux configuration, secret permissions,
+`mise run check` validates the release bundle, Flux configuration, secret permissions,
 database isolation, released migrations on PostgreSQL 16 and TLS rejection cases.
-`task check:management` also tests the published operator's deletion protection,
+`mise run check:management` also tests the published operator's deletion protection,
 repeated cleanup and Authentik startup in disposable Kind. Startup checks use an
 external PostgreSQL database with verified TLS and two replicas each of the
 server and worker. They cover repeat application and recovery after an invalid

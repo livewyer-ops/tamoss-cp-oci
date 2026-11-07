@@ -1,0 +1,72 @@
+
+["lifecycle:preflight"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -f '{{ vars.ENV_DIR }}/environment.yaml' && test -f '{{ vars.ENV_DIR }}/settings.yaml' || { printf '%s\n' "Provide private environment and application settings" >&2; exit 1; }''',
+  '''yq eval-all -e '[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0' {{ (vars.ENV_DIR) | quote }}/environment.yaml {{ (vars.ENV_DIR) | quote }}/settings.yaml || { printf '%s\n' "Replace example configuration before provisioning" >&2; exit 1; }''',
+  '''yq -e '.spec.paused == false' {{ vars.ROOT_DIR }}/deploy/tamoss/instance/patch.yaml || { printf '%s\n' "Application configuration must be unpaused before deployment" >&2; exit 1; }''',
+  '''test -s '{{ vars.ENV_DIR }}/secrets/s3-access-key' && test -s '{{ vars.ENV_DIR }}/secrets/s3-secret-key' || { printf '%s\n' "Provide scoped S3 customer credentials through private files" >&2; exit 1; }''',
+  '''yq -n -e '[load_str("{{ vars.ENV_DIR }}/secrets/s3-access-key"), load_str("{{ vars.ENV_DIR }}/secrets/s3-secret-key")] | [.[] | (contains("\n") or contains("\r")) | not] | all' > /dev/null || { printf '%s\n' "S3 credential files must contain the exact credential bytes without line endings" >&2; exit 1; }''',
+  '''yq -e '.metadata.namespace == "tamoss-infra" and .spec.providerConfigName == "oci" and .spec.database.credentialsSecret == "database-admin"' {{ vars.ENV_DIR }}/environment.yaml || { printf '%s\n' "The environment must reference the installed namespace, provider and database Secret" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:profile",
+  "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' '{{ vars.ENV_DIR }}/environment.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
+]
+
+["lifecycle:create-management:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(test -s '{{ vars.ENV_DIR }}/management.kubeconfig') && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").managementUID')'''
+run = [
+  "kind create cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}' --config deploy/management/kind.yaml --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' --wait 120s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/management-uid'",
+  '''yq -i '.managementUID = load_str("{{ vars.ENV_DIR }}/management-uid")' {{ vars.ENV_DIR }}/identity.yaml''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+
+["lifecycle:create-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''(test -s '{{ vars.ENV_DIR }}/management.kubeconfig' && kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").managementUID' > /dev/null) || (test ! -e '{{ vars.ENV_DIR }}/management.kubeconfig' && yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || { printf '%s\n' "Existing management state is unavailable or has a different identity; restart the original Kind or use the manual OCI cleanup procedure" >&2; exit 1; }''',
+  "mise run lifecycle:create-management:apply",
+]
+
+["lifecycle:baseline:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test -f '{{ vars.ENV_DIR }}/inventory-before/.complete')"
+env.ENVIRONMENT_NAME = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}'''
+env.BUCKET_NAME = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.bucket " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}'''
+run = [
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} INVENTORY_DIR={{ ((vars.ENV_DIR) ~ "/inventory-pending") | quote }} mise run cloud:inventory''',
+  '''yq eval-all -e '[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED") | select(."freeform-tags"."tamoss-environment" == strenv(ENVIRONMENT_NAME) or .name == strenv(BUCKET_NAME))] | length == 0' {{ vars.ENV_DIR }}/inventory-pending/*.json''',
+  "mv '{{ vars.ENV_DIR }}/inventory-pending' '{{ vars.ENV_DIR }}/inventory-before'",
+]
+
+["lifecycle:baseline"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+env.ENVIRONMENT_NAME = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}'''
+env.BUCKET_NAME = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.bucket " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}'''
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -f '{{ vars.ENV_DIR }}/inventory-before/.complete' || test ! -d '{{ vars.ENV_DIR }}/inventory-before' || { printf '%s\n' "Incomplete baseline inventory must be recovered before provisioning" >&2; exit 1; }''',
+  "mise run lifecycle:baseline:apply",
+]
+
+["lifecycle:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "echo 'Checking deployment inputs, cost allowance and environment identity'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:preflight",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tamoss:record",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:observe-inputs",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:inputs",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
+]

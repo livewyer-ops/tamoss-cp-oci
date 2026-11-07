@@ -71,9 +71,9 @@ spec:
               metadata: {name: tadoss, namespace: tads}
               spec: {deletionProtection: false}
         - command: &remove
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [-d, $PROJECT_ROOT, -t, '$PROJECT_ROOT/tests/tadoss/Taskfile.yaml', remove-instance]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:tadoss:remove-instance"]
         - error:
             resource:
               apiVersion: tadoss.livewyer.io/v1alpha1

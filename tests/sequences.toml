@@ -1,0 +1,8 @@
+
+["test:setup:fixture-defaults"]
+hide = true
+run = ["mise run test:setup:fixture", "mise run test:setup:defaults"]
+
+["test:setup:fixture-preserve"]
+hide = true
+run = ["mise run test:setup:fixture", "mise run test:setup:preserve"]

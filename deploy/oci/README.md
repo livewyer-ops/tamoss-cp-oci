@@ -47,7 +47,7 @@ credentials and policies can take time to propagate.
 
 ## Retirement
 
-Retain these identities, policies and keys until `task down` has verified cloud
+Retain these identities, policies and keys until `mise run down` has verified cloud
 deletion. For temporary account prerequisites owned by the run, revoke the keys,
 remove memberships and policies, delete the users/groups, then delete the empty
 compartment through the administrator's credential workflow. Record identifiers

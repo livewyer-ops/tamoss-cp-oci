@@ -1,0 +1,664 @@
+
+["bootstrap:up"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  '''test ! -f {{ (vars.ENV_DIR) | quote }}/identity.yaml || yq -e '.teardownStarted != true and .returnComplete != true' {{ (vars.ENV_DIR) | quote }}/identity.yaml > /dev/null || { printf '%s\n' "Teardown has started; resume down rather than recreating this environment" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:provision",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:runtime",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:ready",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:record-runtime",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:access",
+]
+
+["bootstrap:access"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "install -d -m 700 '{{ vars.ENV_DIR }}/access'",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/access/ui-login.json'",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get secret authentik -o json | yq -p=json -o=json -e '.data | {"username": (.AUTHENTIK_BOOTSTRAP_USERNAME | @base64d), "password": (.AUTHENTIK_BOOTSTRAP_PASSWORD | @base64d)} | select(.username != "" and .password != "")' > '{{ vars.ENV_DIR }}/access/ui-login.json'''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss tamoss -o json | yq -p=json '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'''',
+  '''echo "OKE kubeconfig: {{ vars.ENV_DIR }}/remote.kubeconfig"''',
+  '''echo "Private initial login: {{ vars.ENV_DIR }}/access/ui-login.json (remove after use; use the current password if changed)"''',
+]
+
+["bootstrap:provision:apply:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:bootstrap-ready",
+]
+depends_post = ["bootstrap:provision:apply:cleanup"]
+
+["bootstrap:provision:apply:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:resources",
+]
+
+["bootstrap:provision:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test -s {{ (vars.ENV_DIR) | quote }}/identity.yaml && yq -e '.deploymentReady == true' {{ (vars.ENV_DIR) | quote }}/identity.yaml > /dev/null)"
+run = [
+  "mise run verify:tools",
+  "mise run verify:privacy",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tamoss:assert-current",
+  "mise run tamoss:fetch",
+  "mise run tadoss:fetch",
+  "mise run tamoss:release",
+  "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' '{{ vars.ENV_DIR }}/foundation.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:prepare",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run gitops:render",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:baseline",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:seed",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:foundation",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:secrets",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossenvironment/$(yq -r .metadata.name '{{ vars.ENV_DIR }}/environment.yaml') --for=create --timeout=300s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:record-composite",
+  "OCI_CONFIG={{ env.TASKV_OCI_CONFIG | quote }} OCI_PROFILE={{ env.TASKV_OCI_PROFILE | quote }} mise run bootstrap:provision:apply:protected",
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+
+["bootstrap:provision"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -s '{{ vars.ENV_DIR }}/foundation.yaml' && test -s '{{ vars.ENV_DIR }}/product.yaml' || { printf '%s\n' "Prepare the retained foundation and product inputs before provisioning" >&2; exit 1; }''',
+  '''(test -s '{{ vars.ENV_DIR }}/identity.yaml' && yq -e '.deploymentReady == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = "$(yq -r .product.commit '{{ vars.ENV_DIR }}/product.yaml')" || { printf '%s\n' "Check out the product commit selected for Flux before provisioning" >&2; exit 1; }''',
+  '''yq -e '[(.product.commit | test("^[a-f0-9]{40}$")), (.product.url | test("^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")), (.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")), (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))] | all' '{{ vars.ENV_DIR }}/product.yaml' > /dev/null || { printf '%s\n' "Select the published product commit and public release bundle digest before provisioning" >&2; exit 1; }''',
+  '''yq -e '(.tadoss == null) or ((.tadoss.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")) and (.tadoss.bundle.digest | test("^sha256:[a-f0-9]{64}$")))' '{{ vars.ENV_DIR }}/product.yaml' > /dev/null || { printf '%s\n' "Optional TADOSS integration requires its published public bundle URL and digest" >&2; exit 1; }''',
+  "mise run bootstrap:provision:apply",
+]
+
+["bootstrap:seed:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(yq -e '.bootstrapUID != null' {{ vars.ENV_DIR }}/identity.yaml > /dev/null) && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/"$TASKV_NAME" -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID' > /dev/null)'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:seed-new",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:seed"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:seed:apply",
+]
+
+["bootstrap:seed-new:protected:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''CREDENTIAL_DIR={{ ((vars.ENV_DIR) ~ "/provider") | quote }} mise run cloud:credentials''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:secret-inputs",
+  '''yq -n 'load("{{ vars.ENV_DIR }}/environment.yaml") as $e | load("{{ vars.ENV_DIR }}/foundation.yaml") as $f | {"apiVersion": "tamoss.livewyer.io/v1alpha1", "kind": "TamossBootstrap", "metadata": {"name": $e.metadata.name, "namespace": $e.metadata.namespace}, "spec": {"deploymentId": load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID, "released": false, "credentialsEstablished": (load("{{ vars.ENV_DIR }}/identity.yaml").credentialsEstablished == true), "vaultAuth": (load("{{ vars.ENV_DIR }}/identity.yaml").oci | {"user": .user, "tenancy": .tenancy}), "foundationName": $f.metadata.name, "foundation": $f.spec, "environment": $e.spec, "remoteBootstrap": {"image": load("{{ vars.ROOT_DIR }}/dependencies.yaml").bootstrapTools.image, "fluxVersion": "{{ env.TASKV_FLUX_VERSION }}", "seedConfigMap": "oke-bootstrap-input"}}}' > '{{ vars.ENV_DIR }}/bootstrap.yaml'''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run management:render",
+  "kubectl create configmap oke-bootstrap-input -n tamoss-infra --from-file=deployment.yaml='{{ vars.ENV_DIR }}/deployment.yaml' --dry-run=client -o yaml | yq '.immutable = true' > '{{ vars.ENV_DIR }}/oke-bootstrap-input.yaml'",
+  "cp deploy/management/kustomization.yaml '{{ vars.ENV_DIR }}/kustomization.yaml'",
+  '''yq -i '.resources += ["provider", "secrets", "oke-bootstrap-input.yaml"]' {{ vars.ENV_DIR }}/kustomization.yaml''',
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' install --version='{{ env.TASKV_FLUX_VERSION }}' --components=source-controller,helm-controller --timeout=5m",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -k '{{ vars.ENV_DIR }}'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-bootstrap-instance --for=condition=Ready --timeout=1200s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:observe",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
+]
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+depends_post = ["bootstrap:seed-new:protected:cleanup"]
+
+["bootstrap:seed-new:protected:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "rm -f '{{ vars.ENV_DIR }}/secrets/oci-private-key' '{{ vars.ENV_DIR }}/secrets/oci-fingerprint'",
+]
+
+["bootstrap:seed-new:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "OCI_CONFIG={{ env.TASKV_OCI_CONFIG | quote }} OCI_PROFILE={{ env.TASKV_OCI_PROFILE | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} mise run bootstrap:seed-new:protected:protected",
+]
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+depends_post = ["bootstrap:seed-new:cleanup"]
+
+["bootstrap:seed-new:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "rm -f '{{ vars.ENV_DIR }}/provider/credentials.json'",
+]
+
+["bootstrap:seed-new"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -e '.bootstrapUID == null' {{ vars.ENV_DIR }}/identity.yaml > /dev/null || { printf '%s\n' "Existing bootstrap identity is unavailable; restore the original Kind state" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "OCI_CONFIG={{ env.TASKV_OCI_CONFIG | quote }} OCI_PROFILE={{ env.TASKV_OCI_PROFILE | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} mise run bootstrap:seed-new:protected",
+]
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+
+["bootstrap:observe"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{ env.TASKV_NAME }} --ignore-not-found -o json > '{{ vars.ENV_DIR }}/bootstrap-observed.json'",
+  '''yq -e '(length == 0 and load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID == null) or ([.spec.deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID, (.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID or load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID == null)] | all)' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null''',
+  '''yq -i '.bootstrapUID = (load("{{ vars.ENV_DIR }}/bootstrap-observed.json").metadata.uid // .bootstrapUID)' {{ vars.ENV_DIR }}/identity.yaml''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:release:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test ! -f {{ vars.ENV_DIR }}/bootstrap.yaml && yq -e '.bootstrapUID == null' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:observe",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:release-observed",
+]
+
+["bootstrap:release"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:release:apply",
+]
+
+["bootstrap:release-observed:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''((test -f '{{ vars.ENV_DIR }}/bootstrap-observed.json' && test ! -s '{{ vars.ENV_DIR }}/bootstrap-observed.json') || yq -e '[.spec.released == true, .status.released == true, .metadata.annotations."crossplane.io/paused" == "true", ([.status.conditions[] | select(.type == "Synced") | .reason] | join(",") == "ReconcilePaused")] | all' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null)'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run management:freeze-instance",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch tamossbootstrap/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"released":true}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{ env.TASKV_NAME }} crossplane.io/paused- --overwrite",
+  '''yq '.metadata.name = "{{ env.TASKV_NAME }}"' {{ vars.ROOT_DIR }}/deploy/contracts/bootstrap-released.yaml > {{ vars.ENV_DIR }}/bootstrap-release.yaml''',
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ENV_DIR }}/bootstrap-release.yaml' --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{ env.TASKV_NAME }} crossplane.io/paused=true --overwrite",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:release-observed"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:release-observed:apply",
+]
+
+["bootstrap:runtime:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remote-bootstrap",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:connection",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:infrastructure-ready",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:resources",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:bindings",
+]
+
+["bootstrap:runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:runtime:apply",
+]
+
+["bootstrap:record-runtime:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' api-resources --cached=false > /dev/null",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Ready --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=300s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:runtime-composite",
+  "yq -i '.deploymentReady = true' {{ vars.ENV_DIR }}/identity.yaml",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:record-runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:record-runtime:apply",
+]
+
+["bootstrap:handover"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  '''test -s {{ (vars.ENV_DIR) | quote }}/identity.yaml && yq -e '.deploymentReady == true' {{ (vars.ENV_DIR) | quote }}/identity.yaml > /dev/null || { printf '%s\n' "Complete up before handing over this environment" >&2; exit 1; }''',
+  '''yq -e '.teardownStarted != true and .returnComplete != true' {{ (vars.ENV_DIR) | quote }}/identity.yaml > /dev/null || { printf '%s\n' "Teardown has started; resume down instead of handover" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run gitops:attach",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:promote",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:ready",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:complete-handover",
+]
+
+["bootstrap:promote:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.handoverComplete == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run gitops:promotion-checkout",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} DEPLOYMENT_DIR={{ ((vars.CHECKOUT) ~ "/" ~ (env.TASKV_PATH_IN_GIT)) | quote }} REVISION="$(git -C {{ (vars.CHECKOUT) | quote }} rev-parse FETCH_HEAD)" mise run bootstrap:observe-ready''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:start-kind",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run transfer:prepare-promotion",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:runtime-writes",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} MESSAGE={{ ("feat: transfer infrastructure ownership to OKE") | quote }} FILES={{ ("infrastructure/environment.yaml") | quote }} mise run gitops:publish''',
+]
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ ((vars.ENV_DIR) | quote) ~ "/gitops.yaml") }}{% endif %}'''
+
+["bootstrap:promote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  '''test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = "$(yq -r 'select(.metadata.name == "tamoss-product") | .spec.ref.commit' {{ (vars.CHECKOUT) | quote }}/{{ env.TASKV_PATH_IN_GIT }}/sources.yaml)" || { printf '%s\n' "Check out the product commit selected in environment Git before handover" >&2; exit 1; }''',
+  "mise run bootstrap:promote:apply",
+]
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ ((vars.ENV_DIR) | quote) ~ "/gitops.yaml") }}{% endif %}'''
+
+["bootstrap:complete-handover:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.handoverComplete == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:stop-kind",
+  "yq -i '.handoverComplete = true' {{ vars.ENV_DIR }}/identity.yaml",
+]
+
+["bootstrap:complete-handover"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:complete-handover:apply",
+]
+
+["bootstrap:remote-bootstrap"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:observe",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get jobs -l 'tamoss.livewyer.io/bootstrap=oke,tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o json > '{{ vars.ENV_DIR }}/bootstrap-jobs.json'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:retry-remote",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for=jsonpath='{.status.remoteBootstrapReady}=true' --timeout=1800s",
+]
+env.TASKV_DEPLOYMENT = '''{% if env.DEPLOYMENT is defined %}{{ env.DEPLOYMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .deploymentUID " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:retry-remote:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(yq -e 'load("{{ vars.ENV_DIR }}/bootstrap-observed.json").status.remoteBootstrapCompleted == true or ([.items[].status.conditions[] | select(.type == "Failed" and .status == "True")] | length == 0)' {{ vars.ENV_DIR }}/bootstrap-jobs.json > /dev/null)'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:replace-remote",
+]
+
+["bootstrap:retry-remote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:retry-remote:apply",
+]
+
+["bootstrap:replace-remote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -e '.spec.released != true and .status.remoteBootstrapCompleted != true' {{ vars.ENV_DIR }}/bootstrap-observed.json > /dev/null || { printf '%s\n' "A released or completed bootstrap cannot be retried" >&2; exit 1; }''',
+  '''yq -e 'load("{{ vars.ENV_DIR }}/bootstrap-observed.json").metadata.uid as $uid | [.items | length == 1, (.items[0].metadata.ownerReferences | map(.uid) | contains([$uid]))] | all' '{{ vars.ENV_DIR }}/bootstrap-jobs.json' > /dev/null || { printf '%s\n' "Retry requires the original bootstrap Job ownership" >&2; exit 1; }''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json | yq -p=json -e '.data.complete != "dHJ1ZQ=="' > /dev/null || { printf '%s\n' "A recorded successful seed must not be replayed" >&2; exit 1; }''',
+  "mkdir -p -m 700 '{{ env.TASKV_REPORT }}'",
+  "cp '{{ vars.ENV_DIR }}/bootstrap-jobs.json' '{{ env.TASKV_REPORT }}/jobs.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra logs -l job-name=oke-bootstrap --all-containers=true --prefix=true --max-log-requests=7 > '{{ env.TASKV_REPORT }}/pods.log' 2>&1 || true",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get events -o json > '{{ env.TASKV_REPORT }}/events.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete job oke-bootstrap --cascade=foreground --wait=true --timeout=180s",
+]
+env.TASKV_REPORT = '''{% if env.REPORT is defined %}{{ env.REPORT }}{% else %}{{ vars.ENV_DIR }}/reports/bootstrap-{{ now() | date(format="%s") }}{% endif %}'''
+
+["bootstrap:connection"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/oke-connection.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret oke-connection -o json > '{{ vars.ENV_DIR }}/oke-connection.json'",
+  '''yq -p=json -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | select(.metadata.annotations."tamoss.livewyer.io/deployment-id" == $i.deploymentUID) | (.data.clusterID | @base64d) as $id | [.data.complete == "dHJ1ZQ==", .metadata.annotations."tamoss.livewyer.io/cluster-id" == $id, ($i.clusterID == null or $i.clusterID == $id), (load("{{ vars.ENV_DIR }}/owned-current.yaml") | map(.id) | contains([$id])), ($i.remoteUID == null or ($i.remoteUID == (.data.remoteUID | @base64d) and $i.remoteServer == (.data.remoteServer | @base64d)))] | all' '{{ vars.ENV_DIR }}/oke-connection.json' > /dev/null''',
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
+  "yq -p=json -r '.data.kubeconfig | @base64d' '{{ vars.ENV_DIR }}/oke-connection.json' > '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
+  '''yq -e 'load("{{ vars.ENV_DIR }}/oke-connection.json").data as $d | [.users[0].user.exec.command == "oci", (.users[0].user.exec.args | contains([($d.clusterID | @base64d)])), .clusters[0].cluster.server == ($d.remoteServer | @base64d), .clusters[0].cluster."insecure-skip-tls-verify" != true] | all' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' > /dev/null''',
+  '''yq -i '.users[].user.exec.env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)}, {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}]' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == (load("{{ vars.ENV_DIR }}/oke-connection.json").data.remoteUID | @base64d)' > /dev/null''',
+  '''yq -i 'load("{{ vars.ENV_DIR }}/oke-connection.json").data as $d | .clusterID = ($d.clusterID | @base64d) | .remoteUID = ($d.remoteUID | @base64d) | .remoteServer = ($d.remoteServer | @base64d)' '{{ vars.ENV_DIR }}/identity.yaml'''',
+  "mv '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["bootstrap:foundation"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -e '[.metadata.namespace == "tamoss-infra", .spec.providerConfigName == "oci", .spec.region == load("{{ vars.ENV_DIR }}/identity.yaml").environment.region, .spec.compartmentId == load("{{ vars.ENV_DIR }}/identity.yaml").environment.compartmentId] | all' '{{ vars.ENV_DIR }}/foundation.yaml' > /dev/null || { printf '%s\n' "Foundation must use the verified bootstrap region, compartment and provider" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait secretfoundation/{{ env.TASKV_NAME }} --for=create --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait secretfoundation/{{ env.TASKV_NAME }} --for=condition=Ready --timeout=1800s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait vault.kms.oci.m.upbound.io/{{ env.TASKV_NAME }} key.kms.oci.m.upbound.io/{{ env.TASKV_NAME }} --for=condition=Synced --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secretfoundation/{{ env.TASKV_NAME }} -o json > '{{ vars.ENV_DIR }}/foundation-observed.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get key.kms.oci.m.upbound.io/{{ env.TASKV_NAME }} -o json > '{{ vars.ENV_DIR }}/foundation-key.json'",
+  '''yq -e '[.status.vaultId, .status.keyId, .status.managementEndpoint] | [.[] | (tag == "!!str" and length > 0)] | all' '{{ vars.ENV_DIR }}/foundation-observed.json' > /dev/null''',
+  '''yq -p=json '{"name": .metadata.name, "owner": .spec.owner, "region": .spec.region, "compartmentId": .spec.compartmentId, "creationCompositeUID": (.spec.adoption.creationCompositeUID // .metadata.uid), "vaultId": .status.vaultId, "keyId": .status.keyId, "managementEndpoint": .status.managementEndpoint, "keyExternalName": load("{{ vars.ENV_DIR }}/foundation-key.json").metadata.annotations."crossplane.io/external-name"}' '{{ vars.ENV_DIR }}/foundation-observed.json' > '{{ vars.ENV_DIR }}/foundation-record.pending.yaml'''',
+  "test ! -e '{{ vars.ENV_DIR }}/foundation-record.yaml' || diff -u '{{ vars.ENV_DIR }}/foundation-record.yaml' '{{ vars.ENV_DIR }}/foundation-record.pending.yaml'",
+  "mv '{{ vars.ENV_DIR }}/foundation-record.pending.yaml' '{{ vars.ENV_DIR }}/foundation-record.yaml'",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ ((vars.ENV_DIR) | quote) ~ "/foundation.yaml") }}{% endif %}'''
+
+["bootstrap:secret-inputs"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -z "$(find '{{ vars.ENV_DIR }}/secrets' -type f -perm /077 -print)" || { printf '%s\n' "Bootstrap secret files must have owner-only permissions" >&2; exit 1; }''',
+  '''test -z "$(find {{ (env.TASKV_KEY_FILE) | quote }} -perm /077 -print)" || { printf '%s\n' "OCI signing key must have owner-only permissions" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "install -m 600 {{ (env.TASKV_KEY_FILE) | quote }} '{{ vars.ENV_DIR }}/secrets/oci-private-key'",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/secrets/oci-fingerprint'",
+  "yq -p=ini -r '(. * (.[strenv(OCI_PROFILE)] // {})).fingerprint' {{ (env.TASKV_OCI_CONFIG) | quote }} | tr -d '\\n' > '{{ vars.ENV_DIR }}/secrets/oci-fingerprint'",
+  "install -m 600 deploy/secrets/bootstrap/kustomization.yaml '{{ vars.ENV_DIR }}/secrets/kustomization.yaml'",
+  '''yq -i 'with(select(load("{{ vars.ENV_DIR }}/identity.yaml").credentialsEstablished != true); .secretGenerator += load("{{ vars.ROOT_DIR }}/deploy/secrets/imports/kustomization.yaml").secretGenerator)' '{{ vars.ENV_DIR }}/secrets/kustomization.yaml'''',
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_KEY_FILE = '''{% if env.KEY_FILE is defined %}{{ env.KEY_FILE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "OCI_PROFILE=" ~ ((env.TASKV_OCI_PROFILE) | quote) ~ " yq -p=ini -oy -r '(. * (.[strenv(OCI_PROFILE)] // {})).key_file' " ~ ((env.TASKV_OCI_CONFIG) | quote)) }}{% endif %}'''
+env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["bootstrap:secrets"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-secrets --for=create --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-secrets --for=condition=Ready --timeout=600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret -l tamoss.livewyer.io/credential=true --for=condition=Ready --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get externalsecret -l tamoss.livewyer.io/credential=true -o json > '{{ vars.ENV_DIR }}/credentials-observed.json'",
+  '''yq -e '([.items[].metadata.name] | sort | join(",")) == (load("{{ vars.ROOT_DIR }}/deploy/secrets/bootstrap-values.yaml").deliveries | map(.name) | sort | join(","))' '{{ vars.ENV_DIR }}/credentials-observed.json' > /dev/null''',
+  "yq -i '.credentialsEstablished = true' {{ vars.ENV_DIR }}/identity.yaml",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap/tamoss-bootstrap-instance -o yaml > '{{ vars.ENV_DIR }}/credential-retirement.yaml'",
+  '''yq -i 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.managedFields) | .data."values.yaml" |= (from_yaml | .bootstrap.spec.credentialsEstablished = true | to_yaml)' '{{ vars.ENV_DIR }}/credential-retirement.yaml'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/credential-retirement.yaml'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for=jsonpath='{.spec.credentialsEstablished}=true' --timeout=300s",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/credentials-established.yaml' --timeout=600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait pushsecret -l tamoss.livewyer.io/credential-staging=true --for=delete --timeout=120s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait password.generators.external-secrets.io --all --for=delete --timeout=120s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete secret s3-input --ignore-not-found",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:bindings"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret/adoption-bindings -o json > '{{ vars.ENV_DIR }}/bindings-observed.json'",
+  '''yq -p=json -e 'select(.data.SCHEMA_VERSION == "MQ==") | .data.ADOPTION_YAML | @base64d | from_yaml | select(.deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .creationCompositeUID == load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID and (.externalNames | length == 23))' '{{ vars.ENV_DIR }}/bindings-observed.json' > '{{ vars.ENV_DIR }}/adoption.yaml'''',
+]
+
+["bootstrap:remove-application:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(yq -e '.applicationRemoved == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null || (CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD"))'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:freeze-runtime",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tadoss:remove-instance",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} NAME={{ ("tadoss-operator") | quote }} mise run bootstrap:remove-operator''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run application:remove-instance",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-operator",
+  '''{% for item in ["tamoss-platform/tamoss-platform-config", "auth/authentik", "auth/tadoss-config", "tads/tadoss-secrets", "auth/tamoss-database-init", "auth/authentik-bootstrap", "auth/tamoss-database-connection", "traefik/traefik", "cert-manager/cert-manager"] %}
+KUBECONFIG={{ ((vars.ENV_DIR) ~ "/remote.kubeconfig") | quote }} NAMESPACE={{ ((item | split(pat="/") | first)) | quote }} NAME={{ ((item | split(pat="/") | last)) | quote }} mise run bootstrap:remove-release
+{% endfor %}''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth delete job/tamoss-database-init --ignore-not-found --wait=true --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth delete job/tadoss-database-init job/tadoss-authentik-blueprint --ignore-not-found --wait=true --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n traefik delete service/traefik --ignore-not-found --wait=true --timeout=600s",
+  "yq -i '.applicationRemoved = true' {{ vars.ENV_DIR }}/identity.yaml",
+]
+
+["bootstrap:remove-application"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:remove-application:apply",
+]
+
+["bootstrap:remove-operator:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get kustomization/"$TASKV_NAME" --ignore-not-found -o name)" && test -z "$RESOURCE")'''
+run = [
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth patch kustomization/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth delete kustomization/{{ env.TASKV_NAME }} --wait=true --timeout=300s",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ env.NAME | default(value="tamoss-operator") }}{% endif %}'''
+
+["bootstrap:remove-operator"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:remove-operator:apply",
+]
+
+["bootstrap:remove-release:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(RESOURCE="$(kubectl --kubeconfig "$TASKV_KUBECONFIG" -n "${TASKV_NAMESPACE}" get helmrelease/"$TASKV_NAME" --ignore-not-found -o name)" && test -z "$RESOURCE")'''
+run = [
+  '''kubectl --kubeconfig {{ (env.TASKV_KUBECONFIG) | quote }} -n '{{ env.TASKV_NAMESPACE }}' patch helmrelease/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"suspend":false}}'''',
+  "kubectl --kubeconfig {{ (env.TASKV_KUBECONFIG) | quote }} -n '{{ env.TASKV_NAMESPACE }}' delete helmrelease/{{ env.TASKV_NAME }} --wait=true --timeout=600s",
+]
+env.TASKV_KUBECONFIG = '''{{ env.KUBECONFIG | default(value="") }}'''
+env.TASKV_NAME = '''{{ env.NAME | default(value="") }}'''
+env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
+
+["bootstrap:remove-release"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_KUBECONFIG | quote }} || { printf '%s\n' "Missing required input: KUBECONFIG" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: NAMESPACE" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_NAME | quote }} || { printf '%s\n' "Missing required input: NAME" >&2; exit 1; }''',
+  "mise run bootstrap:remove-release:apply",
+]
+env.TASKV_KUBECONFIG = '''{{ env.KUBECONFIG | default(value="") }}'''
+env.TASKV_NAME = '''{{ env.NAME | default(value="") }}'''
+env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
+
+["bootstrap:down"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  '''test -f '{{ vars.ENV_DIR }}/inventory-before/.complete' && test -s '{{ vars.ENV_DIR }}/foundation-record.yaml' || { printf '%s\n' "Restore the baseline and retained foundation record before teardown" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:start-kind",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "yq -i '.teardownStarted = true' {{ vars.ENV_DIR }}/identity.yaml",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:release",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:record-observed-composite",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run transfer:return-ownership",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:resources",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:observe-owned",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:remote",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-application",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:prepare-deletion",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{ env.TASKV_NAME }} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:delete-backups",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:audit",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete pushsecret/adoption-bindings --ignore-not-found --wait=true --timeout=120s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-access",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=delete --timeout=300s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:secret-inventory",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retire-secrets",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retained-foundation",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'",
+  "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/oke-connection.json'",
+  "echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{ vars.ENV_DIR }}/retained-foundation.yaml'",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:remove-access:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test -s '{{ vars.ENV_DIR }}/management.kubeconfig') && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get helmrelease/runtime-access --ignore-not-found -o json | yq -p=json -e 'length == 0')"
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete helmrelease/runtime-access --ignore-not-found --wait=true --timeout=600s",
+]
+
+["bootstrap:remove-access"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -s '{{ vars.ENV_DIR }}/management.kubeconfig' || { printf '%s\n' "The original management kubeconfig is required to remove runtime access" >&2; exit 1; }''',
+  "mise run bootstrap:remove-access:apply",
+]
+
+["bootstrap:ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:{% if env.TASKV_GITOPS == "true" %}git-ready{% else %}local-ready{% endif %}''',
+]
+env.TASKV_GITOPS = '''{% if env.GITOPS is defined %}{{ env.GITOPS }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.gitopsEstablished == true' " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:local-ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} DEPLOYMENT_DIR={{ ((vars.ENV_DIR) ~ "/deployment") | quote }} REVISION={{ ("") | quote }} mise run bootstrap:observe-ready''',
+]
+
+["bootstrap:git-ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run gitops:current-checkout",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} DEPLOYMENT_DIR={{ ((vars.CHECKOUT) ~ "/" ~ (env.TASKV_PATH_IN_GIT)) | quote }} REVISION="$(git -C {{ (vars.CHECKOUT) | quote }} rev-parse HEAD)" mise run bootstrap:observe-ready''',
+]
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
+
+["bootstrap:observe-ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_DEPLOYMENT_DIR | quote }} || { printf '%s\n' "Missing required input: DEPLOYMENT_DIR" >&2; exit 1; }''',
+  '''kubectl kustomize '{{ env.TASKV_DEPLOYMENT_DIR }}' | yq -e 'select(.kind == "Kustomization" and .metadata.name == "runtime") | .spec.postBuild.substitute.VALUES_CONFIGMAP | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null || { printf '%s\n' "Update the environment starter to use content-hashed values references before checking this product revision" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} REVISION={{ ((env.TASKV_REVISION)) | quote }} mise run bootstrap:observe-git",
+  '''KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system --test-dir deploy/gitops/readiness-check --assert-timeout 1800s --set-string productRevision="$(yq -r 'select(.metadata.name == "tamoss-product") | .spec.ref.commit' '{{ env.TASKV_DEPLOYMENT_DIR }}/sources.yaml')" --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss/tamoss -o json | yq -p=json -e '.spec.version == load("{{ env.TASKV_DEPLOYMENT_DIR }}/values.yaml").release.tag' > /dev/null''',
+]
+env.TASKV_DEPLOYMENT_DIR = '''{{ env.DEPLOYMENT_DIR | default(value="") }}'''
+env.TASKV_REVISION = '''{{ env.REVISION | default(value="") }}'''
+
+["bootstrap:observe-git:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(test -z "$TASKV_REVISION")'''
+run = [
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system --test-dir deploy/gitops/sync-check --assert-timeout 600s --set-string revision={{ (env.TASKV_REVISION) | quote }} --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name gitops-sync",
+]
+env.TASKV_REVISION = '''{{ env.REVISION | default(value="") }}'''
+
+["bootstrap:observe-git"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run bootstrap:observe-git:apply",
+]
+
+["bootstrap:qualify"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:ready",
+  '''yq '.release | {"tag": .tag, "releaseSha256": .releaseSha256, "sourceSha256": .sourceSha256}' '{{ env.TASKV_DEPLOYMENT_DIR }}/values.yaml' > '{{ vars.ENV_DIR }}/tamoss-release.current.yaml'''',
+  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.current.yaml") | quote }} mise run tamoss:fetch''',
+  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.current.yaml") | quote }} mise run tamoss:release''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:record-release",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:run",
+]
+env.TASKV_GITOPS = '''{% if env.GITOPS is defined %}{{ env.GITOPS }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.gitopsEstablished == true' " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "test ! -s " ~ (vars.ENV_DIR) ~ "/gitops.yaml || yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
+env.TASKV_DEPLOYMENT_DIR = '''{% if env.DEPLOYMENT_DIR is defined %}{{ env.DEPLOYMENT_DIR }}{% else %}{% if env.TASKV_GITOPS == "true" %}{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}{% else %}{{ vars.ENV_DIR }}/deployment{% endif %}{% endif %}'''
+
+["bootstrap:record-release"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  '''yq -e 'select(.metadata.name == "tamoss-upstream") | .spec.ref.commit == load("{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/release.json").sourceCommit' '{{ env.TASKV_DEPLOYMENT_DIR }}/sources.yaml' > /dev/null''',
+  "cp --no-clobber '{{ vars.ENV_DIR }}/tamoss-release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.bootstrap.yaml'",
+  "mv '{{ vars.ENV_DIR }}/tamoss-release.current.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
+]
+env.TASKV_GITOPS = '''{% if env.GITOPS is defined %}{{ env.GITOPS }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.gitopsEstablished == true' " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.ENV_DIR) ~ "/tamoss-release.current.yaml") }}{% endif %}'''
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "test ! -s " ~ (vars.ENV_DIR) ~ "/gitops.yaml || yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
+env.TASKV_DEPLOYMENT_DIR = '''{% if env.DEPLOYMENT_DIR is defined %}{{ env.DEPLOYMENT_DIR }}{% else %}{% if env.TASKV_GITOPS == "true" %}{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}{% else %}{{ vars.ENV_DIR }}/deployment{% endif %}{% endif %}'''

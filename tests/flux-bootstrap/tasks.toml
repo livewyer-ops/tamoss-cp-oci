@@ -1,0 +1,115 @@
+
+["test:flux-bootstrap:restart:protected:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "kubectl config view --raw --flatten > '{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig'",
+  '''kubectl --kubeconfig '{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig' config rename-context "$(kubectl config current-context)" 'kind-tamoss-cp-{{ env.TASKV_NAME }}'''',
+  "mise run test:kind-restart:prepare",
+  "mise run test:kind-restart:restart",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
+env.PROJECT_ROOT = "{{ vars.ROOT }}"
+env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
+env.MANAGEMENT_KUBECONFIG = "{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig"
+depends_post = ["test:flux-bootstrap:restart:protected:cleanup"]
+
+["test:flux-bootstrap:restart:protected:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -f '{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}/management.kubeconfig'",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
+env.PROJECT_ROOT = "{{ vars.ROOT }}"
+env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
+env.MANAGEMENT_KUBECONFIG = "{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig"
+
+["test:flux-bootstrap:restart:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} NAME={{ env.TASKV_NAME | quote }} mise run test:flux-bootstrap:restart:protected:protected",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
+env.PROJECT_ROOT = "{{ vars.ROOT }}"
+env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
+env.MANAGEMENT_KUBECONFIG = "{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig"
+depends_post = ["test:flux-bootstrap:restart:cleanup"]
+
+["test:flux-bootstrap:restart:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -f '{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig'",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
+env.PROJECT_ROOT = "{{ vars.ROOT }}"
+env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
+env.MANAGEMENT_KUBECONFIG = "{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig"
+
+["test:flux-bootstrap:restart"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "install -m 600 /dev/null '{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig'",
+  "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} NAME={{ env.TASKV_NAME | quote }} mise run test:flux-bootstrap:restart:protected",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
+env.PROJECT_ROOT = "{{ vars.ROOT }}"
+env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
+env.MANAGEMENT_KUBECONFIG = "{{ env.TASKV_DIRECTORY }}/restart-input.kubeconfig"
+
+["test:flux-bootstrap:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ env.TASKV_DIRECTORY }}/environment'",
+  '''yq '.metadata.name = "flux-bootstrap-check" | .spec.foundationName = "flux-bootstrap-check" | .spec.credentialsEstablished = false | .spec.vaultAuth = {"user": "ocid1.user.oc1.fixture", "tenancy": "ocid1.tenancy.oc1.fixture"} | .spec.environment.compartmentId = "ocid1.compartment.oc1.fixture" | .spec.foundation.compartmentId = "ocid1.compartment.oc1.fixture"' '{{ vars.ROOT }}/.local/tmp/check/bootstrap/root.yaml' > '{{ env.TASKV_DIRECTORY }}/environment/bootstrap.yaml'''',
+  '''yq -n '{"instance": load("{{ env.TASKV_DIRECTORY }}/environment/bootstrap.yaml")}' > {{ env.TASKV_DIRECTORY }}/instance-values.yaml''',
+  '''helm template management '{{ vars.ROOT }}/charts/management' -f '{{ env.TASKV_DIRECTORY }}/values.yaml' --set-file environmentDefinition='{{ vars.ROOT }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT }}/deploy/secrets/bootstrap-values.yaml' -f '{{ env.TASKV_DIRECTORY }}/instance-values.yaml' | yq 'select(.kind == "ConfigMap" or .metadata.name == "tamoss-bootstrap-instance") | with(select(.kind == "HelmRelease"); .spec.chart.spec.chart = "./missing-chart")' > '{{ env.TASKV_DIRECTORY }}/instance.yaml'''',
+  '''yq 'with(select(.metadata.namespace == "secret-check"); .metadata.namespace = "tamoss-infra") | with(select(.kind == "RoleBinding" and .metadata.namespace == "secret-backend"); .subjects[0].namespace = "tamoss-infra") | select(.kind != "Secret" and (.kind != "Namespace" or .metadata.name != "secret-check"))' '{{ vars.ROOT }}/tests/secret-persistence/backend.yaml' > '{{ env.TASKV_DIRECTORY }}/backend.yaml'''',
+  '''yq '{"apiVersion": "tamoss.livewyer.io/v1alpha1", "kind": "TamossEnvironment", "metadata": .metadata, "spec": .spec.environment}' {{ env.TASKV_DIRECTORY }}/environment/bootstrap.yaml > {{ env.TASKV_DIRECTORY }}/environment/environment.yaml''',
+  '''cp "$KUBECONFIG" '{{ env.TASKV_DIRECTORY }}/environment/management.kubeconfig'''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/environment") | quote }} mise run identity:observe-inputs''',
+  "kubectl get namespace kube-system -o json > '{{ env.TASKV_DIRECTORY }}/namespace.json'",
+  '''yq '.deploymentUID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" | .managementUID = load("{{ env.TASKV_DIRECTORY }}/namespace.json").metadata.uid' {{ env.TASKV_DIRECTORY }}/environment/identity-inputs.yaml > {{ env.TASKV_DIRECTORY }}/environment/identity.yaml''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+
+["test:flux-bootstrap:release"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/environment") | quote }} mise run bootstrap:observe''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/environment") | quote }} mise run bootstrap:release''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+
+["test:flux-bootstrap:install"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}'",
+  "flux install --version='{{ env.TASKV_FLUX_VERSION }}' --timeout=5m",
+  "tar --exclude='*/charts/*.tgz' -czf '{{ env.TASKV_DIRECTORY }}/product.tar.gz' -C '{{ vars.ROOT }}' charts",
+  '''kubectl -n flux-system cp '{{ env.TASKV_DIRECTORY }}/product.tar.gz' "$(kubectl -n flux-system get pod -l app=source-controller -o jsonpath='{.items[0].metadata.name}'):/data/tamoss-bootstrap-product.tar.gz"''',
+  '''yq -n '{"dependencies": load("{{ vars.ROOT }}/dependencies.yaml"), "packages": load("{{ vars.ROOT }}/charts/packages/values.yaml"), "externalSecrets": load("{{ vars.ROOT }}/deploy/secrets/controller-values.yaml"), "product": {"url": "https://github.com/example/fixture", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' > '{{ env.TASKV_DIRECTORY }}/values.yaml'''',
+  '''helm template management '{{ vars.ROOT }}/charts/management' -f '{{ env.TASKV_DIRECTORY }}/values.yaml' --set-file environmentDefinition='{{ vars.ROOT }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT }}/deploy/secrets/bootstrap-values.yaml' | yq 'with(select(.kind == "GitRepository"); .spec.suspend = true | del(.spec.secretRef, .spec.provider))' > '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
+  "kubectl apply --server-side -f '{{ env.TASKV_DIRECTORY }}/seed.yaml'",
+  '''ARTIFACT_DIGEST="$(sha256sum '{{ env.TASKV_DIRECTORY }}/product.tar.gz' | cut -d ' ' -f 1)" yq -n '{"status": {"observedGeneration": 1, "conditions": [{"type": "Ready", "status": "True", "reason": "Fixture", "message": "Local chart artifact", "lastTransitionTime": "2026-01-01T00:00:00Z"}], "artifact": {"path": "tamoss-bootstrap-product.tar.gz", "url": "http://source-controller.flux-system.svc.cluster.local./tamoss-bootstrap-product.tar.gz", "revision": "main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "digest": ("sha256:" + strenv(ARTIFACT_DIGEST)), "lastUpdateTime": "2026-01-01T00:00:00Z"}}}' > '{{ env.TASKV_DIRECTORY }}/source-status.yaml'''',
+  "kubectl -n tamoss-infra patch gitrepository/tamoss-bootstrap-product --subresource=status --type=merge --patch-file '{{ env.TASKV_DIRECTORY }}/source-status.yaml'",
+  "kubectl -n tamoss-infra wait helmrelease --all --for=condition=Ready --timeout=1200s",
+  "kubectl wait provider.pkg.crossplane.io --all --for=condition=Healthy --timeout=600s",
+  "kubectl wait function.pkg.crossplane.io --all --for=condition=Healthy --timeout=300s",
+  "kubectl wait crd/tamossenvironments.tamoss.livewyer.io crd/secretfoundations.tamoss.livewyer.io crd/tamossbootstraps.tamoss.livewyer.io --for=condition=Established --timeout=180s",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/flux-bootstrap{% endif %}"
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT) ~ "/mise.toml") }}{% endif %}'''

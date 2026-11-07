@@ -105,10 +105,10 @@ spec:
     - name: compare provider configuration as well as external identities
       try:
         - command: &compare
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/transfer.yaml, compare, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer']
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer", "mise", "-C", "$PROJECT_ROOT", "run", "transfer:compare"]
         - command:
             entrypoint: yq
             args: [-i, 'with(.resources[] | select(.kind == "PublicIp"); .status.atProvider.ipAddress = "192.0.2.1" | .status.atProvider.state = "AVAILABLE" | .status.atProvider.assignedEntityType = "")', ../../.local/tmp/check/transfer/management-resources.json]
@@ -222,10 +222,10 @@ spec:
                 "environment": $xr.spec}
               - ../../.local/tmp/check/transfer/identity.yaml
         - command: &runtimeIdentity
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/identity.yaml, assert-runtime-composite, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer']
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer", "mise", "-C", "$PROJECT_ROOT", "run", "identity:assert-runtime-composite"]
         - command:
             entrypoint: yq
             args: [-i, '.spec.storage.bucket = "wrong-bucket"', ../../.local/tmp/check/transfer/runtime-composite.json]
@@ -250,10 +250,10 @@ spec:
             entrypoint: yq
             args: [-i, '.metadata.uid = "22222222-2222-4222-8222-222222222222"', ../../.local/tmp/check/transfer/runtime-composite.json]
         - command: &inventoryIdentity
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/transfer.yaml, assert-inventory, 'ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer', 'COMPOSITE=$PROJECT_ROOT/.local/tmp/check/transfer/runtime-composite.json', 'OUTPUT=$PROJECT_ROOT/.local/tmp/check/transfer/identity-inventory.json']
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/transfer", "COMPOSITE=$PROJECT_ROOT/.local/tmp/check/transfer/runtime-composite.json", "OUTPUT=$PROJECT_ROOT/.local/tmp/check/transfer/identity-inventory.json", "mise", "-C", "$PROJECT_ROOT", "run", "transfer:assert-inventory"]
         - command:
             entrypoint: yq
             args: [-i, '.resources[0].status.atProvider.freeformTags."tamoss-deployment-id" = "wrong-deployment"', ../../.local/tmp/check/transfer/identity-inventory.json]

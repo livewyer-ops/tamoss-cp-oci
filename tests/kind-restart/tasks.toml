@@ -1,0 +1,38 @@
+
+["test:kind-restart:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "install -d -m 700 '{{ env.TASKV_DIRECTORY }}'",
+  '''yq '.metadata.name = "{{ env.TASKV_NAME }}"' {{ vars.ROOT_DIR }}/environments/example/environment.yaml > {{ env.TASKV_DIRECTORY }}/environment.yaml''',
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run identity:observe-inputs",
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run identity:initialise",
+  "cp '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' '{{ env.TASKV_DIRECTORY }}/management.kubeconfig'",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ env.TASKV_DIRECTORY }}/management-uid'",
+  '''yq -i '.managementUID = load_str("{{ env.TASKV_DIRECTORY }}/management-uid")' {{ env.TASKV_DIRECTORY }}/identity.yaml''',
+]
+env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
+env.TASKV_MANAGEMENT_KUBECONFIG = '''{{ env.MANAGEMENT_KUBECONFIG | default(value="") }}'''
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl --kubeconfig " ~ ((env.TASKV_MANAGEMENT_KUBECONFIG) | quote) ~ " config current-context | sed s/^kind-tamoss-cp-//") }}{% endif %}'''
+
+["test:kind-restart:restart"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker stop '{{ item }}'
+{% endif %}{% endfor %}''',
+  "mise run test:kind-restart:start",
+]
+env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (env.TASKV_DIRECTORY) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kind get nodes --name tamoss-cp-" ~ (env.TASKV_NAME)) }}{% endif %}'''
+
+["test:kind-restart:start"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run transfer:start-kind",
+]
+env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''

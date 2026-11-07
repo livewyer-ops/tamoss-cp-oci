@@ -2,13 +2,13 @@
 
 [Overview](../README.md) | [Getting started](getting-started.md) | [Operations](operations.md) | [Architecture](architecture.md)
 
-Run commands from the repository root with Aqua's tools on `PATH`. Local checks
+Run commands from the repository root through mise. Local checks
 need Docker and internet access. They do not require OCI credentials.
 
 ## Local checks
 
 ```bash
-task check
+mise run check
 ```
 
 | Area | Coverage |
@@ -19,7 +19,7 @@ task check
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
 | Operational Jobs | Shared retry bounds, security, image and temporary-storage contract across Helm and Crossplane; rejection of missing deadlines and unsafe container permissions |
-| Handover flow | Public command wiring and production Task sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
+| Handover flow | Public command wiring and production mise sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
 The check builds the container for the selected release's unchanged browser tests.
@@ -29,7 +29,7 @@ private under `.local/tmp/`; reports and browser build logs are under `.local/re
 ## Management checks
 
 ```bash
-task check:management
+mise run check:management
 ```
 
 This includes `check`, then creates and removes a disposable, credential-free Kind
@@ -91,8 +91,8 @@ separately authorised, dated spending allowance, a test compartment and a scoped
 before paid testing:
 
 ```bash
-task check
-task check:storage OCI_TEST_COMPARTMENT_ID=ocid1.compartment.REPLACE
+mise run check
+OCI_TEST_COMPARTMENT_ID=ocid1.compartment.REPLACE mise run check:storage
 ```
 
 Expected: repeat bucket apply succeeds, deletion is confirmed directly through
@@ -102,7 +102,7 @@ the unrelated local suite. Its default directory is `.local/tmp/storage-check`.
 If interrupted or failed, preserve that directory and use the same OCI identity:
 
 ```bash
-task check:storage:cleanup
+mise run check:storage:cleanup
 ```
 
 Cleanup verifies the recorded identity, removes the owned Bucket through Crossplane
@@ -120,7 +120,7 @@ Requires a running deployment, its original environment directory, credentials
 and, after handover, the matching published environment Git checkout:
 
 ```bash
-task qualify ENV_DIR=.local/environment CHECKOUT=.local/gitops
+ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run qualify
 ```
 
 **Qualification changes the environment.** It deletes its previous IngestRun and

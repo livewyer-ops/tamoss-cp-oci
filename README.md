@@ -41,22 +41,22 @@ Job completed on its first attempt without replacing Authentik pods; see the
 
 ## Quickstart
 
-Install [Aqua](https://aquaproj.github.io/docs/install/) and check the
+Install [mise](https://mise.jdx.dev/installing-mise.html) and check the
 [workstation prerequisites](docs/getting-started.md#workstation-prerequisites), then:
 
 ```bash
 git clone https://github.com/dodwyer/tamoss-cp-oci.git
 cd tamoss-cp-oci
-aqua install
-export PATH="$(aqua root-dir)/bin:$(aqua exec -- uv tool dir --bin):$PATH"
-task setup
+mise trust
+mise install --locked
+mise run setup
 ```
 
 Complete [Getting started](docs/getting-started.md) with an OCI profile, S3 key pair,
 compartment, contact email and administrator CIDR. Then deploy:
 
 ```bash
-task up
+mise run up
 ```
 
 The quick deployment requires no GitHub account or environment repository. Flux
@@ -67,8 +67,8 @@ location of protected initial login details.
 To demonstrate GitOps, configure the optional GitHub owner in `gitops.yaml`:
 
 ```bash
-gh auth login --hostname github.com --git-protocol https
-task handover
+mise exec -- gh auth login --hostname github.com --git-protocol https
+mise run handover
 ```
 
 Handover publishes the existing configuration to a private repository, establishes
@@ -83,20 +83,20 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 
 | Command | Purpose |
 | --- | --- |
-| `task setup` | Install the pinned OCI CLI and create private settings without overwriting existing deployment state. |
-| `task check` | Validate releases, rendering, TLS and local contracts. |
-| `task check:management` | Also test a disposable, credential-free Kind bootstrap. |
-| `task check:storage` | Test a real OCI bucket in a separately authorised compartment. |
-| `task check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
-| `task up` | Provision OCI and install TAMOSS with public TLS ready; Kind retains infrastructure ownership. |
-| `task handover` | Attach GitOps, transfer infrastructure ownership to OKE and stop original Kind. |
-| `task qualify` | Test ingest, access, network isolation and a worker drain. |
-| `task down` | Return ownership if needed, delete hardware and retire secrets through original Kind. |
+| `mise run setup` | Install the pinned OCI CLI and create private settings without overwriting existing deployment state. |
+| `mise run check` | Validate releases, rendering, TLS and local contracts. |
+| `mise run check:management` | Also test a disposable, credential-free Kind bootstrap. |
+| `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |
+| `mise run check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
+| `mise run up` | Provision OCI and install TAMOSS with public TLS ready; Kind retains infrastructure ownership. |
+| `mise run handover` | Attach GitOps, transfer infrastructure ownership to OKE and stop original Kind. |
+| `mise run qualify` | Test ingest, access, network isolation and a worker drain. |
+| `mise run down` | Return ownership if needed, delete hardware and retire secrets through original Kind. |
 
 `ENV_DIR` selects the private deployment directory; `CHECKOUT` selects its environment
 Git checkout (default `.local/gitops`). Storage checks have separate
 inputs; see [Testing](docs/testing.md#oci-storage-check).
-The environment stays running until explicitly removed with `task down`.
+The environment stays running until explicitly removed with `mise run down`.
 **Teardown deletes application data**, including the owned bucket and database
 backups. See [teardown and retention](docs/operations.md#destroy-the-environment).
 

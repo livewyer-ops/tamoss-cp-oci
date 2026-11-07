@@ -1,0 +1,295 @@
+
+["qualification:run:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:credentials",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:prepare-ingest",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:ingest",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:media",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --test-dir tests/placement --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name placement",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:browser",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --values dependencies.yaml --test-dir tests/network --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name network",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:disruption",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:media",
+]
+depends_post = ["qualification:run:cleanup"]
+
+["qualification:run:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "rm -f '{{ vars.ENV_DIR }}/api-token' '{{ vars.ENV_DIR }}/api.curl' '{{ vars.ENV_DIR }}/targets.jsonl' '{{ vars.ENV_DIR }}/http-secrets.env' '{{ vars.ENV_DIR }}/browser.env' '{{ vars.ENV_DIR }}/browser-secrets.json'",
+]
+
+["qualification:run"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/reports'",
+  "echo 'Qualifying ingest, browser access and worker disruption; reports: {{ vars.ENV_DIR }}/reports'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get nodes -o json | yq -p=json -e '.items | length == 3'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' wait nodes --all --for=condition=Ready --timeout=300s",
+  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.yaml") | quote }} mise run tamoss:media''',
+  "cp '{{ vars.ROOT_DIR }}/.local/tmp/check/media/qualification.sha256' '{{ vars.ENV_DIR }}/qualification.sha256'",
+  "RUNTIME_DIR={{ ((vars.ENV_DIR)) | quote }} mise run runtime:render",
+  "mise run qualification:run:protected",
+]
+
+["qualification:prepare-ingest"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get ingestrun/qualification --ignore-not-found -o json > '{{ vars.ENV_DIR }}/previous-ingest.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams delete ingestrun/qualification --ignore-not-found --cascade=foreground --wait=true --timeout=300s",
+  "curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{ vars.ENV_DIR }}/api.curl' --output '{{ vars.ENV_DIR }}/previous-flows.json' '{{ env.TASKV_API_URL }}/flows?tag.qualification_deployment={{ env.TASKV_DEPLOYMENT }}&limit=100'",
+  '''yq -e 'length < 100 and ([.[] | select(.tags.qualification_deployment != "{{ env.TASKV_DEPLOYMENT }}" or (.id | test("^[a-f0-9-]{36}$") | not))] | length == 0)' {{ vars.ENV_DIR }}/previous-flows.json > /dev/null''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:remove-flows",
+  "curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{ vars.ENV_DIR }}/api.curl' --output '{{ vars.ENV_DIR }}/remaining-flows.json' '{{ env.TASKV_API_URL }}/flows?limit=1'",
+  "yq -e 'length == 0' {{ vars.ENV_DIR }}/remaining-flows.json > /dev/null",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:fixture",
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/ingest'",
+  "cp deploy/tamoss/ingest/runtime-kustomization.yaml '{{ vars.ENV_DIR }}/ingest/kustomization.yaml'",
+  "cp '{{ vars.ENV_DIR }}/instance/runtime.yaml' '{{ vars.ENV_DIR }}/ingest/runtime.yaml'",
+  '''yq -i '.resources[0] = "{{ env.TASKV_BASE_RELATIVE }}"' {{ vars.ENV_DIR }}/ingest/kustomization.yaml''',
+  '''kubectl kustomize '{{ vars.ENV_DIR }}/ingest' | yq 'select(.kind == "IngestRun") | .spec.output.flowMetadata.tags.qualification_deployment = "{{ env.TASKV_DEPLOYMENT }}"' > '{{ vars.ENV_DIR }}/ingest.yaml'''',
+]
+env.TASKV_API_URL = '''{% if env.API_URL is defined %}{{ env.API_URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .data.apiURL " ~ (vars.ENV_DIR) ~ "/instance/runtime.yaml") }}{% endif %}'''
+env.TASKV_BASE_RELATIVE = '''{% if env.BASE_RELATIVE is defined %}{{ env.BASE_RELATIVE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "realpath -m --relative-to='" ~ (vars.ENV_DIR) ~ "/ingest' '" ~ (vars.ROOT_DIR) ~ "/deploy/tamoss/ingest'") }}{% endif %}'''
+env.TASKV_DEPLOYMENT = '''{% if env.DEPLOYMENT is defined %}{{ env.DEPLOYMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .deploymentUID " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["qualification:remove-flows"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''{% for item in read_json(path=vars.ENV_DIR ~ "/previous-flows.json") | map(attribute="id") %}
+hurl --no-output --secrets-file '{{ vars.ENV_DIR }}/http-secrets.env' --variable api='{{ env.TASKV_API_URL }}' --variable flow='{{ item }}' --max-time 10 --max-filesize 1048576 tests/http/delete-flow.hurl
+{% endfor %}''',
+]
+env.TASKV_API_URL = '''{% if env.API_URL is defined %}{{ env.API_URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .data.apiURL " ~ (vars.ENV_DIR) ~ "/instance/runtime.yaml") }}{% endif %}'''
+
+["qualification:ingest"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/ingest.yaml'",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --test-dir tests/qualification --set-string previousUID='{{ env.TASKV_PREVIOUS }}' --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name ingest",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get ingestrun/qualification -o json > '{{ vars.ENV_DIR }}/reports/ingest.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get jobs -l tamoss.livewyer.io/ingest-run=qualification -o json > '{{ vars.ENV_DIR }}/reports/ingest-jobs.json'",
+]
+env.TASKV_PREVIOUS = '''{% if env.PREVIOUS is defined %}{{ env.PREVIOUS }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.metadata.uid // \"absent\"' " ~ (vars.ENV_DIR) ~ "/previous-ingest.json") }}{% endif %}'''
+
+["qualification:credentials"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''{% for item in ["api-token", "api.curl", "targets.jsonl", "http-secrets.env"] %}
+install -m 600 /dev/null '{{ vars.ENV_DIR }}/{{ item }}'
+{% endfor %}''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get secret "$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss tamoss -o jsonpath='{.status.resolved.generatedSecrets.apiToken}')" -o json | yq -p=json -e -r '.data.TAMOSS_API_TOKEN | @base64d | select(length > 0)' > '{{ vars.ENV_DIR }}/api-token'''',
+  "test -s '{{ vars.ENV_DIR }}/api-token'",
+  '''yq -n -r '"header = " + (("Authorization: Bearer " + (load_str("{{ vars.ENV_DIR }}/api-token") | trim)) | @json)' > '{{ vars.ENV_DIR }}/api.curl'''',
+  '''yq -n -o=json -I=0 '(load("{{ vars.ENV_DIR }}/instance/runtime.yaml").data) as $r | [{"method": "GET", "url": ($r.apiURL + "/flows"), "header": {"Authorization": ["Bearer " + (load_str("{{ vars.ENV_DIR }}/api-token") | trim)]}}, {"method": "GET", "url": ($r.uiURL + "/")}] | .[]' > '{{ vars.ENV_DIR }}/targets.jsonl'''',
+  '''yq -n -r '"token=" + (load_str("{{ vars.ENV_DIR }}/api-token") | trim)' > {{ vars.ENV_DIR }}/http-secrets.env''',
+]
+
+["qualification:media:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''{% for item in ["segments.json", "media.curl"] %}
+install -m 600 /dev/null '{{ vars.ENV_DIR }}/{{ item }}'
+{% endfor %}''',
+  "curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1048576 --config '{{ vars.ENV_DIR }}/api.curl' --output '{{ vars.ENV_DIR }}/segments.json' '{{ env.TASKV_API_URL }}/flows/{{ env.TASKV_FLOW }}/segments?presigned=true'",
+  '''yq -e 'length > 0 and ((.[0].get_urls[0].url | split("/") | .[0:3] | join("/")) == load("{{ vars.ENV_DIR }}/outputs.json").objectEndpoint)' {{ vars.ENV_DIR }}/segments.json''',
+  '''yq -r '"url = " + (.[0].get_urls[0].url | @json)' {{ vars.ENV_DIR }}/segments.json > {{ vars.ENV_DIR }}/media.curl''',
+  "curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 8388608 --config '{{ vars.ENV_DIR }}/media.curl' --output '{{ vars.ENV_DIR }}/media.ts'",
+  "test -s '{{ vars.ENV_DIR }}/media.ts'",
+  "curl --proto '=https' --fail --silent --show-error --max-time 20 --max-filesize 1024 --range 0-1023 --config '{{ vars.ENV_DIR }}/media.curl' --output '{{ vars.ENV_DIR }}/media-range.bin'",
+  "cmp --bytes=1024 '{{ vars.ENV_DIR }}/media.ts' '{{ vars.ENV_DIR }}/media-range.bin'",
+  "curl --silent --show-error --max-time 20 --max-filesize 1048576 --output /dev/null --write-out '%{http_code}' '{{ env.TASKV_API_URL }}/flows' > '{{ vars.ENV_DIR }}/anonymous-status.txt'",
+  "grep -Eq '^(401|403)$' '{{ vars.ENV_DIR }}/anonymous-status.txt'",
+]
+env.TASKV_API_URL = '''{% if env.API_URL is defined %}{{ env.API_URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .data.apiURL " ~ (vars.ENV_DIR) ~ "/instance/runtime.yaml") }}{% endif %}'''
+env.TASKV_FLOW = '''{% if env.FLOW is defined %}{{ env.FLOW }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl --kubeconfig " ~ (vars.ENV_DIR) ~ "/remote.kubeconfig -n tams get ingestrun qualification -o json | yq -p=json -e -r '[.status.output.memberFlows[] | select(.format == \"urn:x-nmos:format:video\")][0].id'") }}{% endif %}'''
+depends_post = ["qualification:media:cleanup"]
+
+["qualification:media:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "rm -f '{{ vars.ENV_DIR }}/media.curl' '{{ vars.ENV_DIR }}/segments.json'",
+]
+
+["qualification:media"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "API_URL={{ env.TASKV_API_URL | quote }} FLOW={{ env.TASKV_FLOW | quote }} mise run qualification:media:protected",
+]
+env.TASKV_API_URL = '''{% if env.API_URL is defined %}{{ env.API_URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .data.apiURL " ~ (vars.ENV_DIR) ~ "/instance/runtime.yaml") }}{% endif %}'''
+env.TASKV_FLOW = '''{% if env.FLOW is defined %}{{ env.FLOW }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl --kubeconfig " ~ (vars.ENV_DIR) ~ "/remote.kubeconfig -n tams get ingestrun qualification -o json | yq -p=json -e -r '[.status.output.memberFlows[] | select(.format == \"urn:x-nmos:format:video\")][0].id'") }}{% endif %}'''
+
+["qualification:disruption"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+depends = ["qualification:probe", "qualification:drain"]
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:availability-report",
+]
+
+["qualification:availability-report"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''vegeta encode --to=json '{{ vars.ENV_DIR }}/reports/availability.bin' | yq eval-all -p=json '. as $sample ireduce ([]; . + [{"timestamp": ($sample.timestamp | to_unix), "url": $sample.url, "code": $sample.code, "error": $sample.error}])' > '{{ vars.ENV_DIR }}/reports/samples.yaml'''',
+  '''yq -n '(load_str("{{ vars.ENV_DIR }}/reports/drain-start") | trim | tonumber) as $start | (load_str("{{ vars.ENV_DIR }}/reports/drain-end") | trim | tonumber) as $end | {"apiVersion": "qualification.livewyer.io/v1alpha1", "kind": "AvailabilityCheck", "drainStart": $start, "drainEnd": $end, "endpoints": [load("{{ vars.ENV_DIR }}/reports/samples.yaml") | group_by(.url) | .[] | {"url": .[0].url, "before": ([.[] | select(.timestamp < $start)] | length), "during": ([.[] | select(.timestamp >= $start and .timestamp <= $end)] | length), "after": ([.[] | select(.timestamp > $end)] | length), "failed": ([.[] | select(.code != 200 or .error != "")] | length)}]}' > '{{ vars.ENV_DIR }}/reports/availability-check.yaml'''',
+  "chainsaw assert -r '{{ vars.ENV_DIR }}/reports/availability-check.yaml' -f deploy/contracts/availability.yaml --timeout 1s",
+]
+
+["qualification:probe:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "vegeta attack -format=json -targets='{{ vars.ENV_DIR }}/targets.jsonl' -rate=2/s -duration=270s -timeout=10s -workers=2 -max-workers=2 -max-body=0 -output='{{ vars.ENV_DIR }}/reports/availability.bin'",
+]
+depends_post = ["qualification:probe:cleanup"]
+
+["qualification:probe:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "vegeta report --type=json --output '{{ vars.ENV_DIR }}/reports/availability.json' '{{ vars.ENV_DIR }}/reports/availability.bin'",
+]
+
+["qualification:probe"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run qualification:probe:protected",
+]
+
+["qualification:drain:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "sleep 10",
+  "date -u +%s > '{{ vars.ENV_DIR }}/reports/drain-start'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' drain '{{ env.TASKV_NODE }}' --ignore-daemonsets --delete-emptydir-data --timeout=180s",
+  "date -u +%s > '{{ vars.ENV_DIR }}/reports/drain-end'",
+  '''{% for item in ["api", "ui", "worker", "console"] %}
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams rollout status deployment/tams-{{ item }} --timeout=60s
+{% endfor %}''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams wait tamoss/tamoss --for=condition=Ready --timeout=60s",
+]
+env.TASKV_NODE = '''{% if env.NODE is defined %}{{ env.NODE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl --kubeconfig " ~ (vars.ENV_DIR) ~ "/remote.kubeconfig -n tams get pods -l tamoss.livewyer.io/replica-set=api -o json | yq -p=json -e -r '[.items[] | select(.status.phase == \"Running\") | .spec.nodeName] | .[0]'") }}{% endif %}'''
+depends_post = ["qualification:drain:cleanup"]
+
+["qualification:drain:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} NODE={{ ((env.TASKV_NODE)) | quote }} mise run qualification:restore-node",
+]
+env.TASKV_NODE = '''{% if env.NODE is defined %}{{ env.NODE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl --kubeconfig " ~ (vars.ENV_DIR) ~ "/remote.kubeconfig -n tams get pods -l tamoss.livewyer.io/replica-set=api -o json | yq -p=json -e -r '[.items[] | select(.status.phase == \"Running\") | .spec.nodeName] | .[0]'") }}{% endif %}'''
+
+["qualification:drain"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get node '{{ env.TASKV_NODE }}' -o json > '{{ vars.ENV_DIR }}/reports/node-before.json'",
+  '''yq -e '.spec.unschedulable != true and ([.status.conditions[] | select(.type == "Ready" and .status == "True")] | length == 1)' {{ vars.ENV_DIR }}/reports/node-before.json''',
+  "NODE={{ env.TASKV_NODE | quote }} mise run qualification:drain:protected",
+]
+env.TASKV_NODE = '''{% if env.NODE is defined %}{{ env.NODE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl --kubeconfig " ~ (vars.ENV_DIR) ~ "/remote.kubeconfig -n tams get pods -l tamoss.livewyer.io/replica-set=api -o json | yq -p=json -e -r '[.items[] | select(.status.phase == \"Running\") | .spec.nodeName] | .[0]'") }}{% endif %}'''
+
+["qualification:restore-node"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_NODE | quote }} || { printf '%s\n' "Missing required input: NODE" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get node '{{ env.TASKV_NODE }}' -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/reports/node-before.json").metadata.uid'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' uncordon '{{ env.TASKV_NODE }}'",
+]
+env.TASKV_NODE = '''{{ env.NODE | default(value="") }}'''
+
+["qualification:browser:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+env.TAMOSS_ENV_DIR = "{{ vars.ENV_DIR }}"
+env.LOCAL_UID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -u") }}'''
+env.LOCAL_GID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -g") }}'''
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''BROWSER_IMAGE="$(cat '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/image-id')" docker compose -f deploy/tamoss/browser/compose.yaml run --rm --pull never -T browser > '{{ vars.ENV_DIR }}/reports/browser.log' 2>&1''',
+  '''yq -p=xml -oy -e '.testsuites.testsuite | [(."+@tests" == "5"), (."+@failures" == "0"), (."+@errors" == "0"), (."+@skipped" == "0")] | all' {{ vars.ENV_DIR }}/reports/browser.xml > /dev/null''',
+]
+depends_post = ["qualification:browser:cleanup"]
+
+["qualification:browser:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+env.TAMOSS_ENV_DIR = "{{ vars.ENV_DIR }}"
+env.LOCAL_UID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -u") }}'''
+env.LOCAL_GID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -g") }}'''
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "rm -f '{{ vars.ENV_DIR }}/browser.env' '{{ vars.ENV_DIR }}/browser-secrets.json'",
+]
+
+["qualification:browser"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+env.TAMOSS_ENV_DIR = "{{ vars.ENV_DIR }}"
+env.LOCAL_UID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -u") }}'''
+env.LOCAL_GID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -g") }}'''
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.yaml") | quote }} mise run tamoss:browser-build''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:browser-target",
+  "mise run qualification:browser:protected",
+]
+
+["qualification:browser-target"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss tamoss -o json | yq -p=json -e -r ' .status.auth.applicationSlug | select(length > 0)' > '{{ vars.ENV_DIR }}/browser-slug'",
+  '''{% for item in ["browser.env", "browser-secrets.json"] %}
+install -m 600 /dev/null '{{ vars.ENV_DIR }}/{{ item }}'
+{% endfor %}''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get secret authentik -o json | yq -p=json -o=json '.data | {"TEST_TAMOSS_AUTH_USER": (.AUTHENTIK_BOOTSTRAP_USERNAME | @base64d), "TEST_TAMOSS_AUTH_PASSWORD": (.AUTHENTIK_BOOTSTRAP_PASSWORD | @base64d)}' > '{{ vars.ENV_DIR }}/browser-secrets.json'''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get secret "$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss tamoss -o jsonpath='{.status.resolved.generatedSecrets.oauth2Credentials}')" -o json | yq -p=json -r '.data | {"TEST_TAMOSS_OAUTH_CLIENT_ID": (.TAMOSS_OAUTH_CLIENT_ID | @base64d), "TEST_TAMOSS_OAUTH_CLIENT_SECRET": (.TAMOSS_OAUTH_CLIENT_SECRET | @base64d)} * load("{{ vars.ENV_DIR }}/browser-secrets.json") | to_entries | .[] | .key + "=" + (.value | @sh)' > '{{ vars.ENV_DIR }}/browser.env'''',
+  '''yq -r '.data | {"TEST_TARGET": "oci", "TEST_TAMOSS_API": .apiURL, "TEST_TAMOSS_UI": .uiURL, "TEST_TAMOSS_AUTH": .issuerURL, "TEST_TAMOSS_S3": .objectEndpoint, "TEST_TAMOSS_TOKEN": (load_str("{{ vars.ENV_DIR }}/api-token") | trim), "TEST_TAMOSS_UI_EXPECT_STATUS": "200,302", "TEST_TAMOSS_BROWSER_API_AVAILABLE": "true", "TEST_INSECURE_SKIP_TLS_VERIFY": "false", "TEST_TAMOSS_OAUTH2_ENABLED": "true", "TEST_TAMOSS_OAUTH_ISSUER": (.issuerURL + "/application/o/" + (load_str("{{ vars.ENV_DIR }}/browser-slug") | trim) + "/")} | to_entries | .[] | .key + "=" + (.value | @sh)' '{{ vars.ENV_DIR }}/instance/runtime.yaml' >> '{{ vars.ENV_DIR }}/browser.env'''',
+]

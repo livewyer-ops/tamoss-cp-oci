@@ -124,37 +124,37 @@ spec:
         entrypoint: mkdir
         args: [../../scripts]
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [check]
+        args: ["mise", "-C", ".", "run", "check"]
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [check:management]
+        args: ["mise", "-C", ".", "run", "check:management"]
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [check:storage]
+        args: ["mise", "-C", ".", "run", "check:storage"]
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [handover]
+        args: ["mise", "-C", ".", "run", "handover"]
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [setup]
+        args: ["mise", "-C", ".", "run", "setup"]
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
@@ -168,9 +168,9 @@ spec:
         entrypoint: touch
         args: [../../forbidden.py]
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [check]
+        args: ["mise", "-C", ".", "run", "check"]
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
@@ -181,9 +181,9 @@ spec:
   - name: reject placeholder environment inputs
     try:
     - command:
-        entrypoint: task
+        entrypoint: env
         workDir: ../..
-        args: [-d, ., -t, tasks/lifecycle.yaml, preflight, ENV_DIR=environments/example]
+        args: ["ENV_DIR=environments/example", "mise", "-C", ".", "run", "lifecycle:preflight"]
         check:
           ($error != null): true
           (contains($stderr, 'Replace example configuration before provisioning')): true

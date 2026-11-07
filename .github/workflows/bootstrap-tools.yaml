@@ -19,20 +19,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: aquaproj/aqua-installer@611554c6f0137ba41c8dd15aca8bee82504ea461 # v4.1.1
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
-          aqua_version: v2.65.2
+          version: 2026.11.3
+          install_args: --locked
       - name: Check package ownership and visibility
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p -m 700 .local/tmp/image
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/image/package.json ||
-            aqua exec -- yq -e '.status == "404"' .local/tmp/image/package.json
-          aqua exec -- yq -e '(.status == "404") or (.visibility == "public" and .repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/image/package.json
+            yq -e '.status == "404"' .local/tmp/image/package.json
+          yq -e '(.status == "404") or (.visibility == "public" and .repository.full_name == strenv(PRODUCT_REPOSITORY))' .local/tmp/image/package.json
       - name: Build and verify pinned tools
         run: |
-          export PATH="$(aqua root-dir)/bin:$PATH"
           docker build --build-arg OCI_IMAGE="$(yq -r .oci.image dependencies.yaml)" --build-arg FLUX_IMAGE="$(yq -r .bootstrapTools.fluxImage dependencies.yaml)" --build-arg KUBECTL_IMAGE="$(yq -r .connectionDetails.kubectlImage dependencies.yaml)" --build-arg YQ_IMAGE="$(yq -r .connectionDetails.yqImage dependencies.yaml)" --label "org.opencontainers.image.source=https://github.com/$PRODUCT_REPOSITORY" --tag "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA" deploy/oke-bootstrap
           test "$(docker run --rm --network none "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA" --version)" = "$(yq -r .oci.version dependencies.yaml)"
           docker run --rm --network none --entrypoint flux "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA" --version
@@ -50,7 +50,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api "/users/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME" > .local/tmp/image/published.json
-          aqua exec -- yq -e '.visibility == "public" and .repository.full_name == strenv(PRODUCT_REPOSITORY)' .local/tmp/image/published.json
+          yq -e '.visibility == "public" and .repository.full_name == strenv(PRODUCT_REPOSITORY)' .local/tmp/image/published.json
           docker buildx imagetools inspect "ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify anonymous consumption
         run: |

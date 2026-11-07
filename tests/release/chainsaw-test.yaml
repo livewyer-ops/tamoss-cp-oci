@@ -9,37 +9,37 @@ spec:
     - name: record the release and accept an unchanged selection
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: &paths
               - {name: PROJECT_ROOT, value: ($values.root)}
               - {name: CHECK_DIRECTORY, value: "(join('/', [$values.root, '.local/tmp/release-test']))"}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, prepare, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:prepare"]
         - command: &match
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, match, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:match"]
     - name: reject a changed selection before deployment
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, match, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY', 'RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:match"]
             check:
               ($error != null): true
               (contains($stderr, 'differs from the repository pin')): true
     - name: reject a release record describing a different tag
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, metadata, 'PROJECT_ROOT=$PROJECT_ROOT', 'RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:metadata"]
             check: {($error != null): true}
     - name: reject damaged downloads without installing them
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, bad-download, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:bad-download"]
             check: {($error != null): true}
         - command:
             entrypoint: test
@@ -48,16 +48,16 @@ spec:
     - name: reject a source tree without required deployment entrypoints
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, entrypoints, 'PROJECT_ROOT=$PROJECT_ROOT', 'CHECK_ASSETS=$CHECK_DIRECTORY/absent']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "CHECK_ASSETS=$CHECK_DIRECTORY/absent", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:entrypoints"]
             check: {($error != null): true}
     - name: prepare teardown from the recorded release despite a different current selection
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, prepare-removal-alternate, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:prepare-removal-alternate"]
         - command:
             entrypoint: cmp
             env: *paths
@@ -65,13 +65,13 @@ spec:
     - name: accept source contents despite different archive ownership and permissions
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, source-fixture, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:source-fixture"]
         - command: &compareSource
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, compare-source, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:compare-source"]
     - name: reject changed source bytes
       try:
         - command:
@@ -123,9 +123,9 @@ spec:
               ($error != null): true
               (contains($stderr, 'no TAMOSS release record')): true
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/release/Taskfile.yaml, record, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:record"]
             check: {($error != null): true}
       finally:
         - command:

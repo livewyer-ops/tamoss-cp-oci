@@ -1,0 +1,135 @@
+
+["setup:resolve"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "true",
+]
+
+["verify:tools"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "true",
+]
+
+["verify:privacy"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "true",
+]
+
+["gitops:export-inputs"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "true",
+]
+
+["bootstrap:provision"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "yq -i '.provisions += 1' {{ vars.ENV_DIR }}/identity.yaml",
+]
+
+["bootstrap:runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "true",
+]
+
+["bootstrap:record-runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "yq -e '.observations > 0' {{ vars.ENV_DIR }}/identity.yaml",
+  "yq -i '.deploymentReady = true' {{ vars.ENV_DIR }}/identity.yaml",
+]
+
+["bootstrap:access"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "true",
+]
+
+["gitops:attach"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.gitopsEstablished == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  '''POINT={{ ("before-git") | quote }} mise run test:handover:checkpoint''',
+  "yq -i '.gitopsEstablished = true' {{ vars.ENV_DIR }}/identity.yaml",
+]
+
+["test:handover:checkpoint"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test '{{ env.TASKV_STOP_AT }}' != '{{ env.TASKV_POINT }}' || { printf '%s\n' "Injected interruption at {{ env.TASKV_POINT }}" >&2; exit 1; }''',
+  "true",
+]
+env.TASKV_POINT = '''{{ env.POINT | default(value="") }}'''
+env.TASKV_STOP_AT = '''{{ env.STOP_AT | default(value="") }}'''
+
+["transfer:start-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -i '.starts += 1 | .stopped = false' {{ vars.ENV_DIR }}/identity.yaml",
+]
+
+["transfer:prepare-promotion"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''POINT={{ ("before-promotion") | quote }} mise run test:handover:checkpoint''',
+  "yq -i '.quiesced = true' {{ vars.ENV_DIR }}/identity.yaml",
+  '''yq -i '.spec.managementPolicies = ["*"]' {{ vars.CHECKOUT }}/clusters/fixture/infrastructure/environment.yaml''',
+]
+
+["transfer:runtime-writes"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.quiesced == true' {{ vars.ENV_DIR }}/identity.yaml",
+  "yq -i '.runtimeWritesEnabled = true' {{ vars.ENV_DIR }}/identity.yaml",
+  '''POINT={{ ("after-iam") | quote }} mise run test:handover:checkpoint''',
+]
+
+["gitops:publish"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.quiesced == true and .runtimeWritesEnabled == true' {{ vars.ENV_DIR }}/identity.yaml",
+  "git -C '{{ vars.CHECKOUT }}' add clusters/fixture/infrastructure/environment.yaml",
+  "git -C '{{ vars.CHECKOUT }}' diff --cached --quiet || git -C '{{ vars.CHECKOUT }}' commit -m 'Transfer ownership'",
+  "git -C '{{ vars.CHECKOUT }}' push origin main",
+  "yq -i '.publications += 1 | .published = true' {{ vars.ENV_DIR }}/identity.yaml",
+  '''POINT={{ ("after-publication") | quote }} mise run test:handover:checkpoint''',
+]
+
+["bootstrap:observe-ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -z '{{ env.TASKV_REVISION }}' || test '{{ env.TASKV_REVISION }}' = "$(git -C '{{ vars.CHECKOUT }}' rev-parse FETCH_HEAD)"''',
+  "yq -e '.unhealthy != true and (.unhealthyAfterPublication != true or .published != true)' {{ vars.ENV_DIR }}/identity.yaml",
+  "yq -i '.observations += 1' {{ vars.ENV_DIR }}/identity.yaml",
+]
+env.TASKV_REVISION = '''{{ env.REVISION | default(value="") }}'''
+
+["transfer:stop-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.quiesced == true and .published == true and .observations > 0' {{ vars.ENV_DIR }}/identity.yaml",
+  '''POINT={{ ("before-stop") | quote }} mise run test:handover:checkpoint''',
+  "yq -i '.stopped = true' {{ vars.ENV_DIR }}/identity.yaml",
+]

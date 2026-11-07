@@ -1,0 +1,87 @@
+
+["test:release:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}/candidate/deploy/tamoss' '{{ vars.ENV_DIR }}/candidate/.local/tmp'",
+  "cp deploy/tamoss/release.yaml '{{ vars.ENV_DIR }}/candidate/release.yaml'",
+  '''PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq -p=toml -o=toml '.task_config.includes |= map(strenv(PROJECT_ROOT) + "/" + .)' {{ vars.ROOT_DIR | quote }}/mise.toml > {{ vars.ENV_DIR | quote }}/candidate/mise.toml''',
+  "mise trust {{ vars.ENV_DIR | quote }}/candidate/mise.toml",
+  '''yq -i '.tag = "0.0.0-unpublished-test"' {{ vars.ENV_DIR }}/candidate/release.yaml''',
+  "cp '{{ vars.ENV_DIR }}/candidate/release.yaml' '{{ vars.ENV_DIR }}/candidate/deploy/tamoss/release.yaml'",
+  "cp dependencies.yaml '{{ vars.ENV_DIR }}/candidate/'",
+  "cp -a deploy/tamoss/operator '{{ vars.ENV_DIR }}/candidate/deploy/tamoss/'",
+  "test -L '{{ vars.ENV_DIR }}/candidate/.local/tmp/tamoss' || ln -s '{{ vars.ROOT_DIR }}/.local/tmp/tamoss' '{{ vars.ENV_DIR }}/candidate/.local/tmp/tamoss'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tamoss:record",
+]
+
+["test:release:match"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tamoss:assert-current",
+]
+
+["test:release:record"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tamoss:record",
+]
+
+["test:release:metadata"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run tamoss:metadata",
+]
+
+["test:release:source-fixture"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ vars.ENV_DIR }}/source-fixture/tamoss-fixture'",
+  "cp '{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/source-fixture/tamoss-fixture/release.yaml'",
+  "ln -sfn release.yaml '{{ vars.ENV_DIR }}/source-fixture/tamoss-fixture/current.yaml'",
+  "tar --create --gzip --owner=12345 --group=12345 --mode=0777 --file '{{ vars.ENV_DIR }}/source-fixture/source.tar.gz' --directory '{{ vars.ENV_DIR }}/source-fixture' tamoss-fixture",
+  '''ASSETS={{ ((vars.ENV_DIR) ~ "/source-fixture") | quote }} mise run tamoss:extract''',
+  "chmod 600 '{{ vars.ENV_DIR }}/source-fixture/source/release.yaml'",
+]
+
+["test:release:compare-source"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''ASSETS={{ ((vars.ENV_DIR) ~ "/source-fixture") | quote }} mise run tamoss:compare-source''',
+]
+
+["test:release:entrypoints"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ASSETS={{ ((env.TASKV_CHECK_ASSETS)) | quote }} mise run tamoss:entrypoints",
+]
+env.TASKV_CHECK_ASSETS = '''{{ env.CHECK_ASSETS | default(value="") }}'''
+
+["test:release:prepare-removal"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.yaml") | quote }} mise run tamoss:fetch''',
+  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.yaml") | quote }} OUTPUT_DIR={{ ((vars.ENV_DIR) ~ "/operator-removal") | quote }} mise run tamoss:operator''',
+]
+
+["test:release:prepare-removal-alternate"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "PROJECT_ROOT={{ vars.ENV_DIR }}/candidate PROJECT_ROOT={{ vars.ENV_DIR }}/candidate ENV_DIR={{ vars.ENV_DIR }} mise -C {{ vars.ENV_DIR }}/candidate run test:release:prepare-removal",
+]
+
+["test:release:bad-download"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''CACHE={{ ((vars.ENV_DIR) ~ "/download") | quote }} TARGET={{ ("release.json") | quote }} URL={{ ("file://" ~ (vars.ENV_DIR) ~ "/candidate/release.yaml") | quote }} SHA={{ ((env.TASKV_SHA)) | quote }} mise run verify:artifact''',
+]
+env.TASKV_SHA = '''{% if env.SHA is defined %}{{ env.SHA }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.PROJECT_ROOT) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''

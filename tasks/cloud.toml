@@ -1,0 +1,547 @@
+
+["cloud:profile"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -p=ini -e '(. * (.[strenv(OCI_PROFILE)] // {})).region == load("{{ vars.ENV_DIR }}/environment.yaml").spec.region' {{ (env.TASKV_OCI_CONFIG) | quote }}''',
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:credentials"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ env.TASKV_CREDENTIAL_DIR | quote }} || { printf '%s\n' "Missing required input: CREDENTIAL_DIR" >&2; exit 1; }''',
+  '''test -f '{{ env.TASKV_OCI_CONFIG }}' && test -z "$(find '{{ env.TASKV_OCI_CONFIG }}' -perm /077 -print)" || { printf '%s\n' "OCI config must have owner-only permissions" >&2; exit 1; }''',
+  '''test -f '{{ env.TASKV_OCI_KEY_FILE }}' && test -z "$(find '{{ env.TASKV_OCI_KEY_FILE }}' -perm /077 -print)" || { printf '%s\n' "OCI key must exist and have owner-only permissions" >&2; exit 1; }''',
+  '''yq -n -e 'strenv(OCI_KEY_FILE) | test("^/")' || { printf '%s\n' "OCI key_file must be an absolute path" >&2; exit 1; }''',
+  '''yq -p=ini -e 'strenv(OCI_PROFILE) == "DEFAULT" or has(strenv(OCI_PROFILE))' {{ (env.TASKV_OCI_CONFIG) | quote }} || { printf '%s\n' "Selected OCI profile is missing" >&2; exit 1; }''',
+  "mkdir -p -m 700 '{{ env.TASKV_CREDENTIAL_DIR }}'",
+  "install -m 600 /dev/null '{{ env.TASKV_CREDENTIAL_DIR }}/credentials.json'",
+  '''yq -p=ini -o=json '(. * (.[strenv(OCI_PROFILE)] // {})) | {"auth": "ApiKey", "tenancy_ocid": .tenancy, "user_ocid": .user, "fingerprint": .fingerprint, "region": .region, "private_key": load_str(strenv(OCI_KEY_FILE)), "private_key_password": .pass_phrase} | with_entries(select(.value != null))' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ env.TASKV_CREDENTIAL_DIR }}/credentials.json'''',
+  "cp deploy/credentials/kustomization.yaml deploy/credentials/namespace.yaml '{{ env.TASKV_CREDENTIAL_DIR }}/'",
+  "yq -i '.resources = []' {{ env.TASKV_CREDENTIAL_DIR }}/kustomization.yaml",
+]
+env.TASKV_CREDENTIAL_DIR = '''{{ env.CREDENTIAL_DIR | default(value="") }}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI_KEY_FILE = '''{% if env.OCI_KEY_FILE is defined %}{{ env.OCI_KEY_FILE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "OCI_PROFILE=" ~ ((env.TASKV_OCI_PROFILE) | quote) ~ " yq -p=ini -oy -r '(. * (.[strenv(OCI_PROFILE)] // {})).key_file' " ~ ((env.TASKV_OCI_CONFIG) | quote)) }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+env.OCI_KEY_FILE = "{{ env.TASKV_OCI_KEY_FILE }}"
+
+["cloud:storage-run:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_OCI_TEST_COMPARTMENT_ID | quote }} || { printf '%s\n' "Missing required input: OCI_TEST_COMPARTMENT_ID" >&2; exit 1; }''',
+  '''CREDENTIAL_DIR={{ ((vars.STORAGE_DIR) ~ "/credentials") | quote }} MANAGEMENT_KUBECONFIG={{ ((vars.STORAGE_DIR) ~ "/management.kubeconfig") | quote }} mise run cloud:credentials''',
+  "cp environments/example/provider.yaml '{{ vars.STORAGE_DIR }}/credentials/'",
+  '''yq -i '.resources += ["namespace.yaml", "provider.yaml"]' {{ vars.STORAGE_DIR }}/credentials/kustomization.yaml''',
+  "kubectl --kubeconfig '{{ vars.STORAGE_DIR }}/management.kubeconfig' apply --server-side -k '{{ vars.STORAGE_DIR }}/credentials'",
+  "KUBECONFIG='{{ vars.STORAGE_DIR }}/management.kubeconfig' chainsaw test --skip-delete --exec-timeout 600s --test-dir tests/storage --values '{{ vars.STORAGE_DIR }}/values.yaml' --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ vars.STORAGE_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name storage",
+  "mise run cloud:storage-cleanup",
+  "echo 'Storage lifecycle check passed and cleanup was verified.'",
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI_TEST_COMPARTMENT_ID = '''{{ env.OCI_TEST_COMPARTMENT_ID | default(value="") }}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+depends_post = ["cloud:storage-run:cleanup"]
+
+["cloud:storage-run:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_OCI_TEST_COMPARTMENT_ID | quote }} || { printf '%s\n' "Missing required input: OCI_TEST_COMPARTMENT_ID" >&2; exit 1; }''',
+  "rm -f '{{ vars.STORAGE_DIR }}/credentials/credentials.json'",
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI_TEST_COMPARTMENT_ID = '''{{ env.OCI_TEST_COMPARTMENT_ID | default(value="") }}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-run"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_OCI_TEST_COMPARTMENT_ID | quote }} || { printf '%s\n' "Missing required input: OCI_TEST_COMPARTMENT_ID" >&2; exit 1; }''',
+  '''test ! -e '{{ vars.STORAGE_DIR }}/values.yaml' && test ! -e '{{ vars.STORAGE_DIR }}/management.kubeconfig' || { printf '%s\n' "A previous storage run is retained; run mise run check:storage:cleanup before retrying" >&2; exit 1; }''',
+  '''yq -n -e '"{{ env.TASKV_OCI_TEST_COMPARTMENT_ID }}" | test("^ocid1\\.(compartment|tenancy)\\.")' || { printf '%s\n' "Set the authorised test compartment OCID" >&2; exit 1; }''',
+  "mkdir -p -m 700 '{{ vars.STORAGE_DIR }}' '{{ vars.ROOT_DIR }}/.local/reports'",
+  "mise run cloud:storage-context",
+  "{{ env.TASKV_OCI }} os ns get --query data --raw-output > {{ vars.STORAGE_DIR }}/namespace.txt",
+  '''{{ env.TASKV_OCI }} os bucket list --compartment-id {{ (env.TASKV_OCI_TEST_COMPARTMENT_ID) | quote }} --namespace-name "$(cat {{ vars.STORAGE_DIR }}/namespace.txt)" --all > {{ vars.STORAGE_DIR }}/baseline.json''',
+  '''yq -i '. // {"data": []}' {{ vars.STORAGE_DIR }}/baseline.json''',
+  "install -m 600 /dev/null '{{ vars.STORAGE_DIR }}/values.yaml'",
+  '''yq -n '{"compartmentId": "{{ env.TASKV_OCI_TEST_COMPARTMENT_ID }}", "objectNamespace": (load_str("{{ vars.STORAGE_DIR }}/namespace.txt") | trim), "bucketName": "{{ env.TASKV_CHECK_NAME }}", "oci": load("{{ vars.STORAGE_DIR }}/oci-current.yaml")}' > '{{ vars.STORAGE_DIR }}/values.yaml'''',
+  '''yq -e '[.data[] | select(.name == "{{ env.TASKV_CHECK_NAME }}")] | length == 0' {{ vars.STORAGE_DIR }}/baseline.json''',
+  "kind create cluster --name '{{ env.TASKV_CHECK_NAME }}' --config deploy/management/kind.yaml --kubeconfig '{{ vars.STORAGE_DIR }}/management.kubeconfig' --wait 120s",
+  '''MANAGEMENT_KUBECONFIG={{ ((vars.STORAGE_DIR) ~ "/management.kubeconfig") | quote }} mise run management:install''',
+  "OCI_CONFIG={{ env.TASKV_OCI_CONFIG | quote }} OCI_PROFILE={{ env.TASKV_OCI_PROFILE | quote }} OCI={{ env.TASKV_OCI | quote }} CHECK_NAME={{ env.TASKV_CHECK_NAME | quote }} mise run cloud:storage-run:protected",
+]
+env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-storage-{{ now() | date(format="%s") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI_TEST_COMPARTMENT_ID = '''{{ env.OCI_TEST_COMPARTMENT_ID | default(value="") }}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-context"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -p=ini -oy '(. * (.[strenv(OCI_PROFILE)] // {})) | {"tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "region": .region}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.STORAGE_DIR }}/oci-current.yaml'''',
+  '''yq -e '[.tenancy, .user, .fingerprint, .region] | all_c((. != null) and (. != ""))' '{{ vars.STORAGE_DIR }}/oci-current.yaml' > /dev/null''',
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -s '{{ vars.STORAGE_DIR }}/values.yaml' && test -s '{{ vars.STORAGE_DIR }}/baseline.json' || { printf '%s\n' "No complete storage probe record; retain any Kind state and establish ownership before cleanup" >&2; exit 1; }''',
+  "mise run cloud:storage-context",
+  '''yq -e 'load("{{ vars.STORAGE_DIR }}/oci-current.yaml") as $current | [(.oci.tenancy == $current.tenancy), (.oci.user == $current.user), (.oci.fingerprint == $current.fingerprint), (.oci.region == $current.region), (.bucketName | test("^tamoss-cp-[a-z0-9-]+$"))] | all' '{{ vars.STORAGE_DIR }}/values.yaml' > /dev/null''',
+  "CHECK_NAME={{ ((env.TASKV_CHECK_NAME)) | quote }} mise run cloud:storage-remove",
+  '''{{ env.TASKV_OCI }} os bucket list --compartment-id "$(yq -r .compartmentId '{{ vars.STORAGE_DIR }}/values.yaml')" --namespace-name "$(yq -r .objectNamespace '{{ vars.STORAGE_DIR }}/values.yaml')" --all > '{{ vars.STORAGE_DIR }}/after.json'''',
+  "mise run cloud:storage-audit",
+  "kind delete cluster --name '{{ env.TASKV_CHECK_NAME }}'",
+  "rm -f '{{ vars.STORAGE_DIR }}/management.kubeconfig' '{{ vars.STORAGE_DIR }}/observed.kubeconfig' '{{ vars.STORAGE_DIR }}/credentials/credentials.json'",
+  "mkdir -p -m 700 '{{ vars.ROOT_DIR }}/.local/reports/storage'",
+  "mv '{{ vars.STORAGE_DIR }}' '{{ vars.ROOT_DIR }}/.local/reports/storage/{{ env.TASKV_CHECK_NAME }}'",
+  "echo 'Storage probe deletion verified; its records are archived under .local/reports/storage.'",
+]
+env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -e -r .bucketName " ~ ((vars.STORAGE_DIR) | quote) ~ "/values.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-remove:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(docker ps -aq --filter "label=io.x-k8s.kind.cluster=${TASKV_CHECK_NAME}" | wc -c | xargs test 0 -eq)'''
+run = [
+  "install -m 600 /dev/null '{{ vars.STORAGE_DIR }}/observed.kubeconfig'",
+  "kind get kubeconfig --name '{{ env.TASKV_CHECK_NAME }}' > '{{ vars.STORAGE_DIR }}/observed.kubeconfig'",
+  '''yq -e 'load("{{ vars.STORAGE_DIR }}/observed.kubeconfig") as $current | [((.clusters | length) == 1), (($current.clusters | length) == 1), (.clusters[0].name == $current.clusters[0].name), (.clusters[0].cluster.server == $current.clusters[0].cluster.server), (.clusters[0].cluster."certificate-authority-data" == $current.clusters[0].cluster."certificate-authority-data")] | all' '{{ vars.STORAGE_DIR }}/management.kubeconfig' > /dev/null''',
+  "mise run cloud:storage-remove-bucket",
+]
+env.TASKV_CHECK_NAME = '''{{ env.CHECK_NAME | default(value="") }}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-remove"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_CHECK_NAME | quote }} || { printf '%s\n' "Missing required input: CHECK_NAME" >&2; exit 1; }''',
+  "mise run cloud:storage-remove:apply",
+]
+env.TASKV_CHECK_NAME = '''{{ env.CHECK_NAME | default(value="") }}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-remove-bucket"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(kubectl --kubeconfig '{{ vars.STORAGE_DIR }}/management.kubeconfig' get crd buckets.objectstorage.oci.m.upbound.io --ignore-not-found -o json | yq -e 'length == 0' > /dev/null)"
+run = [
+  "kubectl --kubeconfig '{{ vars.STORAGE_DIR }}/management.kubeconfig' -n tamoss-infra get bucket.objectstorage.oci.m.upbound.io storage-check --ignore-not-found -o json > '{{ vars.STORAGE_DIR }}/bucket.json'",
+  '''yq -e '(length == 0) or ([(.spec.forProvider.name == load("{{ vars.STORAGE_DIR }}/values.yaml").bucketName), (.spec.forProvider.compartmentId == load("{{ vars.STORAGE_DIR }}/values.yaml").compartmentId), (.spec.forProvider.namespace == load("{{ vars.STORAGE_DIR }}/values.yaml").objectNamespace), (.spec.forProvider.freeformTags.purpose == "storage-lifecycle-check")] | all)' '{{ vars.STORAGE_DIR }}/bucket.json' > /dev/null''',
+  "helmfile --kubeconfig '{{ vars.STORAGE_DIR }}/management.kubeconfig' -f deploy/storage-check/helmfile.yaml.gotmpl --state-values-file '{{ vars.STORAGE_DIR }}/values.yaml' destroy",
+  "kubectl --kubeconfig '{{ vars.STORAGE_DIR }}/management.kubeconfig' -n tamoss-infra delete bucket.objectstorage.oci.m.upbound.io storage-check --ignore-not-found --wait=true --timeout=300s",
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:storage-audit"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -i '. // {"data": []}' {{ vars.STORAGE_DIR }}/after.json''',
+  '''{% for item in ["baseline", "after"] %}
+yq -e '.data | tag == "!!seq"' {{ vars.STORAGE_DIR }}/{{ item }}.json > /dev/null
+{% endfor %}''',
+  '''yq -e '[.data[] | select(.name == load("{{ vars.STORAGE_DIR }}/values.yaml").bucketName)] | length == 0' {{ vars.STORAGE_DIR }}/after.json''',
+  "yq -r '.data[] | [.name, .id] | @tsv' {{ vars.STORAGE_DIR }}/baseline.json | sort > {{ vars.STORAGE_DIR }}/baseline-names.txt",
+  "yq -r '.data[] | [.name, .id] | @tsv' {{ vars.STORAGE_DIR }}/after.json | sort > {{ vars.STORAGE_DIR }}/after-names.txt",
+  "diff -u '{{ vars.STORAGE_DIR }}/baseline-names.txt' '{{ vars.STORAGE_DIR }}/after-names.txt'",
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:bootstrap-ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for=jsonpath='{.status.bootstrapReady}=true' --timeout=1800s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:observe-owned",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:infrastructure-ready"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait 'tamossbootstrap/{{ env.TASKV_NAME }}' --for=condition=Ready --timeout=1800s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=120s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get 'tamossenvironment/{{ env.TASKV_NAME }}' -o json | yq -p=json -o=json .status.outputs > '{{ vars.ENV_DIR }}/outputs.json'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:observe-owned",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:inventory"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_INVENTORY_DIR | quote }} || { printf '%s\n' "Missing required input: INVENTORY_DIR" >&2; exit 1; }''',
+  "mkdir -p -m 700 '{{ env.TASKV_INVENTORY_DIR }}'",
+  '''{% for item in read_yaml(path=vars.ROOT_DIR ~ "/deploy/oci/inventory.yaml") %}
+{{ env.TASKV_OCI }} {{ item.command }} --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json
+{% endfor %}''',
+  '''{% for item in read_yaml(path=vars.ENV_DIR ~ "/environment.yaml") | get(key="spec") | get(key="oke") | get(key="placements") | map(attribute="availabilityDomain") | unique %}
+{{ env.TASKV_OCI }} bv boot-volume list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --availability-domain {{ (item) | quote }} --all > {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json
+{% endfor %}''',
+  '''{% for item in read_yaml(path=vars.ROOT_DIR ~ "/deploy/oci/inventory.yaml") %}
+yq -i '. // {"data": []}' {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json
+{% endfor %}''',
+  '''{% for item in read_yaml(path=vars.ROOT_DIR ~ "/deploy/oci/inventory.yaml") %}
+yq -r '(.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items))) // [] | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED") | .id // .name' {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json | sort > {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json.ids
+{% endfor %}''',
+  '''{% for item in read_yaml(path=vars.ENV_DIR ~ "/environment.yaml") | get(key="spec") | get(key="oke") | get(key="placements") | map(attribute="availabilityDomain") | unique %}
+yq -r '(.data // [])[] | select(."lifecycle-state" != "TERMINATED") | .id' {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json | sort > {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json.ids
+{% endfor %}''',
+  "touch '{{ env.TASKV_INVENTORY_DIR }}/.complete'",
+]
+env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.compartmentId " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_INVENTORY_DIR = '''{{ env.INVENTORY_DIR | default(value="") }}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:audit"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -f '{{ vars.ENV_DIR }}/inventory-before/.complete' || { printf '%s\n' "Baseline cloud inventory is missing; retain management state" >&2; exit 1; }''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} INVENTORY_DIR={{ ((vars.ENV_DIR) ~ "/inventory-after") | quote }} mise run cloud:inventory''',
+  "find '{{ vars.ENV_DIR }}/inventory-before' -maxdepth 1 -name '*.ids' -printf '%f\\n' | sort > '{{ vars.ENV_DIR }}/inventory-before-files.txt'",
+  "find '{{ vars.ENV_DIR }}/inventory-after' -maxdepth 1 -name '*.ids' -printf '%f\\n' | sort > '{{ vars.ENV_DIR }}/inventory-after-files.txt'",
+  "diff -u '{{ vars.ENV_DIR }}/inventory-before-files.txt' '{{ vars.ENV_DIR }}/inventory-after-files.txt'",
+  '''{% for item in env.TASKV_INVENTORY_NAMES | trim | split(pat="\n") %}
+{% if item != "" %}
+diff -u '{{ vars.ENV_DIR }}/inventory-before/{{ item }}' '{{ vars.ENV_DIR }}/inventory-after/{{ item }}'
+{% endif %}{% endfor %}''',
+]
+env.TASKV_INVENTORY_NAMES = '''{% if env.INVENTORY_NAMES is defined %}{{ env.INVENTORY_NAMES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "find '" ~ (vars.ENV_DIR) ~ "/inventory-before' -maxdepth 1 -name '*.ids' -printf '%f\\n'") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:prepare-deletion"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "{{ env.TASKV_OCI }} lb load-balancer list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ vars.ENV_DIR }}/load-balancers.json",
+  '''yq -r '.data[] | select(."lifecycle-state" != "DELETED") | .id' {{ vars.ENV_DIR }}/load-balancers.json | sort > {{ vars.ENV_DIR }}/load-balancers.json.ids''',
+  "diff -u '{{ vars.ENV_DIR }}/inventory-before/load-balancers.json.ids' '{{ vars.ENV_DIR }}/load-balancers.json.ids'",
+  "{{ env.TASKV_OCI }} psql db-system-collection list-db-systems --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ vars.ENV_DIR }}/database-systems.json",
+  '''yq -r '.data.items[] | select(."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and ."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID)) | .id' {{ vars.ENV_DIR }}/database-systems.json >> {{ vars.ENV_DIR }}/database-ids.txt''',
+  "{{ env.TASKV_OCI }} os bucket list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --all > {{ vars.ENV_DIR }}/buckets.json",
+  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/buckets.json''',
+  '''yq -r '.[] | select(.kind == "PsqlDbSystem" and .id != null) | .id' {{ vars.ENV_DIR }}/resources.yaml >> {{ vars.ENV_DIR }}/database-ids.txt''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:empty-bucket",
+]
+env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.compartmentId " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.namespace " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:empty-bucket:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '[.data[] | select(.name == strenv(BUCKET_NAME))] | length == 0' {{ vars.ENV_DIR }}/buckets.json)"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "{{ env.TASKV_OCI }} os bucket get --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --name {{ (env.TASKV_BUCKET) | quote }} > {{ vars.ENV_DIR }}/bucket.json",
+  '''yq -e '.data."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID) and .data."compartment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").environment.compartmentId' {{ vars.ENV_DIR }}/bucket.json''',
+  "{{ env.TASKV_OCI }} os multipart list --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/uploads.json",
+  "{{ env.TASKV_OCI }} os object list-object-versions --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/versions.json",
+  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/uploads.json''',
+  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/versions.json''',
+  '''yq -e '.data | tag == "!!seq"' {{ vars.ENV_DIR }}/versions.json > /dev/null''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} BUCKET={{ ((env.TASKV_BUCKET)) | quote }} NAMESPACE={{ ((env.TASKV_NAMESPACE)) | quote }} mise run cloud:purge-objects",
+  "{{ env.TASKV_OCI }} os object list --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/objects-after.json",
+  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/objects-after.json''',
+  "yq -e '.data | length == 0' {{ vars.ENV_DIR }}/objects-after.json",
+  "{{ env.TASKV_OCI }} os object list-object-versions --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/versions-after.json",
+  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/versions-after.json''',
+  "yq -e '(.data // []) | length == 0' {{ vars.ENV_DIR }}/versions-after.json",
+  "{{ env.TASKV_OCI }} os multipart list --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/uploads-after.json",
+  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/uploads-after.json''',
+  "yq -e '(.data // []) | length == 0' {{ vars.ENV_DIR }}/uploads-after.json",
+]
+env.TASKV_BUCKET = '''{% if env.BUCKET is defined %}{{ env.BUCKET }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.bucket " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.namespace " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+env.BUCKET_NAME = "{{ env.TASKV_BUCKET }}"
+
+["cloud:empty-bucket"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run cloud:empty-bucket:apply",
+]
+env.TASKV_BUCKET = '''{% if env.BUCKET is defined %}{{ env.BUCKET }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.bucket " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+env.BUCKET_NAME = "{{ env.TASKV_BUCKET }}"
+
+["cloud:purge-objects"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_BUCKET | quote }} || { printf '%s\n' "Missing required input: BUCKET" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: NAMESPACE" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  '''{% for item in read_json(path=vars.ENV_DIR ~ "/uploads.json") | get(key="data") %}
+{{ env.TASKV_OCI }} os multipart abort --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --object-name {{ (item.object) | quote }} --upload-id {{ (item["upload-id"]) | quote }} --force
+{% endfor %}''',
+  '''{% for item in read_json(path=vars.ENV_DIR ~ "/versions.json") | get(key="data") %}
+{{ env.TASKV_OCI }} os object delete --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --name {{ (item.name) | quote }} --version-id {{ (item["version-id"]) | quote }} --force
+{% endfor %}''',
+  "{{ env.TASKV_OCI }} os object bulk-delete --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --force > {{ vars.ENV_DIR }}/object-deletion.json",
+]
+env.TASKV_BUCKET = '''{{ env.BUCKET | default(value="") }}'''
+env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:delete-backups"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "{{ env.TASKV_OCI }} psql backup-collection list-backups --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ vars.ENV_DIR }}/backups.json",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:purge-backups",
+]
+env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.compartmentId " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:purge-backups"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  '''{% for item in read_json(path=vars.ENV_DIR ~ "/backups.json") | get(key="data") | get(key="items") %}
+{% if item["lifecycle-state"] != "DELETED" and item["db-system-id"] in read_file(path=vars.ENV_DIR ~ "/database-ids.txt") | split(pat="\n") %}
+{{ env.TASKV_OCI }} psql backup delete --backup-id {{ (item.id) | quote }} --force --wait-for-state SUCCEEDED --max-wait-seconds 1200
+{% endif %}{% endfor %}''',
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:observe-owned"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} INVENTORY_DIR={{ ((vars.ENV_DIR) ~ "/inventory-current") | quote }} mise run cloud:inventory''',
+  '''yq eval-all '[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and ."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID)) | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED")]' {{ vars.ENV_DIR }}/inventory-current/*.json > '{{ vars.ENV_DIR }}/owned-current.yaml'''',
+  "touch '{{ vars.ENV_DIR }}/owned-cloud.yaml'",
+  "yq eval-all '. as $item ireduce ([]; . + ($item // [])) | unique_by(.id // .name)' {{ vars.ENV_DIR }}/owned-current.yaml {{ vars.ENV_DIR }}/owned-cloud.yaml > {{ vars.ENV_DIR }}/owned-cloud.pending.yaml",
+  "mv '{{ vars.ENV_DIR }}/owned-cloud.pending.yaml' '{{ vars.ENV_DIR }}/owned-cloud.yaml'",
+  '''yq -e '[.data[] | select(."lifecycle-state" != "DELETED") | select(.id == load("{{ vars.ENV_DIR }}/identity.yaml").clusterID) | select(."freeform-tags"."tamoss-deployment-id" != load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID or ."freeform-tags"."tamoss-composite-uid" != (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID))] | length == 0' '{{ vars.ENV_DIR }}/inventory-current/clusters.json' > /dev/null''',
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:remote:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+skip_if = '''(test -z "${TASKV_CLUSTER_ID}")'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
+  "{{ env.TASKV_OCI }} ce cluster create-kubeconfig --cluster-id {{ (env.TASKV_CLUSTER_ID) | quote }} --file - --token-version 2.0.0 --kube-endpoint PUBLIC_ENDPOINT > {{ vars.ENV_DIR }}/remote.pending.kubeconfig",
+  '''yq -i '.users[].user.exec |= (.command = "oci" | .env = [{"name": "OCI_CLI_CONFIG_FILE", "value": strenv(OCI_CLI_CONFIG_FILE)}, {"name": "OCI_CLI_PROFILE", "value": strenv(OCI_CLI_PROFILE)}])' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/remote-uid'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' config view --minify -o jsonpath='{.clusters[0].cluster.server}' > '{{ vars.ENV_DIR }}/remote-server'",
+  '''yq -e '.remoteUID == null or (.remoteUID == load_str("{{ vars.ENV_DIR }}/remote-uid") and .remoteServer == load_str("{{ vars.ENV_DIR }}/remote-server"))' {{ vars.ENV_DIR }}/identity.yaml > /dev/null''',
+  '''yq -i '.clusterID = "{{ env.TASKV_CLUSTER_ID }}" | .remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load_str("{{ vars.ENV_DIR }}/remote-server")' {{ vars.ENV_DIR }}/identity.yaml''',
+  "mv '{{ vars.ENV_DIR }}/remote.pending.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+]
+env.TASKV_CLUSTER_ID = '''{% if env.CLUSTER_ID is defined %}{{ env.CLUSTER_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '[.[] | select(.id | test(\"^ocid1[.]cluster[.]\"))] | .[0].id // \"\"' " ~ (vars.ENV_DIR) ~ "/owned-current.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:remote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -e '[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length <= 1' {{ vars.ENV_DIR }}/owned-current.yaml || { printf '%s\n' "Expected at most one owned OKE cluster" >&2; exit 1; }''',
+  '''test -z '{{ env.TASKV_CLUSTER_ID }}' || yq -e '.clusterID == null or .clusterID == "{{ env.TASKV_CLUSTER_ID }}"' '{{ vars.ENV_DIR }}/identity.yaml' || { printf '%s\n' "OKE identity changed; retain management state and investigate" >&2; exit 1; }''',
+  "mise run cloud:remote:apply",
+]
+env.TASKV_CLUSTER_ID = '''{% if env.CLUSTER_ID is defined %}{{ env.CLUSTER_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '[.[] | select(.id | test(\"^ocid1[.]cluster[.]\"))] | .[0].id // \"\"' " ~ (vars.ENV_DIR) ~ "/owned-current.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:fixture"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "{{ env.TASKV_OCI }} os bucket get --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --name {{ (env.TASKV_BUCKET) | quote }} > {{ vars.ENV_DIR }}/fixture-bucket.json",
+  '''yq -e '.data."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID)' {{ vars.ENV_DIR }}/fixture-bucket.json''',
+  "{{ env.TASKV_OCI }} os object put --namespace-name '{{ env.TASKV_NAMESPACE }}' --bucket-name '{{ env.TASKV_BUCKET }}' --name 'qualification-input/{{ env.TASKV_HASH }}.mp4' --file '{{ vars.ROOT_DIR }}/.local/tmp/check/media/qualification.mp4' --content-type video/mp4 --force --verify-checksum > '{{ vars.ENV_DIR }}/fixture-upload.json'",
+]
+env.TASKV_BUCKET = '''{% if env.BUCKET is defined %}{{ env.BUCKET }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.storage.bucket " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_HASH = '''{% if env.HASH is defined %}{{ env.HASH }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "cut -d ' ' -f 1 '" ~ (vars.ROOT_DIR) ~ "/.local/tmp/check/media/qualification.sha256'") }}{% endif %}'''
+env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.storage.namespace " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:secret-inventory"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "{{ env.TASKV_OCI }} vault secret list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --vault-id {{ (env.TASKV_VAULT) | quote }} --all > {{ vars.ENV_DIR }}/vault-secrets.json",
+  '''yq -p=json -o=json '[.data[] | select(."secret-name" | test("^" + load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID + "-"))]' '{{ vars.ENV_DIR }}/vault-secrets.json' > '{{ vars.ENV_DIR }}/environment-secrets.json'''',
+]
+env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .compartmentId " ~ (vars.ENV_DIR) ~ "/foundation-record.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_VAULT = '''{% if env.VAULT is defined %}{{ env.VAULT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .vaultId " ~ (vars.ENV_DIR) ~ "/foundation-record.yaml") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:retire-secrets"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  '''{% for item in read_json(path=vars.ENV_DIR ~ "/environment-secrets.json") %}
+{% if item["lifecycle-state"] == "ACTIVE" %}
+{{ env.TASKV_OCI }} vault secret schedule-secret-deletion --secret-id {{ (item.id) | quote }} --time-of-deletion {{ (env.TASKV_DELETION_TIME) | quote }} > /dev/null
+{% endif %}{% endfor %}''',
+  "TAMOSS_ENV_DIR='{{ vars.ENV_DIR }}' helmfile --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -f deploy/secrets/retirement-helmfile.yaml.gotmpl sync",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:secret-inventory",
+  '''yq -e '[.[] | (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all' {{ vars.ENV_DIR }}/environment-secrets.json > /dev/null''',
+]
+env.TASKV_DELETION_TIME = '''{% if env.DELETION_TIME is defined %}{{ env.DELETION_TIME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "date -u -d '+25 hours' +%Y-%m-%dT%H:%M:%SZ") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["cloud:retained-foundation"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "{{ env.TASKV_OCI }} kms management vault get --vault-id {{ (env.TASKV_VAULT) | quote }} > {{ vars.ENV_DIR }}/retained-vault.json",
+  "{{ env.TASKV_OCI }} kms management key get --endpoint {{ (env.TASKV_ENDPOINT) | quote }} --key-id {{ (env.TASKV_KEY) | quote }} > {{ vars.ENV_DIR }}/retained-key.json",
+  "{{ env.TASKV_OCI }} iam policy list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ vars.ENV_DIR }}/remaining-policies.json",
+  '''yq -e '[.data[] | select(.name | test("^" + load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID + "-"))] | length == 0' {{ vars.ENV_DIR }}/remaining-policies.json > /dev/null''',
+  '''yq -e '.data.id == load("{{ vars.ENV_DIR }}/foundation-record.yaml").vaultId and .data."lifecycle-state" == "ACTIVE"' {{ vars.ENV_DIR }}/retained-vault.json > /dev/null''',
+  '''yq -e '.data.id == load("{{ vars.ENV_DIR }}/foundation-record.yaml").keyId and .data."lifecycle-state" == "ENABLED"' {{ vars.ENV_DIR }}/retained-key.json > /dev/null''',
+  '''yq -n '{"foundation": load("{{ vars.ENV_DIR }}/foundation-record.yaml"), "environmentSecrets": load("{{ vars.ENV_DIR }}/environment-secrets.json"), "runtimePoliciesAbsent": true, "vaultRetained": true, "keyRetained": true}' > '{{ vars.ENV_DIR }}/retained-foundation.yaml'''',
+]
+env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .compartmentId " ~ (vars.ENV_DIR) ~ "/foundation-record.yaml") }}{% endif %}'''
+env.TASKV_ENDPOINT = '''{% if env.ENDPOINT is defined %}{{ env.ENDPOINT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .managementEndpoint " ~ (vars.ENV_DIR) ~ "/foundation-record.yaml") }}{% endif %}'''
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .keyId " ~ (vars.ENV_DIR) ~ "/foundation-record.yaml") }}{% endif %}'''
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.TASKV_VAULT = '''{% if env.VAULT is defined %}{{ env.VAULT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .vaultId " ~ (vars.ENV_DIR) ~ "/foundation-record.yaml") }}{% endif %}'''
+env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"

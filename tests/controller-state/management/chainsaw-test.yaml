@@ -7,10 +7,10 @@ spec:
     - name: submit consumers before their persisted bindings exist
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/controller-state/Taskfile.yaml, prepare-management, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:controller-state:prepare-management"]
         - apply: {file: ../../../.local/tmp/check/controller-state/backend.yaml}
         - apply: {file: ../../../.local/tmp/check/controller-state/store.yaml}
         - apply: {file: composition.yaml}

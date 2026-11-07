@@ -1,0 +1,53 @@
+
+["application:calico"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''CACHE={{ ((env.TASKV_CACHE)) | quote }} TARGET={{ ("calico/calico-policy-only.yaml") | quote }} URL={{ ((env.TASKV_URL)) | quote }} SHA={{ ((env.TASKV_SHA)) | quote }} mise run verify:artifact''',
+  "cp deploy/calico/kustomization.yaml '{{ env.TASKV_CACHE }}/calico/'",
+  "cp charts/gitops/files/calico-oci.yaml '{{ env.TASKV_CACHE }}/calico/oci.yaml'",
+  "mkdir -p '{{ env.TASKV_CACHE }}/calico-chart/templates'",
+  "cp charts/calico/Chart.yaml '{{ env.TASKV_CACHE }}/calico-chart/'",
+  "cp charts/calico/templates/policy.yaml '{{ env.TASKV_CACHE }}/calico-chart/templates/'",
+  "kubectl kustomize '{{ env.TASKV_CACHE }}/calico' > '{{ env.TASKV_CACHE }}/calico-chart/policy.yaml'",
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+env.TASKV_SHA = '''{% if env.SHA is defined %}{{ env.SHA }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts[] | select(.path == \"calico/calico-policy-only.yaml\") | .sha256' dependencies.yaml") }}{% endif %}'''
+env.TASKV_URL = '''{% if env.URL is defined %}{{ env.URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts[] | select(.path == \"calico/calico-policy-only.yaml\") | .url' dependencies.yaml") }}{% endif %}'''
+
+["application:remove-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} RESOURCE_NAMESPACE={{ ("tams") | quote }} CRD={{ ("ingestruns.tamoss.livewyer.io") | quote }} RESOURCE={{ ("ingestrun/qualification") | quote }} mise run application:remove-resource''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} RESOURCE_NAMESPACE={{ ("tams") | quote }} CRD={{ ("storagebackends.tamoss.livewyer.io") | quote }} RESOURCE={{ ("storagebackend/tams-storage-default") | quote }} mise run application:remove-resource''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} RESOURCE_NAMESPACE={{ ("tams") | quote }} CRD={{ ("tamosses.tamoss.livewyer.io") | quote }} RESOURCE={{ ("tamoss/tamoss") | quote }} mise run application:remove-resource''',
+]
+
+["application:remove-resource:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd "${TASKV_CRD}" --ignore-not-found -o name)" && test -z "$RESOURCE")'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n '{{ env.TASKV_RESOURCE_NAMESPACE }}' annotate '{{ env.TASKV_CRD }}' --field-selector 'metadata.name={{ env.TASKV_RESOURCE | split(pat="/") | last }}' confirmation.tamoss.livewyer.io/deletion=true --overwrite''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n '{{ env.TASKV_RESOURCE_NAMESPACE }}' delete '{{ env.TASKV_RESOURCE }}' --ignore-not-found --wait=true --timeout=900s",
+]
+env.TASKV_CRD = '''{{ env.CRD | default(value="") }}'''
+env.TASKV_RESOURCE = '''{{ env.RESOURCE | default(value="") }}'''
+env.TASKV_RESOURCE_NAMESPACE = '''{{ env.RESOURCE_NAMESPACE | default(value="") }}'''
+
+["application:remove-resource"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_RESOURCE_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: RESOURCE_NAMESPACE" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_CRD | quote }} || { printf '%s\n' "Missing required input: CRD" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_RESOURCE | quote }} || { printf '%s\n' "Missing required input: RESOURCE" >&2; exit 1; }''',
+  "mise run application:remove-resource:apply",
+]
+env.TASKV_CRD = '''{{ env.CRD | default(value="") }}'''
+env.TASKV_RESOURCE = '''{{ env.RESOURCE | default(value="") }}'''
+env.TASKV_RESOURCE_NAMESPACE = '''{{ env.RESOURCE_NAMESPACE | default(value="") }}'''

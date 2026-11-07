@@ -15,19 +15,19 @@ spec:
     - name: export only the initial non-secret configuration
       try:
         - command: &fixture
-            entrypoint: task
+            entrypoint: env
             env: &env
               - {name: PROJECT_ROOT, value: ($values.root)}
               - {name: DIRECTORY, value: ($values.directory)}
-            args: [fixture]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:fixture"]
         - command: &export
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [export]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:export"]
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [shared-configuration]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:shared-configuration"]
         - command:
             entrypoint: kubectl
             env: *env
@@ -72,9 +72,9 @@ spec:
             env: *env
             args: [-i, '.generatorOptions.disableNameSuffixHash = true', '$DIRECTORY/checkout/clusters/oci-dev/kustomization.yaml']
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [ready]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:ready"]
             check:
               ($error != null): true
               (contains($stderr, 'content-hashed values references')): true
@@ -137,9 +137,9 @@ spec:
             env: *env
             args: [-i, 'with(select(.metadata.name == "tamoss-upstream"); .spec.ref.commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")', '$DIRECTORY/checkout/clusters/oci-dev/sources.yaml']
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [record-release]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:record-release"]
             check: {($error != null): true}
         - command:
             entrypoint: cmp
@@ -156,9 +156,9 @@ spec:
             env: *env
             args: ['$DIRECTORY/inputs/expected-sources.yaml', '$DIRECTORY/checkout/clusters/oci-dev/sources.yaml']
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [record-release]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:record-release"]
             check: {($error == null): true}
         - command:
             entrypoint: cmp
@@ -173,9 +173,9 @@ spec:
             env: *env
             args: ['$PROJECT_ROOT/deploy/tamoss/release.yaml', '$DIRECTORY/inputs/tamoss-release.current.yaml']
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *env
-            args: [record-release]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:gitops:record-release"]
             check: {($error == null): true}
         - command:
             entrypoint: cmp

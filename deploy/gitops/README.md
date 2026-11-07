@@ -2,10 +2,10 @@
 
 [Overview](../../README.md) | [Architecture](../../docs/architecture.md) | [Operations](../../docs/operations.md) | [Testing](../../docs/testing.md)
 
-`task up` deploys TAMOSS without an environment repository or GitHub credentials.
+`mise run up` deploys TAMOSS without an environment repository or GitHub credentials.
 Flux runs internally on Kind and OKE, consuming public product sources and pinned
 release bundles. Kind retains infrastructure ownership; applications run on OKE.
-`task handover` subsequently attaches a private environment repository, adopts
+`mise run handover` subsequently attaches a private environment repository, adopts
 the running configuration and transfers infrastructure ownership to OKE.
 TAMOSS and TADOSS source and release assets remain read-only.
 

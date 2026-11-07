@@ -3,7 +3,7 @@
 [Overview](../../README.md) | [Architecture](../../docs/architecture.md) | [Operations](../../docs/operations.md)
 
 TAMOSS is an external, read-only dependency. `release.yaml` selects an immutable
-release record and matching source archive. `Taskfile.yaml` verifies and prepares
+release record and matching source archive. `tasks.toml` verifies and prepares
 them using the repository's native tools. See the [public commands](../../README.md#commands)
 and [testing guide](../../docs/testing.md).
 
@@ -44,7 +44,7 @@ The repository lock records the tag and checksums of the release record and
 matching source archive. The verified release record supplies the source commit,
 image digests and published asset checksums. To select another release, update
 `release.yaml` from its published metadata, review compatibility and migration
-requirements, then run `task check`. Upstream interface changes may require local
+requirements, then run `mise run check`. Upstream interface changes may require local
 overlay or test-selection changes. Verified database TLS remains mandatory.
 
 Initial deployment verifies the repository lock. Before or after handover, `qualify` verifies

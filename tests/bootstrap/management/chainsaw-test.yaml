@@ -12,16 +12,16 @@ spec:
               kind: Namespace
               metadata: {name: tamoss-infra}
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, prepare-management, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:prepare-management"]
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, empty-return, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:empty-return"]
         - apply: {file: children.yaml}
         - command:
             entrypoint: kubectl
@@ -34,26 +34,26 @@ spec:
               kind: SecretFoundation
               metadata: {name: bootstrap-check, namespace: tamoss-infra}
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, observe, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:observe"]
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, repeat-seed, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:repeat-seed"]
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, reject-replaced-seed, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:reject-replaced-seed"]
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, reject-replaced-root, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:reject-replaced-root"]
             check: {($error != null): true}
         - assert:
             resource:
@@ -126,16 +126,16 @@ spec:
           value: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'SecretFoundation', 'tamoss-infra', 'bootstrap-check').metadata.uid)
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, record-composite, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:record-composite"]
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, owned-return, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:owned-return"]
         - command:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
@@ -143,11 +143,11 @@ spec:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:release"]
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -187,11 +187,11 @@ spec:
                 environment:
                   database: {backupRetentionDays: 3}
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:release"]
         - command:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
@@ -227,11 +227,11 @@ spec:
     - name: release pauses bootstrap before infrastructure deletion and survives repeat
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:release"]
         - delete:
             ref:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -239,11 +239,11 @@ spec:
               name: bootstrap-check
               namespace: tamoss-infra
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:release"]
         - error:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -259,8 +259,8 @@ spec:
             entrypoint: kubectl
             args: [-n, tamoss-infra, wait, tamossbootstrap/bootstrap-check, --for=delete, --timeout=120s]
         - command:
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: ROOT, value: ($values.root)}
-            args: [-t, $ROOT/tests/bootstrap/Taskfile.yaml, observe, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:observe"]
             check: {($error != null): true}

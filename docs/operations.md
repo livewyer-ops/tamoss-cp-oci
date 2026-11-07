@@ -2,7 +2,9 @@
 
 [Overview](../README.md) | [Getting started](getting-started.md) | [Testing](testing.md) | [Architecture](architecture.md)
 
-Run commands from the repository root with Aqua's tools on `PATH`. Examples use
+Run lifecycle commands from the repository root with `mise run`. For the native
+diagnostic commands below, enter a tool-enabled shell with `mise exec -- bash`;
+`exit` returns to your previous shell. Examples use
 `.local/environment`; substitute your original environment directory throughout.
 Quick deployments keep Kind as the infrastructure writer. After GitOps handover,
 use the matching environment Git checkout (`CHECKOUT`, default `.local/gitops`);
@@ -101,9 +103,9 @@ the common chart does not choose retry policy or manage the workflow.
 
 | Job | Interruption and retry behaviour |
 | --- | --- |
-| Kind `tamoss-infra/oke-bootstrap` | Preserve its `oke-connection` Secret and original cluster. Repeat `task up` with the same inputs. Identity checks reject a different target; the durable completion receipt prevents reseeding a completed or released bootstrap. |
+| Kind `tamoss-infra/oke-bootstrap` | Preserve its `oke-connection` Secret and original cluster. Repeat `mise run up` with the same inputs. Identity checks reject a different target; the durable completion receipt prevents reseeding a completed or released bootstrap. |
 | OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
-| Kind `tamoss-infra/secret-retirement` | Repeat `task down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
+| Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
 
 Do not delete identity receipts or clear finalisers to bypass a failed operation.
 Database hostname/CA validation failures leave the previously published connection
@@ -112,14 +114,14 @@ for a later teardown attempt.
 
 ## Convergence and handover
 
-`task up` completes deployment with Kind running and owning infrastructure; OKE
-Crossplane observes the same resources. `task handover` attaches the environment
+`mise run up` completes deployment with Kind running and owning infrastructure; OKE
+Crossplane observes the same resources. `mise run handover` attaches the environment
 repository, persists its SSH deploy key, checks readiness and transfers ownership before
 stopping Kind. Flux already manages applications in both states.
 
 ```bash
-task up ENV_DIR=.local/environment
-task handover ENV_DIR=.local/environment CHECKOUT=.local/gitops
+ENV_DIR=.local/environment mise run up
+ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run handover
 ```
 
 Repeating `up` after deployment observes readiness once without changing ownership.
@@ -152,22 +154,22 @@ Resolve the reported problem, preserve its evidence, then repeat with the origin
 inputs and state:
 
 ```bash
-task up ENV_DIR=.local/environment
+ENV_DIR=.local/environment mise run up
 ```
 
-Run `task check` first if configuration or dependencies changed. `up` verifies and
+Run `mise run check` first if configuration or dependencies changed. `up` verifies and
 prepares its deployment assets independently; a previous check cache is not required.
 Unchanged repeats reuse identities and persisted credentials. After handover,
 `up` observes the current published Git selection and keeps Kind stopped. Resume
-an interrupted transfer with `task handover` using the same inputs. It accepts
+an interrupted transfer with `mise run handover` using the same inputs. It accepts
 the published configuration or its pending ownership-policy change; `up` rejects
 unpublished changes and directs a pending transfer back to `handover`. Resolve input/ownership mismatches
 and missing established credentials before retrying. Once teardown starts, use
 `down` to finish it.
 
 During initial provisioning, Flux and Crossplane continue reconciling if
-Task exits. After credential retirement, Kind's `oke-bootstrap` Job can retrieve
-the remote connection, install Flux and seed the deployment without the Task process.
+mise exits. After credential retirement, Kind's `oke-bootstrap` Job can retrieve
+the remote connection, install Flux and seed the deployment without the mise process.
 Resume `up` to observe deployment completion, then run `handover` separately. Preserve
 `bootstrap.yaml`, `management-values.yaml` and the recorded
 bootstrap UID alongside the existing environment identity. Do not manually unpause a released root during
@@ -209,15 +211,14 @@ establish that database migrations can be reversed.
 
 ## Native OCI CLI
 
-Aqua supplies `uv`; install the OCI CLI version recorded in `dependencies.yaml`
-into its isolated Python environment:
+mise installs the pinned OCI CLI into its isolated Python environment. Use the
+selected local signing profile:
 
 ```bash
-uv tool install --python 3.12 "oci-cli==$(yq -r .oci.version dependencies.yaml)"
-export PATH="$(aqua root-dir)/bin:$(uv tool dir --bin):$PATH"
+mise install --locked
 export OCI_CLI_CONFIG_FILE="${OCI_CLI_CONFIG_FILE:-$HOME/.oci/config}"
 export OCI_CLI_PROFILE="${OCI_CLI_PROFILE:-DEFAULT}"
-oci os ns get
+mise exec -- oci os ns get
 ```
 
 Expected: the Object Storage namespace. Commands use the selected local profile
@@ -278,7 +279,7 @@ that commit before running `down`. Ownership return rejects a different product
 commit before freezing Flux or deleting cloud resources.
 
 ```bash
-task down ENV_DIR=.local/environment CHECKOUT=.local/gitops
+ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run down
 ```
 
 `down` starts the original Kind and waits for API readiness before checking its
@@ -309,7 +310,7 @@ owner access; local exported credentials remain your responsibility.
 
 ### Interrupted teardown
 
-Resolve the failure and repeat `task down` with the same directory. Preserve
+Resolve the failure and repeat `mise run down` with the same directory. Preserve
 `identity.yaml`, `tamoss-release.yaml`, `qualification.sha256`, `resources.yaml`,
 `owned-cloud.yaml`, the baseline inventory and credentials until cleanup completes.
 Do not edit records to bypass mismatches or remove finalisers to simulate deletion.

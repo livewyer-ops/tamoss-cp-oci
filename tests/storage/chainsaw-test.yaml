@@ -65,12 +65,7 @@ spec:
               (json_parse($stdout).data.id): ($bucketID)
       finally:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *root
             args:
-              - -d
-              - $PROJECT_ROOT
-              - -t
-              - $PROJECT_ROOT/tasks/cloud.yaml
-              - storage-remove-bucket
-              - STORAGE_DIR=$STORAGE_DIRECTORY
+              ["STORAGE_DIR=$STORAGE_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "cloud:storage-remove-bucket"]

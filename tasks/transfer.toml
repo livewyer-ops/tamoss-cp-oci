@@ -1,0 +1,249 @@
+
+["transfer:inventory"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_KUBECONFIG | quote }} || { printf '%s\n' "Missing required input: KUBECONFIG" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_COMPOSITE | quote }} || { printf '%s\n' "Missing required input: COMPOSITE" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_OUTPUT | quote }} || { printf '%s\n' "Missing required input: OUTPUT" >&2; exit 1; }''',
+  '''kubectl --kubeconfig {{ (env.TASKV_KUBECONFIG) | quote }} -n tamoss-infra get managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' -o json | yq -p=json -o=json '{"apiVersion": "v1", "kind": "TransferInventory", "resources": .items}' > {{ (env.TASKV_OUTPUT) | quote }}''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} COMPOSITE={{ ((env.TASKV_COMPOSITE)) | quote }} OUTPUT={{ ((env.TASKV_OUTPUT)) | quote }} mise run transfer:assert-inventory",
+]
+env.TASKV_COMPOSITE = '''{{ env.COMPOSITE | default(value="") }}'''
+env.TASKV_KUBECONFIG = '''{{ env.KUBECONFIG | default(value="") }}'''
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_OUTPUT = '''{{ env.OUTPUT | default(value="") }}'''
+
+["transfer:assert-inventory"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_COMPOSITE | quote }} || { printf '%s\n' "Missing required input: COMPOSITE" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_OUTPUT | quote }} || { printf '%s\n' "Missing required input: OUTPUT" >&2; exit 1; }''',
+  '''yq -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | load("{{ env.TASKV_COMPOSITE }}") as $xr | [(.resources | length == 23), ([.resources[].metadata.annotations."crossplane.io/composition-resource-name"] | unique | length == 23), ([.resources[] | [.metadata.deletionTimestamp == null, (.metadata.ownerReferences | map(.uid) | contains([$xr.metadata.uid])), .spec.forProvider.compartmentId == $i.environment.compartmentId, .spec.providerConfigRef.name == $i.environment.providerConfigName, .status.atProvider.freeformTags."tamoss-deployment-id" == $i.deploymentUID, .status.atProvider.freeformTags."tamoss-composite-uid" == $i.creationCompositeUID, (.status.atProvider.id | tag == "!!str" and length > 0)] | all] | all)] | all' {{ (env.TASKV_OUTPUT) | quote }} > /dev/null''',
+]
+env.TASKV_COMPOSITE = '''{{ env.COMPOSITE | default(value="") }}'''
+env.TASKV_OUTPUT = '''{{ env.OUTPUT | default(value="") }}'''
+
+["transfer:compare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''{% for item in ["management", "remote"] %}
+yq '.resources | map(with(select(.kind == "PsqlDbSystem"); .spec.initProvider.credentials = (.spec.initProvider.credentials // .spec.forProvider.credentials) | del(.spec.forProvider.credentials, .status.atProvider.credentials)) | with(select(.kind == "PublicIp"); del(.spec.forProvider.privateIpId, .status.atProvider.assignedEntityId, .status.atProvider.assignedEntityType, .status.atProvider.privateIpId, .status.atProvider.state)) | with(select(.kind == "Bucket"); del(.status.atProvider.approximateCount, .status.atProvider.approximateSize)) | {"apiVersion": .apiVersion, "kind": .kind, "metadata": {"name": .metadata.name, "namespace": .metadata.namespace, "annotations": {"crossplane.io/external-name": .metadata.annotations."crossplane.io/external-name"}}, "spec": {"forProvider": .spec.forProvider, "initProvider": .spec.initProvider, "providerConfigRef": .spec.providerConfigRef}, "status": {"atProvider": .status.atProvider}}) | {"apiVersion": "v1", "kind": "TransferInventory", "resources": .}' '{{ vars.ENV_DIR }}/{{ item }}-resources.json' > '{{ vars.ENV_DIR }}/{{ item }}-comparison.yaml'
+{% endfor %}''',
+  "chainsaw assert --timeout 1s -r '{{ vars.ENV_DIR }}/management-comparison.yaml' -f '{{ vars.ENV_DIR }}/remote-comparison.yaml'",
+]
+
+["transfer:inspect"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:runtime-composite",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} KUBECONFIG={{ ((vars.ENV_DIR) ~ "/management.kubeconfig") | quote }} COMPOSITE={{ ((vars.ENV_DIR) ~ "/composite.json") | quote }} OUTPUT={{ ((vars.ENV_DIR) ~ "/management-resources.json") | quote }} mise run transfer:inventory''',
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} KUBECONFIG={{ ((vars.ENV_DIR) ~ "/remote.kubeconfig") | quote }} COMPOSITE={{ ((vars.ENV_DIR) ~ "/runtime-composite.json") | quote }} OUTPUT={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:inventory''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:compare",
+]
+
+["transfer:quiesce-kind:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(chainsaw assert --timeout 1s -r '{{ vars.ENV_DIR }}/management-resources.json' -f '{{ vars.ROOT_DIR }}/deploy/contracts/quiesced.yaml') && (yq -e '(.spec.managementPolicies | join(",")) == "Observe" and .metadata.annotations."crossplane.io/paused" == "true"' {{ vars.ENV_DIR }}/composite.json > /dev/null) && (yq -e '(.spec.managementPolicies | join(",")) == "Observe" and .metadata.annotations."crossplane.io/paused" == "true"' {{ vars.ENV_DIR }}/environment.yaml > /dev/null)'''
+run = [
+  '''yq -e '.spec.managementPolicies | join(",") == "Observe"' {{ vars.ENV_DIR }}/runtime-composite.json > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Ready --timeout=300s",
+  "chainsaw assert --timeout 1s -r '{{ vars.ENV_DIR }}/management-resources.json' -f deploy/contracts/quiesce-input.yaml",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:release",
+  '''yq -i '.spec.managementPolicies = ["Observe"]' {{ vars.ENV_DIR }}/environment.yaml''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch tamossenvironment/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"managementPolicies":["Observe"]}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for='jsonpath={.spec.managementPolicies[0]}=Observe' --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' crossplane.io/paused=true --overwrite",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=300s''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{ env.TASKV_NAME }} crossplane.io/paused=true --overwrite",
+  '''yq -i '.metadata.annotations."crossplane.io/paused" = "true"' {{ vars.ENV_DIR }}/environment.yaml''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["transfer:quiesce-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run transfer:quiesce-kind:apply",
+]
+
+["transfer:assert-quiesced"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_FILE | quote }} || { printf '%s\n' "Missing required input: FILE" >&2; exit 1; }''',
+  "chainsaw assert --timeout 1s -r {{ (env.TASKV_FILE) | quote }} -f '{{ vars.ROOT_DIR }}/deploy/contracts/quiesced.yaml'",
+]
+env.TASKV_FILE = '''{{ env.FILE | default(value="") }}'''
+
+["transfer:prepare-promotion"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run gitops:promotion-checkout",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:inspect",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:quiesce-kind",
+  '''yq -i '.spec.managementPolicies = ["*"]' {{ (vars.CHECKOUT) | quote }}/{{ env.TASKV_PATH_IN_GIT }}/infrastructure/environment.yaml''',
+  "git -C {{ (vars.CHECKOUT) | quote }} diff -- '{{ env.TASKV_PATH_IN_GIT }}/infrastructure/environment.yaml'",
+]
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
+
+["transfer:runtime-writes"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:inspect",
+  '''FILE={{ ((vars.ENV_DIR) ~ "/management-resources.json") | quote }} mise run transfer:assert-quiesced''',
+  '''yq -e '(.spec.managementPolicies | join(",")) == "Observe" or (.spec.managementPolicies | join(",")) == "*"' {{ vars.ENV_DIR }}/runtime-composite.json > /dev/null''',
+  "yq -i '.runtimeWritesEnabled = true' {{ vars.ENV_DIR }}/identity.yaml",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch helmrelease/runtime-access --type=merge -p '{"spec":{"values":{"providerWrites":true}}}'''',
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s",
+]
+
+["transfer:stop-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:inspect",
+  '''FILE={{ ((vars.ENV_DIR) ~ "/management-resources.json") | quote }} mise run transfer:assert-quiesced''',
+  '''yq -e '.spec.managementPolicies | join(",") == "*"' {{ vars.ENV_DIR }}/runtime-composite.json > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Ready --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=300s",
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker stop '{{ item }}'
+{% endif %}{% endfor %}''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kind get nodes --name tamoss-cp-" ~ (env.TASKV_NAME)) }}{% endif %}'''
+
+["transfer:freeze-runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system get kustomization/flux-system --ignore-not-found -o name | xargs --no-run-if-empty kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system patch --type=merge -p '{"spec":{"suspend":true}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=0",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system wait pod -l 'app in (kustomize-controller,helm-controller)' --for=delete --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get kustomizations.kustomize.toolkit.fluxcd.io,helmreleases.helm.toolkit.fluxcd.io -A -l 'tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o yaml > '{{ vars.ENV_DIR }}/gitops-controllers.yaml'",
+  "yq -e '.items | length > 0' {{ vars.ENV_DIR }}/gitops-controllers.yaml > /dev/null",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' patch -f '{{ vars.ENV_DIR }}/gitops-controllers.yaml' --type=merge -p '{"spec":{"suspend":true}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=1",
+]
+env.TASKV_DEPLOYMENT = '''{% if env.DEPLOYMENT is defined %}{{ env.DEPLOYMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .deploymentUID " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["transfer:return-observe"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:start-kind",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run gitops:current-checkout",
+  '''test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = '{{ env.TASKV_PRODUCT_COMMIT }}'''',
+  "git -C '{{ vars.ROOT_DIR }}' diff --quiet HEAD -- charts/environment charts/packages",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system get kustomization/flux-system -o json | yq -p=json -e '.status.lastAppliedRevision | split(":")[-1] == "{{ env.TASKV_REVISION }}"' > /dev/null''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:freeze-runtime",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} KUBECONFIG={{ ((vars.ENV_DIR) ~ "/remote.kubeconfig") | quote }} COMPOSITE={{ ((vars.ENV_DIR) ~ "/runtime-composite.json") | quote }} OUTPUT={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:inventory''',
+  "chainsaw assert --timeout 1s -r '{{ vars.ENV_DIR }}/remote-resources.json' -f deploy/contracts/quiesce-input.yaml",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Ready --timeout=300s",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra patch tamossenvironment/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"managementPolicies":["Observe"]}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for='jsonpath={.spec.managementPolicies[0]}=Observe' --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' crossplane.io/paused=true --overwrite",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=300s''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{ env.TASKV_NAME }} crossplane.io/paused=true --overwrite",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:runtime-composite",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} KUBECONFIG={{ ((vars.ENV_DIR) ~ "/remote.kubeconfig") | quote }} COMPOSITE={{ ((vars.ENV_DIR) ~ "/runtime-composite.json") | quote }} OUTPUT={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:inventory''',
+  '''FILE={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:assert-quiesced''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch helmrelease/runtime-access --type=merge -p '{"spec":{"values":{"providerWrites":false}}}'''',
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s",
+  "yq -i '.runtimeWritesEnabled = false' {{ vars.ENV_DIR }}/identity.yaml",
+  "cp '{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/values.yaml' '{{ vars.ENV_DIR }}/gitops-current-values.yaml'",
+  '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} GITOPS_VALUES={{ ((vars.ENV_DIR) ~ "/gitops-current-values.yaml") | quote }} PRODUCT_COMMIT={{ ((env.TASKV_PRODUCT_COMMIT)) | quote }} mise run management:refresh''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=create --timeout=1800s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=condition=Ready --timeout=300s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:bindings",
+  '''yq '.spec.adoption = load("{{ vars.ENV_DIR }}/adoption.yaml") | .spec.managementPolicies = ["Observe"] | del(.metadata.annotations."crossplane.io/paused")' {{ (vars.CHECKOUT) | quote }}/{{ env.TASKV_PATH_IN_GIT }}/infrastructure/environment.yaml > '{{ vars.ENV_DIR }}/environment.yaml'''',
+  "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' '{{ vars.ENV_DIR }}/environment.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/environment.yaml'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate tamossenvironment/{{ env.TASKV_NAME }} crossplane.io/paused- --overwrite",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' crossplane.io/paused- --overwrite",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=300s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:inspect",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
+env.TASKV_REVISION = '''{% if env.REVISION is defined %}{{ env.REVISION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "git -C " ~ ((vars.CHECKOUT) | quote) ~ " rev-parse HEAD") }}{% endif %}'''
+env.TASKV_PRODUCT_COMMIT = '''{% if env.PRODUCT_COMMIT is defined %}{{ env.PRODUCT_COMMIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r 'select(.metadata.name == \"tamoss-product\") | .spec.ref.commit' " ~ ((vars.CHECKOUT) | quote) ~ "/" ~ (env.TASKV_PATH_IN_GIT) ~ "/sources.yaml") }}{% endif %}'''
+
+["transfer:deletion-authority"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:inspect",
+  '''FILE={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:assert-quiesced''',
+  '''yq -i '.spec.managementPolicies = ["Observe", "Delete"]' {{ vars.ENV_DIR }}/environment.yaml''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/environment.yaml'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for='jsonpath={.spec.managementPolicies[-1]}=Delete' --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=300s",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["transfer:start-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -s '{{ vars.ENV_DIR }}/management.kubeconfig' && test -n '{{ env.TASKV_NODES }}' || { printf '%s\n' "Restore the original Kind containers and identity records; do not create a replacement" >&2; exit 1; }''',
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker start '{{ item }}'
+{% endif %}{% endfor %}''',
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker exec '{{ item }}' curl --fail --silent --show-error --cacert /etc/kubernetes/pki/ca.crt --connect-timeout 2 --max-time 5 --retry 90 --retry-all-errors --retry-delay 2 --retry-max-time 180 https://localhost:6443/readyz
+{% endif %}{% endfor %}''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' wait --for=condition=Ready nodes --all --timeout=180s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kind get nodes --name tamoss-cp-" ~ (env.TASKV_NAME)) }}{% endif %}'''
+
+["transfer:return-ownership:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''((yq -e '.returnComplete == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null && kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/"$TASKV_NAME" --ignore-not-found -o json | yq -p=json -e 'length == 0 or (.spec.managementPolicies | join(",") == "Observe,Delete")' > /dev/null) || (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/"$TASKV_NAME" -o json | yq -p=json -e '[.spec.adoption == null, ((.spec.managementPolicies // ["*"]) | join(",") == "*")] | all' > /dev/null && yq -e '.runtimeWritesEnabled != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || (yq -e '.teardownStarted == true and .compositeUID == null and .gitopsEstablished != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null && yq -e '.runtimeWritesEnabled != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null && kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/"$TASKV_NAME" --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null))'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run transfer:return-observe",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:deletion-authority",
+  "yq -i '.returnComplete = true' {{ vars.ENV_DIR }}/identity.yaml",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["transfer:return-ownership"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
+  "mise run transfer:return-ownership:apply",
+]

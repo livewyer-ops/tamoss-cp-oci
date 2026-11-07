@@ -1,0 +1,172 @@
+
+["identity:observe-inputs"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test "$(stat -c '%a:%u' '{{ vars.ENV_DIR }}')" = "700:$(id -u)" || { printf '%s\n' "The private environment directory must be owned by the current user with mode 700" >&2; exit 1; }''',
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/identity-inputs.yaml'",
+  '''yq -n '(load("{{ vars.ENV_DIR }}/environment.yaml")) as $e | {"environment": {"name": $e.metadata.name, "namespace": $e.metadata.namespace, "region": $e.spec.region, "compartmentId": $e.spec.compartmentId, "providerConfigName": $e.spec.providerConfigName, "storage": $e.spec.storage}}' > '{{ vars.ENV_DIR }}/identity-inputs.yaml'''',
+  '''yq -p=ini -oy '(. * (.[strenv(OCI_PROFILE)] // {})) | {"oci": {"tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "region": .region}}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.ENV_DIR }}/identity-oci.yaml'''',
+  '''yq -i '. * load("{{ vars.ENV_DIR }}/identity-oci.yaml")' {{ vars.ENV_DIR }}/identity-inputs.yaml''',
+  '''yq -e '.oci.tenancy != null and .oci.user != null and .oci.fingerprint != null and .oci.region == .environment.region and (.environment.compartmentId | test("^ocid1\\.compartment\\."))' {{ vars.ENV_DIR }}/identity-inputs.yaml > /dev/null''',
+]
+env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
+env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
+env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
+
+["identity:initialise:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test -s '{{ vars.ENV_DIR }}/identity.yaml')"
+run = [
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/identity.yaml.pending'",
+  "cp '{{ vars.ENV_DIR }}/identity-inputs.yaml' '{{ vars.ENV_DIR }}/identity.yaml.pending'",
+  "openssl rand -hex -out '{{ vars.ENV_DIR }}/deployment-uid' 16",
+  '''yq -i '.deploymentUID = (load_str("{{ vars.ENV_DIR }}/deployment-uid") | trim)' {{ vars.ENV_DIR }}/identity.yaml.pending''',
+  "mv '{{ vars.ENV_DIR }}/identity.yaml.pending' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "rm '{{ vars.ENV_DIR }}/deployment-uid'",
+]
+
+["identity:initialise"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -s '{{ vars.ENV_DIR }}/identity.yaml' || (test ! -e '{{ vars.ENV_DIR }}/management.kubeconfig' && test ! -e '{{ vars.ENV_DIR }}/inventory-before') || { printf '%s\n' "Existing state has no identity record; resolve ownership before continuing" >&2; exit 1; }''',
+  "mise run identity:initialise:apply",
+]
+
+["identity:inputs"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:observe-inputs",
+  '''yq -n '{"apiVersion": "qualification.livewyer.io/v1alpha1", "kind": "IdentityCheck", "recorded": load("{{ vars.ENV_DIR }}/identity.yaml"), "observed": load("{{ vars.ENV_DIR }}/identity-inputs.yaml")}' > {{ vars.ENV_DIR }}/identity-check.yaml''',
+  "chainsaw assert -r '{{ vars.ENV_DIR }}/identity-check.yaml' -f '{{ vars.ROOT_DIR }}/deploy/contracts/identity.yaml' --timeout 1s",
+]
+
+["identity:management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:inputs",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").managementUID' > /dev/null''',
+]
+
+["identity:composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get 'tamossenvironment/{{ env.TASKV_NAME }}' --ignore-not-found -o json > '{{ vars.ENV_DIR }}/composite.json'",
+  '''yq -e 'length == 0 or (.metadata.annotations."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and (.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID or load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID == null) and (load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID == null or ([.metadata.ownerReferences[].uid] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID]))) and .spec.region == load("{{ vars.ENV_DIR }}/identity.yaml").environment.region and .spec.compartmentId == load("{{ vars.ENV_DIR }}/identity.yaml").environment.compartmentId and .spec.storage.namespace == load("{{ vars.ENV_DIR }}/identity.yaml").environment.storage.namespace and .spec.storage.bucket == load("{{ vars.ENV_DIR }}/identity.yaml").environment.storage.bucket and .spec.providerConfigName == load("{{ vars.ENV_DIR }}/identity.yaml").environment.providerConfigName)' '{{ vars.ENV_DIR }}/composite.json' > /dev/null''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["identity:record-composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
+  "yq -e '.metadata.uid != null' {{ vars.ENV_DIR }}/composite.json > /dev/null",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:record-observed-composite",
+]
+
+["identity:record-observed-composite:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test -f '{{ vars.ENV_DIR }}/composite.json' && test ! -s '{{ vars.ENV_DIR }}/composite.json')"
+run = [
+  '''yq -i '.compositeUID = load("{{ vars.ENV_DIR }}/composite.json").metadata.uid | .creationCompositeUID = (.creationCompositeUID // load("{{ vars.ENV_DIR }}/composite.json").spec.adoption.creationCompositeUID // .compositeUID)' {{ vars.ENV_DIR }}/identity.yaml''',
+]
+
+["identity:record-observed-composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run identity:record-observed-composite:apply",
+]
+
+["identity:local-owner"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
+  "chainsaw assert -r '{{ vars.ENV_DIR }}/environment.yaml' -f '{{ vars.ROOT_DIR }}/deploy/contracts/local-owner.yaml' --timeout 1s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:assert-local-owner",
+]
+
+["identity:assert-local-owner:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+skip_if = "(test -f '{{ vars.ENV_DIR }}/composite.json' && test ! -s '{{ vars.ENV_DIR }}/composite.json')"
+run = [
+  "chainsaw assert -r '{{ vars.ENV_DIR }}/composite.json' -f '{{ vars.ROOT_DIR }}/deploy/contracts/local-owner.yaml' --timeout 1s",
+]
+
+["identity:assert-local-owner"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run identity:assert-local-owner:apply",
+]
+
+["identity:resources"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:composite",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get managed -o json | yq -p=json '[.items[] | select([.metadata.ownerReferences[].uid] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID])) | {"apiVersion": .apiVersion, "kind": .kind, "name": .metadata.name, "uid": .metadata.uid, "resourceName": .metadata.annotations."crossplane.io/composition-resource-name", "id": .status.atProvider.id, "externalName": .metadata.annotations."crossplane.io/external-name"}]' > '{{ vars.ENV_DIR }}/resources-current.yaml'''',
+  "touch '{{ vars.ENV_DIR }}/resources.yaml'",
+  '''yq eval-all '. as $item ireduce ([]; . + ($item // [])) | unique_by(.uid + ":" + (.id // "pending"))' {{ vars.ENV_DIR }}/resources-current.yaml {{ vars.ENV_DIR }}/resources.yaml > {{ vars.ENV_DIR }}/resources.pending.yaml''',
+  "mv '{{ vars.ENV_DIR }}/resources.pending.yaml' '{{ vars.ENV_DIR }}/resources.yaml'",
+]
+
+["identity:remote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:inputs",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' config view --minify -o json | yq -p=json -e '.clusters[0].cluster.server == load("{{ vars.ENV_DIR }}/identity.yaml").remoteServer and ([.users[0].user.exec.args[]] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").clusterID]))' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").remoteUID' > /dev/null''',
+]
+
+["identity:runtime-composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o json > '{{ vars.ENV_DIR }}/runtime-composite.json'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:assert-runtime-composite",
+  '''yq -i '.runtimeCompositeUID = load("{{ vars.ENV_DIR }}/runtime-composite.json").metadata.uid' {{ vars.ENV_DIR }}/identity.yaml''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["identity:assert-runtime-composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | [.metadata.uid != $i.compositeUID, (.metadata.uid == $i.runtimeCompositeUID or $i.runtimeCompositeUID == null), .metadata.deletionTimestamp == null, .metadata.annotations."tamoss.livewyer.io/deployment-id" == $i.deploymentUID, .spec.adoption.deploymentId == $i.deploymentUID, .spec.adoption.creationCompositeUID == $i.creationCompositeUID, .spec.region == $i.environment.region, .spec.compartmentId == $i.environment.compartmentId, .spec.storage.namespace == $i.environment.storage.namespace, .spec.storage.bucket == $i.environment.storage.bucket, .spec.providerConfigName == $i.environment.providerConfigName] | all' '{{ vars.ENV_DIR }}/runtime-composite.json' > /dev/null''',
+]

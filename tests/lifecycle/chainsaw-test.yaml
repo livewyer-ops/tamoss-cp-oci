@@ -7,28 +7,28 @@ spec:
     - name: prepare private identities for this disposable cluster
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: &paths
               - {name: PROJECT_ROOT, value: ($values.root)}
               - {name: CHECK_DIRECTORY, value: ($values.directory)}
               - {name: MANAGEMENT_KUBECONFIG, value: ($values.kubeconfig)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
               - {name: OCI_CLI_PROFILE, value: DEFAULT}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY', 'MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare"]
         - command: &management
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, management, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:management"]
         - command: &remote
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remote, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:remote"]
     - name: repeat bootstrap without replacing identity or baseline
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, repeat-bootstrap, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:repeat-bootstrap"]
     - name: require a successful empty inventory before skipping absent OKE cleanup
       try:
         - command:
@@ -36,9 +36,9 @@ spec:
             env: *paths
             args: [$CHECK_DIRECTORY/remote.kubeconfig, $CHECK_DIRECTORY/remote.saved.kubeconfig]
         - command: &absentApplication
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-application, 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=bootstrap:remove-application", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
         - command:
             entrypoint: mv
             env: *paths
@@ -47,24 +47,24 @@ spec:
             <<: *absentApplication
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-operator, 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=bootstrap:remove-operator", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-release, 'KUBECONFIG=$CHECK_DIRECTORY/remote.kubeconfig', NAMESPACE=auth, NAME=fixture]
+            args: ["KUBECONFIG=$CHECK_DIRECTORY/remote.kubeconfig", "NAMESPACE=auth", "NAME=fixture", "STATUS_TASK=bootstrap:remove-release", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/application.yaml, --status, remove-resource, 'ENV_DIR=$CHECK_DIRECTORY', RESOURCE_NAMESPACE=tams, CRD=tamosses.tamoss.livewyer.io, RESOURCE=tamoss/tamoss]
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "RESOURCE_NAMESPACE=tams", "CRD=tamosses.tamoss.livewyer.io", "RESOURCE=tamoss/tamoss", "STATUS_TASK=application:remove-resource", "STATUS_FILE=tasks/application.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/deploy/tadoss/Taskfile.yaml, --status, remove-instance, 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=tadoss:remove-instance", "STATUS_FILE=deploy/tadoss/tasks.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
             check: {($error != null): true}
       finally:
         - command:
@@ -78,16 +78,16 @@ spec:
     - name: freeze a partial seed before the application release exists
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare-partial-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare-partial-runtime"]
         - command:
             <<: *absentApplication
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, freeze-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:freeze-runtime"]
         - assert:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -104,16 +104,16 @@ spec:
     - name: retain application cleanup when no environment Git root exists
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare-partial-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY', RESOURCE_NAME=runtime]
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "RESOURCE_NAME=runtime", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare-partial-runtime"]
         - command:
             <<: *absentApplication
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, freeze-runtime, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:freeze-runtime"]
         - assert:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -135,13 +135,13 @@ spec:
               kind: Namespace
               metadata: {name: tamoss-infra}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, prepare-composite, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare-composite"]
         - command: &localOwner
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, local-owner, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:local-owner"]
         - patch:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -170,13 +170,13 @@ spec:
     - name: reject credential files with line endings
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, secrets, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:secrets"]
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, reject-secret-newline, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:reject-secret-newline"]
             check:
               ($error != null): true
               (contains($stderr, 'without line endings')): true
@@ -187,9 +187,9 @@ spec:
             env: *paths
             args: [$CHECK_DIRECTORY/identity.yaml, $CHECK_DIRECTORY/identity.saved.yaml]
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, initialise, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:initialise"]
             check:
               ($error != null): true
               (contains($stderr, 'Existing state has no identity record')): true
@@ -208,9 +208,9 @@ spec:
             <<: *management
             check: {($error != null): true}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, create-management, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:create-management"]
             check:
               ($error != null): true
               (contains($stderr, 'restart the original Kind')): true
@@ -238,9 +238,9 @@ spec:
             env: *paths
             args: [$CHECK_DIRECTORY/management.kubeconfig, $CHECK_DIRECTORY/management.saved.kubeconfig]
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, create-management, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:create-management"]
             check:
               ($error != null): true
               (contains($stderr, 'restart the original Kind')): true
@@ -282,9 +282,9 @@ spec:
             env: *paths
             args: ['!', -e, $CHECK_DIRECTORY/application-started]
         - command: &remove
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/lifecycle/Taskfile.yaml, remove-instance, 'PROJECT_ROOT=$PROJECT_ROOT', 'ENV_DIR=$CHECK_DIRECTORY']
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:remove-instance"]
         - error:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -311,9 +311,9 @@ spec:
                     chart: ./tests/lifecycle/platform-release
                     sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: &runtimeStatusArgs [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, --status, remove-access, 'ENV_DIR=$CHECK_DIRECTORY', 'ROOT_DIR=$PROJECT_ROOT']
+            args: &runtimeStatusArgs ["ENV_DIR=$CHECK_DIRECTORY", "ROOT_DIR=$PROJECT_ROOT", "STATUS_TASK=bootstrap:remove-access", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
             check:
               ($error != null): true
         - command: &removeRuntimeFixture
@@ -321,7 +321,7 @@ spec:
             env: *paths
             args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, delete, helmrelease/runtime-access, -n, tamoss-infra, --ignore-not-found]
         - command: &runtimeStatus
-            entrypoint: task
+            entrypoint: env
             env: *paths
             args: *runtimeStatusArgs
         - command:

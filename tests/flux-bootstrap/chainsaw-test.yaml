@@ -9,11 +9,11 @@ spec:
     - name: recover a missing chart through ordinary Flux reconciliation
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: &inputs
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
-            args: [-t, $ROOT/tests/flux-bootstrap/Taskfile.yaml, prepare, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:prepare"]
         - apply: {file: ../bootstrap/management/children.yaml}
         - apply: {file: ../../.local/tmp/check/flux-bootstrap/backend.yaml}
         - apply: {file: imports.yaml}
@@ -185,9 +185,9 @@ spec:
     - name: freeze the instance release before releasing Crossplane ownership
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *inputs
-            args: [-t, $ROOT/tests/flux-bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:release"]
         - assert:
             resource:
               apiVersion: helm.toolkit.fluxcd.io/v2
@@ -220,9 +220,9 @@ spec:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *inputs
-            args: [-t, $ROOT/tests/flux-bootstrap/Taskfile.yaml, release, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:release"]
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -248,9 +248,9 @@ spec:
     - name: restart original Kind with bootstrap authority still released
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *inputs
-            args: [-t, $ROOT/tests/flux-bootstrap/Taskfile.yaml, restart, ROOT=$ROOT]
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:restart"]
         - assert:
             resource:
               apiVersion: helm.toolkit.fluxcd.io/v2

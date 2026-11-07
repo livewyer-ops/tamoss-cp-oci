@@ -7,52 +7,52 @@ spec:
     - name: resume each interrupted ownership boundary
       try:
         - command: &prepare
-            entrypoint: task
+            entrypoint: env
             env: &paths
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [prepare]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:prepare"]
         - command: &interrupted
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run, STOP_AT=before-promotion]
+            args: ["STOP_AT=before-promotion", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: &interruption
               ($error != null): true
               (contains($stderr, 'Injected interruption')): true
         - command: &incomplete
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [incomplete]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:incomplete"]
         - command: &resume
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
         - command: &complete
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [complete]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:complete"]
         - command: *prepare
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run, STOP_AT=after-iam]
+            args: ["STOP_AT=after-iam", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
         - command: *incomplete
         - command: *resume
         - command: *complete
         - command: *prepare
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run, STOP_AT=after-publication]
+            args: ["STOP_AT=after-publication", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
         - command: *incomplete
         - command: *resume
         - command: *complete
         - command: *prepare
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run, STOP_AT=before-stop]
+            args: ["STOP_AT=before-stop", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
         - command: *incomplete
         - command: *resume
@@ -67,9 +67,9 @@ spec:
             env: *paths
             args: [-e, '.observations == 2', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [repeat]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:repeat"]
     - name: failed readiness cannot complete handover and is checked again on repeat
       try:
         - command: *prepare
@@ -97,13 +97,13 @@ spec:
             env: *paths
             args: [-i, '.deploymentReady = false | .gitopsEstablished = false', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
         - command: &up
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [up]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:up"]
         - command: &deployed
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [deployed]
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:handover:deployed"]
         - command:
             entrypoint: yq
             env: *paths
@@ -130,9 +130,9 @@ spec:
             env: *paths
             args: [-i, '.gitopsEstablished = false', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run, STOP_AT=before-git]
+            args: ["STOP_AT=before-git", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
         - command: *up
         - command: *deployed
@@ -144,15 +144,15 @@ spec:
       try:
         - command: *prepare
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [run, STOP_AT=after-iam]
+            args: ["STOP_AT=after-iam", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
         - command:
             <<: *up
             check:
               ($error != null): true
-              (contains($stderr, 'resume task handover')): true
+              (contains($stderr, 'resume mise run handover')): true
         - command: *resume
         - command: *complete
     - name: failed promoted readiness cannot stop Kind

@@ -1,0 +1,129 @@
+
+["test:lifecycle:prepare-partial-runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -n '{"apiVersion": "kustomize.toolkit.fluxcd.io/v1", "kind": "Kustomization", "metadata": {"name": "{{ env.TASKV_RESOURCE_NAME }}", "namespace": "flux-system", "labels": {"tamoss.livewyer.io/deployment-id": load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID}}, "spec": {"interval": "1m", "path": "./", "prune": false, "sourceRef": {"kind": "GitRepository", "name": "not-created"}}}' > '{{ vars.ENV_DIR }}/partial-runtime.yaml'''',
+  "kubectl apply --server-side -f '{{ vars.ENV_DIR }}/partial-runtime.yaml'",
+  '''yq -n '[{"id": "ocid1.cluster.oc1.fixture"}]' > {{ vars.ENV_DIR }}/owned-current.yaml''',
+]
+env.TASKV_RESOURCE_NAME = '''{% if env.RESOURCE_NAME is defined %}{{ env.RESOURCE_NAME }}{% else %}{{ env.RESOURCE_NAME | default(value="flux-system") }}{% endif %}'''
+
+["test:lifecycle:freeze-runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:freeze-runtime",
+]
+
+["test:lifecycle:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}'",
+  "cp environments/example/environment.yaml '{{ vars.ENV_DIR }}/'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:observe-inputs",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+  "cp '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' '{{ vars.ENV_DIR }}/management.kubeconfig'",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/management-uid'",
+  '''yq -i '.managementUID = load_str("{{ vars.ENV_DIR }}/management-uid")' {{ vars.ENV_DIR }}/identity.yaml''',
+  "cp '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/exec-credential.json'",
+  '''kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' config view --raw -o json | yq -p=json -o=json '{"apiVersion": "client.authentication.k8s.io/v1beta1", "kind": "ExecCredential", "status": {"clientCertificateData": (.users[0].user."client-certificate-data" | @base64d), "clientKeyData": (.users[0].user."client-key-data" | @base64d)}}' > '{{ vars.ENV_DIR }}/exec-credential.json'''',
+  '''yq -i '.users[0].user = {"exec": {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "cat", "args": ["{{ vars.ENV_DIR }}/exec-credential.json"]}}' '{{ vars.ENV_DIR }}/remote.kubeconfig'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' config view --minify -o jsonpath='{.clusters[0].cluster.server}' > '{{ vars.ENV_DIR }}/remote-server'",
+  '''yq -i '.remoteUID = .managementUID | .remoteServer = load_str("{{ vars.ENV_DIR }}/remote-server") | .clusterID = "{{ vars.ENV_DIR }}/exec-credential.json"' {{ vars.ENV_DIR }}/identity.yaml''',
+  "cp '{{ vars.ENV_DIR }}/identity.yaml' '{{ vars.ENV_DIR }}/identity-valid.yaml'",
+]
+env.TASKV_MANAGEMENT_KUBECONFIG = '''{{ env.MANAGEMENT_KUBECONFIG | default(value="") }}'''
+
+["test:lifecycle:management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+]
+
+["test:lifecycle:prepare-composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq '.metadata.annotations."tamoss.livewyer.io/deployment-id" = load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID | .metadata.annotations."crossplane.io/paused" = "true"' {{ vars.ENV_DIR }}/environment.yaml > {{ vars.ENV_DIR }}/composite-fixture.yaml''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/composite-fixture.yaml'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:record-composite",
+  "yq -e '.creationCompositeUID == .compositeUID and .creationCompositeUID != null' {{ vars.ENV_DIR }}/identity.yaml",
+  "cp '{{ vars.ENV_DIR }}/identity.yaml' '{{ vars.ENV_DIR }}/identity-valid.yaml'",
+]
+
+["test:lifecycle:local-owner"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:local-owner",
+]
+
+["test:lifecycle:initialise"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+]
+
+["test:lifecycle:repeat-bootstrap"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+  "cmp '{{ vars.ENV_DIR }}/identity-valid.yaml' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
+  "mkdir '{{ vars.ENV_DIR }}/inventory-before'",
+  "touch '{{ vars.ENV_DIR }}/inventory-before/.complete'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:baseline",
+  "yq -n '[]' > {{ vars.ENV_DIR }}/owned-current.yaml",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:remote",
+]
+
+["test:lifecycle:remote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+]
+
+["test:lifecycle:secrets"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/secrets'",
+  '''{% for item in ["s3-access-key", "s3-secret-key"] %}
+install -m 600 '{{ vars.PROJECT_ROOT }}/tests/lifecycle/oci-config' '{{ vars.ENV_DIR }}/secrets/{{ item }}'
+{% endfor %}''',
+  '''{% for item in ["s3-access-key", "s3-secret-key"] %}
+printf '%s' fixture-credential > '{{ vars.ENV_DIR }}/secrets/{{ item }}'
+{% endfor %}''',
+]
+
+["test:lifecycle:reject-secret-newline"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/invalid-credentials/secrets'",
+  "touch '{{ vars.ENV_DIR }}/invalid-credentials/environment.yaml' '{{ vars.ENV_DIR }}/invalid-credentials/settings.yaml'",
+  "cp '{{ vars.ENV_DIR }}/secrets/s3-access-key' '{{ vars.ENV_DIR }}/invalid-credentials/secrets/'",
+  "install -m 600 '{{ vars.PROJECT_ROOT }}/tests/lifecycle/oci-config' '{{ vars.ENV_DIR }}/invalid-credentials/secrets/s3-secret-key'",
+  '''ENV_DIR={{ ((vars.ENV_DIR) ~ "/invalid-credentials") | quote }} mise run lifecycle:preflight''',
+]
+
+["test:lifecycle:create-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
+]
+
+["test:lifecycle:remove-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run application:remove-instance",
+]

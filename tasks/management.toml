@@ -1,0 +1,130 @@
+
+["management:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''yq -n '{"dependencies": load("{{ vars.ROOT_DIR }}/dependencies.yaml"), "packages": load("{{ vars.ROOT_DIR }}/charts/packages/values.yaml"), "externalSecrets": load("{{ vars.ROOT_DIR }}/deploy/secrets/controller-values.yaml"), "product": load("{{ vars.ENV_DIR }}/product.yaml").product, "credentialsEstablished": (load("{{ vars.ENV_DIR }}/identity.yaml").credentialsEstablished == true), "instance": load("{{ vars.ENV_DIR }}/bootstrap.yaml")}' > '{{ vars.ENV_DIR }}/management-values.yaml'''',
+  "helm template management '{{ vars.ROOT_DIR }}/charts/management' -f '{{ vars.ENV_DIR }}/management-values.yaml' --set-file environmentDefinition='{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT_DIR }}/deploy/secrets/bootstrap-values.yaml' > '{{ vars.ENV_DIR }}/management.yaml'",
+]
+
+["management:freeze-instance:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.spec.vaultAuth == null' {{ vars.ENV_DIR }}/bootstrap-observed.json > /dev/null) && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get helmrelease/tamoss-bootstrap-instance --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null)"
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/helm-controller --replicas=0",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system wait pod -l app=helm-controller --for=delete --timeout=180s",
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra suspend helmrelease tamoss-bootstrap-instance",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/helm-controller --replicas=1",
+]
+
+["management:freeze-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  "mise run management:freeze-instance:apply",
+]
+
+["management:refresh"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_GITOPS_VALUES | quote }} || { printf '%s\n' "Missing required input: GITOPS_VALUES" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_PRODUCT_COMMIT | quote }} || { printf '%s\n' "Missing required input: PRODUCT_COMMIT" >&2; exit 1; }''',
+  '''yq 'del(.instance) | .credentialsEstablished = true | .dependencies = load("{{ env.TASKV_GITOPS_VALUES }}").dependencies | .packages = load("{{ env.TASKV_GITOPS_VALUES }}").packages | .externalSecrets = load("{{ env.TASKV_GITOPS_VALUES }}").externalSecrets | .product.commit = "{{ env.TASKV_PRODUCT_COMMIT }}"' '{{ vars.ENV_DIR }}/management-values.yaml' > '{{ vars.ENV_DIR }}/management-current.yaml'''',
+  "helm template management '{{ vars.ROOT_DIR }}/charts/management' -f '{{ vars.ENV_DIR }}/management-current.yaml' --set-file environmentDefinition='{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT_DIR }}/deploy/secrets/bootstrap-values.yaml' > '{{ vars.ENV_DIR }}/management.yaml'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/management.yaml'",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir '{{ vars.ROOT_DIR }}/deploy/management/readiness' --assert-timeout=1200s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name management-ready",
+]
+env.TASKV_GITOPS_VALUES = '''{{ env.GITOPS_VALUES | default(value="") }}'''
+env.TASKV_PRODUCT_COMMIT = '''{{ env.PRODUCT_COMMIT | default(value="") }}'''
+
+["management:check:run"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "kind create cluster --name '{{ env.TASKV_CHECK_NAME }}' --config deploy/management/kind.yaml --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' --wait 120s",
+  "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' apply --server-side -f '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas/flux.yaml'",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/deployment-readiness --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name deployment-readiness",
+  "KUBECONFIG={{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig ROOT={{ vars.ROOT_DIR }} mise run test:flux-bootstrap:install",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/operations/packaging --report-format JUNIT-TEST --report-path .local/reports --report-name operation-packaging",
+  "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io --for=condition=Established --timeout=120s",
+  "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' apply --server-side -f '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas/kms.oci.m.upbound.io_vaults.yaml' -f '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas/kms.oci.m.upbound.io_keys.yaml'",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --exec-timeout 180s --test-dir tests/lifecycle --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-identity' --set-string kubeconfig='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name lifecycle",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --exec-timeout 30s --test-dir tests/management --report-format JUNIT-TEST --report-path .local/reports --report-name management",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/tadoss-management --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-tadoss' --set-string kubeconfig='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name tadoss-lifecycle",
+  "mkdir -p -m 700 '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-startup'",
+  '''KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/tadoss-startup --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-startup' --set-string databaseImage="$(yq -r .qualification.postgres16Image dependencies.yaml)" --set-string chartVersion="$(yq -r .dependencies.platform.authentik.chartVersion '{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml')" --report-format JUNIT-TEST --report-path .local/reports --report-name tadoss-startup''',
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 90s --test-dir tests/secret-persistence --report-format JUNIT-TEST --report-path .local/reports --report-name secret-persistence",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 90s --test-dir tests/gitops-key --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops-key",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/controller-state/management --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name controller-state-management",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 120s --test-dir tests/secret-retirement --report-format JUNIT-TEST --report-path .local/reports --report-name secret-retirement",
+  '''{% for item in env.TASKV_CONNECTION_IMAGES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker exec '{{ env.TASKV_CHECK_NAME }}-control-plane' crictl pull '{{ item }}'
+{% endif %}{% endfor %}''',
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --assert-timeout 120s --test-dir tests/database-connection --report-format JUNIT-TEST --report-path .local/reports --report-name database-connection",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --exec-timeout 180s --assert-timeout 180s --test-dir tests/gitops-adoption --set-string root='{{ vars.ROOT_DIR }}' --set-string chart='{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_RELEASE_KEY }}/source/deploy/platform/charts/authentik-bootstrap' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops-adoption",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/storage-cleanup --set-string root='{{ vars.ROOT_DIR }}' --set-string name='{{ env.TASKV_CHECK_NAME }}' --set-string directory='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-storage' --set-string kubeconfig='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name storage-cleanup",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/kind-restart --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-restart' --set-string kubeconfig='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' --report-format JUNIT-TEST --report-path .local/reports --report-name kind-restart",
+  "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io compositeresourcedefinition/tamossbootstraps.tamoss.livewyer.io --for=condition=Established --timeout=120s",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --exec-timeout 180s --assert-timeout 180s --test-dir tests/bootstrap/management --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name bootstrap-controller",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --skip-delete --test-dir tests/flux-bootstrap --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name flux-bootstrap",
+  "KUBECONFIG={{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig ROOT={{ vars.ROOT_DIR }} MANAGEMENT_NAME={{ env.TASKV_CHECK_NAME }} mise run test:oke-bootstrap:check",
+]
+env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''
+env.TASKV_CONNECTION_IMAGES = '''{% if env.CONNECTION_IMAGES is defined %}{{ env.CONNECTION_IMAGES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r 'select(.kind == \"Job\") | .spec.template.spec | [.initContainers[].image, .containers[].image] | unique | .[]' " ~ (vars.ROOT_DIR) ~ "/.local/tmp/check/database-connection-fixture.yaml") }}{% endif %}'''
+env.TASKV_RELEASE_KEY = '''{% if env.RELEASE_KEY is defined %}{{ env.RELEASE_KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
+depends_post = ["management:check:files", "management:check:cluster"]
+
+["management:check:files"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-restart'",
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-storage'",
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-startup'",
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-tadoss'",
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}-identity'",
+  "rm -f '{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap/environment/management.kubeconfig' '{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap/restart/management.kubeconfig' '{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap/management/management.kubeconfig'",
+  "rm -f '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig'",
+]
+env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''
+
+["management:check:cluster"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "kind delete cluster --name '{{ env.TASKV_CHECK_NAME }}'",
+]
+env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''
+
+["management:check"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "CHECK_NAME={{ ((env.TASKV_CHECK_NAME)) | quote }} mise run management:check:run",
+]
+env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''
+
+["management:install"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_MANAGEMENT_KUBECONFIG | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_KUBECONFIG" >&2; exit 1; }''',
+  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=crossplane sync",
+  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=family sync",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait provider.pkg.crossplane.io/oracle-provider-family-oci --for=condition=Healthy --timeout=300s",
+  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=services sync",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait providers.pkg.crossplane.io --all --for=condition=Healthy --timeout=600s",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait functions.pkg.crossplane.io --all --for=condition=Healthy --timeout=300s",
+  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=api sync",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait compositeresourcedefinition/tamossenvironments.tamoss.livewyer.io --for='jsonpath={.status.conditions}' --timeout=120s",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait compositeresourcedefinition/tamossenvironments.tamoss.livewyer.io --for=condition=Established --timeout=120s",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait crd/tamossenvironments.tamoss.livewyer.io --for='jsonpath={.status.conditions}' --timeout=120s",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait crd/tamossenvironments.tamoss.livewyer.io --for=condition=Established --timeout=120s",
+]
+env.TASKV_MANAGEMENT_KUBECONFIG = '''{{ env.MANAGEMENT_KUBECONFIG | default(value="") }}'''

@@ -1,0 +1,71 @@
+
+["test:controller-state:prepare-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}/artifact/environment' '{{ env.TASKV_DIRECTORY }}/artifact/bindings'",
+  '''yq 'select(.kind != "Secret") | with(select(.metadata.name == "secret-check"); .metadata.name = "binding-check") | with(select(.metadata.name == "secret-backend"); .metadata.name = "binding-backend") | with(select(.metadata.namespace == "secret-check"); .metadata.namespace = "binding-check") | with(select(.metadata.namespace == "secret-backend"); .metadata.namespace = "binding-backend") | with(select(.kind == "RoleBinding" and .metadata.namespace == "binding-backend"); .subjects[0].namespace = "binding-check")' '{{ vars.ROOT }}/tests/secret-persistence/backend.yaml' > '{{ env.TASKV_DIRECTORY }}/backend.yaml'''',
+  '''yq -n '{"apiVersion": "external-secrets.io/v1", "kind": "SecretStore", "metadata": {"name": "tamoss-vault", "namespace": "binding-check"}, "spec": {"provider": load("{{ vars.ROOT }}/tests/secret-persistence/provider.yaml")}} | .spec.provider.kubernetes.remoteNamespace = "binding-backend"' > '{{ env.TASKV_DIRECTORY }}/store.yaml'''',
+  '''yq 'select(.kind == "PushSecret") | .metadata.namespace = "binding-check" | del(.metadata.ownerReferences, .metadata.annotations) | .spec.refreshInterval = "1s"' {{ env.TASKV_DIRECTORY }}/persisted.yaml > {{ env.TASKV_DIRECTORY }}/push.yaml''',
+  '''yq '.metadata.namespace = "binding-check" | del(.metadata.ownerReferences, .metadata.annotations)' {{ env.TASKV_DIRECTORY }}/snapshot.yaml > {{ env.TASKV_DIRECTORY }}/input.yaml''',
+  "cp '{{ vars.ROOT }}/deploy/gitops/bindings/kustomization.yaml' '{{ env.TASKV_DIRECTORY }}/artifact/bindings/'",
+  '''yq '.metadata.namespace = "binding-check" | .spec.refreshInterval = "1s"' {{ vars.ROOT }}/deploy/gitops/bindings/secret.yaml > {{ env.TASKV_DIRECTORY }}/artifact/bindings/secret.yaml''',
+  '''yq '.metadata.namespace = "binding-check" | .spec.crossplane.compositionRef.name = "binding-observer" | .spec.adoption.creationCompositeUID = "${CREATION_COMPOSITE_UID}" | .spec.adoption.deploymentId = "${DEPLOYMENT_ID}" | .spec.adoption.externalNames |= with_entries(.value = ("${" + (.key | upcase | sub("-"; "_")) + "}"))' '{{ env.TASKV_CACHE }}/adoption.yaml' > '{{ env.TASKV_DIRECTORY }}/intent.yaml'''',
+  '''yq '.metadata.namespace = "binding-check"' {{ vars.ROOT }}/deploy/gitops/infrastructure/environment.yaml > {{ env.TASKV_DIRECTORY }}/artifact/environment/environment.yaml''',
+  "cp '{{ vars.ROOT }}/deploy/gitops/infrastructure/kustomization.yaml' '{{ env.TASKV_DIRECTORY }}/artifact/environment/kustomization.yaml'",
+  '''helm template bootstrap '{{ vars.ROOT }}/charts/gitops-bootstrap' -f '{{ vars.ROOT }}/tests/gitops/values.yaml' -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' | yq 'select(.metadata.name == "adoption-bindings") | .metadata.namespace = "binding-check" | .spec.sourceRef = {"kind": "GitRepository", "name": "binding-fixture"} | .spec.path = "./bindings" | .spec.dependsOn = [] | .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s" | .spec.healthChecks[].namespace = "binding-check"' > '{{ env.TASKV_DIRECTORY }}/binding-kustomization.yaml'''',
+  '''yq 'select(.metadata.name == "infrastructure") | .metadata.namespace = "binding-check" | .spec.sourceRef = {"kind": "GitRepository", "name": "binding-fixture"} | .spec.path = "./environment" | .spec.patches[0].patch = load_str("{{ env.TASKV_DIRECTORY }}/intent.yaml") | .spec.postBuild.substitute.ENVIRONMENT_NAME = load("{{ env.TASKV_CACHE }}/adoption.yaml").metadata.name | .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s" | .spec.healthChecks[0].namespace = "binding-check" | .spec.healthChecks[0].name = load("{{ env.TASKV_CACHE }}/adoption.yaml").metadata.name' '{{ vars.ROOT }}/deploy/gitops/starter/releases.yaml' > '{{ env.TASKV_DIRECTORY }}/infrastructure-kustomization.yaml'''',
+  "tar -czf '{{ env.TASKV_DIRECTORY }}/bindings.tar.gz' -C '{{ env.TASKV_DIRECTORY }}/artifact' .",
+  '''kubectl -n flux-system cp '{{ env.TASKV_DIRECTORY }}/bindings.tar.gz' "$(kubectl -n flux-system get pod -l app=source-controller -o jsonpath='{.items[0].metadata.name}'):/data/bindings-fixture.tar.gz"''',
+  '''ARTIFACT_DIGEST="$(sha256sum '{{ env.TASKV_DIRECTORY }}/bindings.tar.gz' | cut -d ' ' -f 1)" yq -n '{"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "GitRepository", "metadata": {"name": "binding-fixture", "namespace": "binding-check"}, "spec": {"interval": "1m", "suspend": true, "url": "https://example.invalid/fixture"}, "status": {"observedGeneration": 1, "conditions": [{"type": "Ready", "status": "True", "reason": "Fixture", "message": "Local bindings artifact", "lastTransitionTime": "2026-01-01T00:00:00Z"}], "artifact": {"path": "bindings-fixture.tar.gz", "url": "http://source-controller.flux-system.svc.cluster.local./bindings-fixture.tar.gz", "revision": "main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "digest": ("sha256:" + strenv(ARTIFACT_DIGEST)), "lastUpdateTime": "2026-01-01T00:00:00Z"}}}' > '{{ env.TASKV_DIRECTORY }}/source.yaml'''',
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT }}/.local/tmp/check{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ env.TASKV_CACHE }}/controller-state{% endif %}"
+
+["test:controller-state:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}'",
+  '''yq '.metadata.uid = .spec.adoption.creationCompositeUID | del(.spec.adoption) | .spec.managementPolicies = ["*"]' '{{ env.TASKV_CACHE }}/adoption.yaml' > '{{ env.TASKV_DIRECTORY }}/creation.yaml'''',
+  '''yq 'select(.spec.forProvider != null) | del(.metadata.ownerReferences) | .status = {"conditions": [{"type": "Ready", "status": "True"}], "atProvider": {"id": .metadata.annotations."crossplane.io/external-name"}} | with(select(.kind == "PublicIp"); .status.atProvider.ipAddress = "203.0.113.10")' '{{ env.TASKV_CACHE }}/adoption-render.yaml' > '{{ env.TASKV_DIRECTORY }}/observed.yaml'''',
+  "crossplane composition render '{{ env.TASKV_DIRECTORY }}/creation.yaml' '{{ env.TASKV_CACHE }}/composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/observed.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/complete.yaml'",
+  '''yq -e 'select(.kind == "Secret")' {{ env.TASKV_DIRECTORY }}/complete.yaml > {{ env.TASKV_DIRECTORY }}/snapshot.yaml''',
+  '''yq -e '.immutable == true and ((.data.ADOPTION_YAML | @base64d | from_yaml | to_json) == (load("{{ env.TASKV_CACHE }}/adoption.yaml").spec.adoption | to_json))' '{{ env.TASKV_DIRECTORY }}/snapshot.yaml'''',
+  '''yq 'with(select(.kind == "PsqlDbSystem"); .status.conditions[0].status = "False")' {{ env.TASKV_DIRECTORY }}/observed.yaml > {{ env.TASKV_DIRECTORY }}/pending.yaml''',
+  "crossplane composition render '{{ env.TASKV_DIRECTORY }}/creation.yaml' '{{ env.TASKV_CACHE }}/composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/pending.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/pending-render.yaml'",
+  '''yq eval-all -e '[select(.kind == "Secret")] | length == 0' {{ env.TASKV_DIRECTORY }}/pending-render.yaml''',
+  '''yq -e 'select(.kind == "TamossEnvironment") | .status.bootstrapReady == true and .status.bindingsReady == false' {{ env.TASKV_DIRECTORY }}/pending-render.yaml''',
+  "yq eval-all 'del(.status)' {{ env.TASKV_DIRECTORY }}/observed.yaml {{ env.TASKV_DIRECTORY }}/snapshot.yaml > {{ env.TASKV_DIRECTORY }}/lost-status.yaml",
+  "crossplane composition render '{{ env.TASKV_DIRECTORY }}/creation.yaml' '{{ env.TASKV_CACHE }}/composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/lost-status.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/retained.yaml'",
+  '''yq -e 'select(.kind == "Secret") | (.data | to_json) == (load("{{ env.TASKV_DIRECTORY }}/snapshot.yaml").data | to_json)' {{ env.TASKV_DIRECTORY }}/retained.yaml''',
+  "yq eval-all '.' {{ env.TASKV_DIRECTORY }}/observed.yaml {{ env.TASKV_DIRECTORY }}/snapshot.yaml > {{ env.TASKV_DIRECTORY }}/changed.yaml",
+  '''yq -i 'with(select(.kind == "Vcn"); .metadata.annotations."crossplane.io/external-name" = "ocid1.vcn.oc1.changed")' {{ env.TASKV_DIRECTORY }}/changed.yaml''',
+  "crossplane composition render '{{ env.TASKV_CACHE }}/adoption.yaml' '{{ env.TASKV_CACHE }}/composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/observed.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/runtime.yaml'",
+  '''yq -e 'select(.kind == "ConfigMap") | .data.PUBLIC_IP == "203.0.113.10" and .data.DATABASE_ID == load("{{ env.TASKV_CACHE }}/adoption.yaml").spec.adoption.externalNames.database' {{ env.TASKV_DIRECTORY }}/runtime.yaml''',
+  '''yq eval-all -e '[select(.kind == "Secret")] | length == 0' {{ env.TASKV_DIRECTORY }}/runtime.yaml''',
+  '''yq '.metadata.name = "adoption-bindings"' {{ env.TASKV_DIRECTORY }}/snapshot.yaml > {{ env.TASKV_DIRECTORY }}/readback-secret.yaml''',
+  "yq eval-all 'del(.metadata.ownerReferences, .metadata.annotations)' {{ env.TASKV_DIRECTORY }}/snapshot.yaml {{ env.TASKV_DIRECTORY }}/readback-secret.yaml > {{ env.TASKV_DIRECTORY }}/readback.yaml",
+  '''yq 'with(select(.kind == "TamossEnvironment"); .metadata.uid = load("{{ env.TASKV_CACHE }}/adoption.yaml").spec.adoption.creationCompositeUID)' {{ env.TASKV_CACHE }}/bootstrap/native-observed.yaml > {{ env.TASKV_DIRECTORY }}/bootstrap-observed.yaml''',
+  "crossplane composition render '{{ env.TASKV_CACHE }}/bootstrap/native-root.yaml' '{{ env.TASKV_CACHE }}/bootstrap/native-composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/bootstrap-observed.yaml' --required-resources='{{ env.TASKV_DIRECTORY }}/readback.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/persisted.yaml'",
+  '''yq -e 'select(.kind == "TamossBootstrap") | .status.bindingsReady == true' {{ env.TASKV_DIRECTORY }}/persisted.yaml''',
+  '''yq -e 'select(.kind == "PushSecret") | .spec.updatePolicy == "IfNotExists" and .spec.deletionPolicy == "None"' {{ env.TASKV_DIRECTORY }}/persisted.yaml''',
+  '''yq 'with(select(.metadata.name == "adoption-bindings"); .data.VCN = "bWlzbWF0Y2g=")' {{ env.TASKV_DIRECTORY }}/readback.yaml > {{ env.TASKV_DIRECTORY }}/wrong-readback.yaml''',
+  '''yq eval-all 'select(.kind == "SecretFoundation" or .kind == "TamossEnvironment" or (.kind == "HelmRelease" and .metadata.name == "runtime-access")) | with(select(.kind == "TamossEnvironment"); .status.bootstrapReady = true) | with(select(.kind == "HelmRelease"); .metadata.generation = 2 | .status = {"observedGeneration": 2, "conditions": [{"type": "Ready", "status": "True"}]})' '{{ env.TASKV_DIRECTORY }}/persisted.yaml' > '{{ env.TASKV_DIRECTORY }}/access-observed.yaml'''',
+  '''helm template access '{{ vars.ROOT }}/charts/runtime-access' -n tamoss-infra -f '{{ vars.ROOT }}/tests/secrets/access-values.yaml' | yq '.status.conditions = [{"type": "Ready", "status": "True"}, {"type": "Synced", "status": "True"}]' > '{{ env.TASKV_DIRECTORY }}/policies.yaml'''',
+  '''yq 'with(select(.metadata.name | test("-networking$")); .status.conditions[1].status = "False")' {{ env.TASKV_DIRECTORY }}/policies.yaml > {{ env.TASKV_DIRECTORY }}/unsynced-policies.yaml''',
+  '''yq 'select(.metadata.name | test("-networking$") | not)' {{ env.TASKV_DIRECTORY }}/policies.yaml > {{ env.TASKV_DIRECTORY }}/missing-policy.yaml''',
+  '''{% for item in ["policies", "unsynced-policies", "missing-policy"] %}
+crossplane composition render '{{ env.TASKV_CACHE }}/bootstrap/native-retired-root.yaml' '{{ env.TASKV_CACHE }}/bootstrap/native-composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/access-observed.yaml' --required-resources='{{ env.TASKV_DIRECTORY }}/{{ item }}.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/{{ item }}-render.yaml'
+{% endfor %}''',
+  '''yq -e 'select(.kind == "TamossBootstrap") | .status.runtimeAccessReady == true and .status.bootstrapReady == true and .status.bindingsReady == false' {{ env.TASKV_DIRECTORY }}/policies-render.yaml''',
+  '''{% for item in ["unsynced-policies", "missing-policy"] %}
+yq -e 'select(.kind == "TamossBootstrap") | .status.runtimeAccessReady == false and .status.bootstrapReady == false' {{ env.TASKV_DIRECTORY }}/{{ item }}-render.yaml
+{% endfor %}''',
+  '''yq 'with(select(.kind == "HelmRelease"); .status.observedGeneration = 1)' {{ env.TASKV_DIRECTORY }}/access-observed.yaml > {{ env.TASKV_DIRECTORY }}/stale-access.yaml''',
+  "crossplane composition render '{{ env.TASKV_CACHE }}/bootstrap/native-retired-root.yaml' '{{ env.TASKV_CACHE }}/bootstrap/native-composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --observed-resources='{{ env.TASKV_DIRECTORY }}/stale-access.yaml' --required-resources='{{ env.TASKV_DIRECTORY }}/policies.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/stale-access-render.yaml'",
+  '''yq -e 'select(.kind == "TamossBootstrap") | .status.bootstrapReady == false' {{ env.TASKV_DIRECTORY }}/stale-access-render.yaml''',
+  "chainsaw test --no-cluster --test-dir '{{ vars.ROOT }}/tests/controller-state/render' --set-string directory='{{ env.TASKV_DIRECTORY }}' --set-string root='{{ vars.ROOT }}' --set-string core='{{ vars.CORE }}' --report-format JUNIT-TEST --report-path '{{ vars.ROOT }}/.local/reports' --report-name controller-state-render",
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT }}/.local/tmp/check{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ env.TASKV_CACHE }}/controller-state{% endif %}"

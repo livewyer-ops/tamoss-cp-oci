@@ -12,19 +12,20 @@ Use Linux amd64 with Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar,
 gzip, unzip and Docker with its Compose plugin. Docker must be running and
 accessible to your user. Other workstation platforms remain unverified.
 
-Install [Aqua](https://aquaproj.github.io/docs/install/), then run:
+Install [mise](https://mise.jdx.dev/installing-mise.html), then run:
 
 ```bash
-aqua install
-export PATH="$(aqua root-dir)/bin:$(aqua exec -- uv tool dir --bin):$PATH"
-task setup
+mise trust
+mise install --locked
+mise run setup
 ```
 
-The PATH export is needed in each shell. `setup` installs the pinned native OCI
-CLI through Aqua-managed uv and creates an owner-only input directory containing
+mise supplies the pinned tools, including an isolated native OCI CLI and Python.
+The committed lockfile includes its Python dependencies. No PATH export or shell
+activation is required for `mise run`. `setup` creates an owner-only input directory containing
 `values.yaml`, optional `gitops.yaml` and `secrets/`. Repeating setup preserves the file. It refuses to
 initialise a directory containing an earlier deployment. Select a fresh directory
-with `task setup ENV_DIR=.local/environments/my-environment` when needed, then use
+with `ENV_DIR=.local/environments/my-environment mise run setup` when needed, then use
 that same `ENV_DIR` for every lifecycle command.
 
 Setup performs no OCI provisioning or Git publication. Account access and the
@@ -57,7 +58,7 @@ defaults are `~/.oci/config` and `DEFAULT`. The deployment reads its region from
 that profile. Verify it with the installed native CLI:
 
 ```bash
-oci os ns get
+mise exec -- oci os ns get
 ```
 
 ### Storage credentials
@@ -108,7 +109,7 @@ administrator email use `contactEmail`. The Vault foundation defaults to
 `<name>-vault`. TADOSS credentials are prepared, with the application disabled.
 
 ```bash
-task up
+mise run up
 ```
 
 `up` validates inputs and anonymous package access before provisioning. Native
@@ -125,7 +126,7 @@ TLS and application readiness, prints URLs and writes initial login details to
 
 Kind remains the infrastructure writer. Applications run on OKE. Repeating `up`
 reuses the original identity and does not replay a completed remote seed. Keep
-`values.yaml` unchanged after inputs are recorded. `task check` is a contributor
+`values.yaml` unchanged after inputs are recorded. `mise run check` is a contributor
 validation command; it is not required before each deployment.
 
 ## Optional GitOps handover
@@ -133,7 +134,7 @@ validation command; it is not required before each deployment.
 After `up` succeeds, authenticate once on the workstation:
 
 ```bash
-gh auth login --hostname github.com --git-protocol https
+mise exec -- gh auth login --hostname github.com --git-protocol https
 ```
 
 Set `.local/environment/gitops.yaml`:
@@ -151,7 +152,7 @@ the selected branch and permit the generated commits. Existing cluster paths
 belonging to another deployment are rejected.
 
 ```bash
-task handover
+mise run handover
 ```
 
 Handover creates a private repository if needed and publishes the running
@@ -214,7 +215,8 @@ for operations and teardown; this layout does not migrate them.
 
 ## Access
 
-Display the public URLs and application status:
+Enter `mise exec -- bash` for the native commands in this section, then display
+the public URLs and application status:
 
 ```bash
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o json |
@@ -244,7 +246,7 @@ exported file after use. For authenticated API requests, see
 Read the [qualification effects](testing.md#deployed-qualification) before running:
 
 ```bash
-task qualify
+mise run qualify
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get ingestrun qualification
 ```
 

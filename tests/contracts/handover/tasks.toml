@@ -1,0 +1,85 @@
+
+["test:handover:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ env.TASKV_DIRECTORY }}'",
+  "mkdir -p -m 700 '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/infrastructure' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/runtime'",
+  '''DIRECTORY={{ env.TASKV_DIRECTORY | quote }} PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq eval-all -p=toml -o=toml '
+select(fileIndex == 0) as $root | select(fileIndex == 1) as $bootstrap |
+select(fileIndex == 2) as $gitops | select(fileIndex == 3) as $boundaries |
+select(fileIndex == 0) |
+{"vars": $root.vars, "tools": $root.tools, "task_config": {"shell": $root.task_config.shell},
+"tasks": ($boundaries + ($bootstrap | with_entries(select(.key | test("^bootstrap:(up|handover|promote|ready|git-ready|local-ready|complete-handover)(:apply)?$")))) +
+($gitops | with_entries(select(.key == "gitops:current-checkout" or .key == "gitops:promotion-checkout"))) +
+{"public-up": $root.tasks.up, "public-handover": $root.tasks.handover})} |
+.vars.ROOT_DIR = strenv(PROJECT_ROOT) | .vars.PROJECT_ROOT = strenv(PROJECT_ROOT) | .vars.ROOT = strenv(PROJECT_ROOT) |
+.vars.ENV_DIR = strenv(DIRECTORY) | .vars.ENV_PATH = strenv(DIRECTORY) |
+.vars.CHECKOUT = (strenv(DIRECTORY) + "/checkout") | .vars.CHECKOUT_PATH = .vars.CHECKOUT |
+.tasks[].dir = strenv(DIRECTORY)' {{ vars.ROOT_DIR | quote }}/mise.toml {{ vars.ROOT_DIR | quote }}/tasks/bootstrap.toml {{ vars.ROOT_DIR | quote }}/tasks/gitops.toml {{ vars.ROOT_DIR | quote }}/tests/contracts/handover/boundaries.toml > {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml''',
+  "mise trust {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml",
+  '''yq -n '{"deploymentUID": "original", "deploymentReady": true, "gitopsEstablished": true, "provisions": 0, "starts": 0, "publications": 0, "observations": 0}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+  '''yq -n '{"branch": "main", "path": "clusters/fixture"}' > {{ env.TASKV_DIRECTORY }}/gitops.yaml''',
+  '''yq -n '{"spec": {"managementPolicies": ["Observe"]}}' > {{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/infrastructure/environment.yaml''',
+  '''PRODUCT_COMMIT="$(git -C '{{ vars.PROJECT_ROOT }}' rev-parse HEAD)" yq -n '{"metadata": {"name": "tamoss-product"}, "spec": {"ref": {"commit": strenv(PRODUCT_COMMIT)}}}' > '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/sources.yaml'''',
+  "touch '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/values.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/runtime/release.yaml'",
+  "git init --initial-branch=main '{{ env.TASKV_DIRECTORY }}/checkout'",
+  "git init --bare --initial-branch=main '{{ env.TASKV_DIRECTORY }}/origin.git'",
+  "git -C '{{ env.TASKV_DIRECTORY }}/checkout' config user.name 'Handover fixture'",
+  "git -C '{{ env.TASKV_DIRECTORY }}/checkout' config user.email fixture@example.invalid",
+  "git -C '{{ env.TASKV_DIRECTORY }}/checkout' add clusters",
+  "git -C '{{ env.TASKV_DIRECTORY }}/checkout' commit -m 'Initial deployment'",
+  "git -C '{{ env.TASKV_DIRECTORY }}/checkout' remote add origin '{{ env.TASKV_DIRECTORY }}/origin.git'",
+  "git -C '{{ env.TASKV_DIRECTORY }}/checkout' push origin main",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
+
+["test:handover:run"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''ENV_DIR={{ env.TASKV_DIRECTORY }} CHECKOUT={{ env.TASKV_DIRECTORY }}/checkout STOP_AT={{ env.STOP_AT | default(value="none") }} MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C {{ env.TASKV_DIRECTORY }} run public-handover''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
+
+["test:handover:up"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ env.TASKV_DIRECTORY }} CHECKOUT={{ env.TASKV_DIRECTORY }}/checkout STOP_AT=none MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C {{ env.TASKV_DIRECTORY }} run public-up",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
+
+["test:handover:deployed"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -e '[.deploymentUID == "original", .deploymentReady == true, .gitopsEstablished == false, .handoverComplete != true, .quiesced != true, .runtimeWritesEnabled != true, .starts == 0, .publications == 0, .stopped != true] | all' '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
+
+["test:handover:complete"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -e '[.deploymentUID == "original", .handoverComplete == true, .quiesced == true, .runtimeWritesEnabled == true, .published == true, .stopped == true, .observations > 0] | all' '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
+
+["test:handover:incomplete"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.handoverComplete != true and .stopped != true' {{ env.TASKV_DIRECTORY }}/identity.yaml",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
+
+["test:handover:repeat"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "cp '{{ env.TASKV_DIRECTORY }}/identity.yaml' '{{ env.TASKV_DIRECTORY }}/before-repeat.yaml'",
+  '''STOP_AT={{ ("before-promotion") | quote }} mise run test:handover:run''',
+  '''yq -e 'load("{{ env.TASKV_DIRECTORY }}/before-repeat.yaml") as $before | [.starts == $before.starts, .publications == $before.publications, .observations == ($before.observations + 1), .stopped == true] | all' '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"

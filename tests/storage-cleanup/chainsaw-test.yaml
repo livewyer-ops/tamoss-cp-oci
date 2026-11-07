@@ -12,7 +12,7 @@ spec:
               kind: Namespace
               metadata: {name: tamoss-infra}
         - command:
-            entrypoint: task
+            entrypoint: env
             env: &paths
               - {name: PROJECT_ROOT, value: ($values.root)}
               - {name: STORAGE_DIRECTORY, value: ($values.directory)}
@@ -20,7 +20,7 @@ spec:
               - {name: CHECK_NAME, value: ($values.name)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
               - {name: OCI_CLI_PROFILE, value: DEFAULT}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, prepare, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY, MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG, CHECK_NAME=$CHECK_NAME]
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "STORAGE_DIR=$STORAGE_DIRECTORY", "MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG", "CHECK_NAME=$CHECK_NAME", "mise", "-C", "$PROJECT_ROOT", "run", "test:storage-cleanup:prepare"]
         - apply:
             resource:
               apiVersion: objectstorage.oci.m.upbound.io/v1alpha1
@@ -40,9 +40,9 @@ spec:
     - name: refuse deletion when the live bucket differs
       try:
         - command:
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, remove, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY]
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "STORAGE_DIR=$STORAGE_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:storage-cleanup:remove"]
             check:
               ($error != null): true
               (contains($stderr, 'no matches found')): true
@@ -63,9 +63,9 @@ spec:
     - name: resume removal but retain management state when the OCI audit fails
       try:
         - command: &cleanup
-            entrypoint: task
+            entrypoint: env
             env: *paths
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, cleanup, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY]
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "STORAGE_DIR=$STORAGE_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:storage-cleanup:cleanup"]
             check:
               ($error != null): true
               (contains($stderr, 'false os bucket list')): true
@@ -95,9 +95,9 @@ spec:
             args: [-i, '.data = [{"name":strenv(CHECK_NAME),"id":"ocid1.bucket.fixture"}]', $STORAGE_DIRECTORY/after.json]
         - command:
             <<: &audit
-              entrypoint: task
+              entrypoint: env
               env: *paths
-              args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tests/storage-cleanup/Taskfile.yaml, audit, PROJECT_ROOT=$PROJECT_ROOT, STORAGE_DIR=$STORAGE_DIRECTORY]
+              args: ["PROJECT_ROOT=$PROJECT_ROOT", "STORAGE_DIR=$STORAGE_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:storage-cleanup:audit"]
             check:
               ($error != null): true
               (contains($stderr, 'no matches found')): true

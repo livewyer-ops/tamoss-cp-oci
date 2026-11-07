@@ -365,10 +365,10 @@ spec:
               metadata: {name: authentik-bootstrap, namespace: flux-check}
               spec: {suspend: true}
         - command: &removeRelease
-            entrypoint: task
+            entrypoint: env
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [-d, $PROJECT_ROOT, -t, $PROJECT_ROOT/tasks/bootstrap.yaml, remove-release, NAMESPACE=flux-check, NAME=authentik-bootstrap]
+            args: ["NAMESPACE=flux-check", "NAME=authentik-bootstrap", "mise", "-C", "$PROJECT_ROOT", "run", "bootstrap:remove-release"]
         - error:
             resource:
               apiVersion: v1
