@@ -69,3 +69,12 @@ artifacts:
 - path: calico/calico-policy-only.yaml
   url: https://raw.githubusercontent.com/projectcalico/calico/eb1cf57823a1dd8d25c48b82fd023ea9e3e17996/manifests/calico-policy-only.yaml
   sha256: 0b09d96323cf250ad028450d2954fc0068ce4104545f1eab823f359a48eb69a3
+- path: schemas/identitydomains.oci.m.upbound.io_users.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/identitydomains.oci.m.upbound.io_users.yaml
+  sha256: 54fff41eb9de65741c6974de95112073624b991b8dfaaf87cc452695ef37493d
+- path: schemas/identity.oci.m.upbound.io_groups.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/identity.oci.m.upbound.io_groups.yaml
+  sha256: 7d070f6b477dd965d39fc84741c58386c72fe5132c53d3c1a537cd529d011e77
+- path: schemas/identity.oci.m.upbound.io_usergroupmemberships.yaml
+  url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/identity.oci.m.upbound.io_usergroupmemberships.yaml
+  sha256: 210202ee78666b81d28a2078848ac9003329aca77bc49463378b8e298f7eda5a

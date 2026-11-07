@@ -41,8 +41,8 @@ spec:
                   message: Bootstrap credential ownership cannot change
                 - rule: has(self.storageCredentials) == has(oldSelf.storageCredentials)
                   message: Storage credential ownership cannot change
-                - rule: '!has(self.storageCredentials) || (has(self.vaultAuth) && self.storageCredentials.userId != self.vaultAuth.user)'
-                  message: Automatic S3 credentials require a separate storage user and the Kind provisioner
+                - rule: '!has(self.storageCredentials) || has(self.vaultAuth)'
+                  message: Automatic storage identity requires the Kind provisioner
               properties:
                 remoteBootstrap:
                   type: object
@@ -56,12 +56,14 @@ spec:
                     seedConfigMap: {type: string, enum: [oke-bootstrap-input]}
                 storageCredentials:
                   type: object
-                  required: [userId, image]
+                  required: [domainId, idcsEndpoint, email, image]
                   x-kubernetes-validations:
                     - rule: self == oldSelf
                       message: Storage credential ownership is immutable
                   properties:
-                    userId: {type: string, pattern: '^ocid1\.user\.'}
+                    domainId: {type: string, pattern: '^ocid1\.domain\.'}
+                    idcsEndpoint: {type: string, pattern: '^https://[a-zA-Z0-9.-]+(:443)?$'}
+                    email: {type: string, format: email}
                     image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
                 credentialsEstablished:
                   type: boolean
@@ -108,6 +110,12 @@ spec:
                 observedGeneration: {type: integer, format: int64}
                 foundationReady: {type: boolean}
                 credentialsReady: {type: boolean}
+                storageIdentityReady: {type: boolean}
+                storageIdentity:
+                  type: object
+                  properties:
+                    userId: {type: string}
+                    groupId: {type: string}
                 infrastructureReady: {type: boolean}
                 bindingsReady: {type: boolean}
                 bootstrapReady: {type: boolean}

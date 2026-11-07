@@ -2,9 +2,12 @@
 
 ## Unreleased
 
+- Crossplane creates the storage user, group and bucket policy in Kind. Setup
+  discovers the Default identity domain and no longer accepts `storage.userId`.
+  Storage IAM remains with retained Kind after handover. Existing deployments
+  must use their pinned product revision; existing users are not adopted.
 - Generate the deployment's S3 credential in a bounded Kind Job, persist it through
-  ESO and OCI Vault, and retire only its recorded key during teardown. Setup now
-  takes a separate storage-user OCID instead of manually supplied key files.
+  ESO and OCI Vault, and revoke its recorded key before deleting storage IAM.
 - mise replaces Aqua and Task for pinned tools and namespaced commands. Use
   `mise run setup`, `mise run up`, `mise run handover`, `mise run qualify` and
   `mise run down`; pass environment inputs before the command.
@@ -15,7 +18,7 @@
   uses native Flux bootstrap with a read-only SSH deploy key persisted in Vault.
   Git adoption precedes the existing single-writer infrastructure transfer.
 - Setup defaults to `media-demo` with compartment, contact email, administrator
-  CIDRs and a separate storage-user OCID. Git settings are separate and used only for handover.
+  CIDRs. Git settings are separate and used only for handover.
 - `mise run setup` prepares a single `values.yaml` and the pinned OCI CLI. Deployment
   supplies HA defaults and release bundle pins, discovers regional OCI values,
   and records bootstrap settings for repeat runs. After handover, operational

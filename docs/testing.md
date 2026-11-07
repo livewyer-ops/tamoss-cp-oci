@@ -73,7 +73,9 @@ checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgr
 S3 checks run the production credential Job with only OCI requests substituted.
 They verify empty-input blocking, creation claims, interrupted-response replay
 rejection, Vault-style persistence and Helm upgrade retention. Admission checks
-reject changed or shared storage identities. Retirement checks retain unrelated
+reject changed identity domains and the removed manual-user interface. Composition
+checks cover generated identities, restricted capabilities, policy drift and immutable ID
+records before credential creation. Retirement checks retain unrelated
 keys, resume after deletion and reject uncertain creation outcomes. Composition
 checks keep bootstrap authority active until the creation Job and its Pods are
 gone. These local checks do not establish live OCI IAM propagation or API outcomes.
@@ -187,7 +189,7 @@ a fresh uninterrupted OCI lifecycle.
 
 | Behaviour | Observed status |
 | --- | --- |
-| Automatic S3 credentials | An isolated real OCI test passed Job creation, exact Vault readback, key preservation on repeat and repeated owned-key revocation. Temporary IAM and Kind were removed; the test secret was scheduled for deletion. This did not exercise bucket access or a full deployment |
+| Automatic storage identity and credentials | Isolated OCI qualification passed Crossplane IAM creation, restricted capabilities, Job creation, exact Vault readback, bucket read/write and denial for another existing bucket. Repeats and provider restarts preserved IDs and credentials; S3 reads passed with Kind stopped. Exact-key revocation, native IAM deletion and repeated cleanup passed. This does not establish a full deployment or GitOps handover |
 | TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
 | Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
@@ -199,5 +201,10 @@ a fresh uninterrupted OCI lifecycle.
 | Workload convergence | Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs/restart counts. Cold public certificate issuance remains subject to the ACME qualification limit above |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
+
+The storage identity test used narrower bucket permissions than the documented
+provisioner prerequisites. Its independent OCI audit found buckets remaining
+after their Kubernetes records disappeared; administrator-assisted cleanup
+removed them. This test qualifies IAM retirement, not unattended bucket teardown.
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).

@@ -96,7 +96,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p -m 700 '{{ vars.ENV_DIR }}/invalid-storage'",
   "touch '{{ vars.ENV_DIR }}/invalid-storage/environment.yaml'",
-  '''yq -n '{"storageUserId":"invalid"}' > '{{ vars.ENV_DIR }}/invalid-storage/settings.yaml' ''',
+  '''yq -n '{"storageIdentity":{"domainId":"invalid"}}' > '{{ vars.ENV_DIR }}/invalid-storage/settings.yaml' ''',
   "ENV_DIR='{{ vars.ENV_DIR }}/invalid-storage' mise run lifecycle:preflight",
 ]
 

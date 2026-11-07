@@ -2,11 +2,11 @@
 
 [Overview](../../README.md) | [Getting started](../../docs/getting-started.md) | [Operations](../../docs/operations.md)
 
-Create a dedicated compartment and separate identities for infrastructure
-provisioning and application storage. Account administrators own these
-prerequisites; Crossplane owns the environment resources inside the compartment.
-Use the native OCI Console or OCI CLI with the administrator's credentials to
-create the compartment, users, groups, memberships and policies.
+Create a dedicated compartment and an authorised infrastructure provisioner.
+Account administrators own these prerequisites. Crossplane creates the storage
+user, group, membership and bucket policy during deployment. Storage IAM remains
+owned by the original Kind bootstrap after handover; OKE needs no user-management
+permissions.
 
 The provisioner needs an API signing key and these permissions in the dedicated
 compartment:
@@ -24,35 +24,40 @@ Each permission becomes an IAM statement, for example:
 Allow group id <provisioner-group-ocid> to manage cluster-family in compartment id <compartment-ocid>
 ```
 
-Use a separate storage identity. Its group needs only
-these statements for the bucket named in `environment.yaml`:
+## Storage IAM permissions
+
+Setup discovers the active Default identity domain. The provisioner needs domain
+discovery and permission to manage users/groups with the reserved
+`tamoss-storage-` name prefix. An account administrator grants these permissions
+once; deployment does not authorise itself:
 
 ```text
-Allow group id <storage-group-ocid> to read buckets in compartment id <compartment-ocid> where target.bucket.name = '<bucket-name>'
-Allow group id <storage-group-ocid> to manage objects in compartment id <compartment-ocid> where target.bucket.name = '<bucket-name>'
+Allow group id <provisioner-group-ocid> to read domains in tenancy
+Allow group id <provisioner-group-ocid> to inspect users in tenancy where target.resource.domain.name = 'Default'
+Allow group id <provisioner-group-ocid> to inspect groups in tenancy
+Allow group id <provisioner-group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
+Allow group id <provisioner-group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
 ```
 
-The provisioner creates and retires the deployment's Customer Secret Key for this
-user. Scope its IAM permission to that exact user:
+Inspection permits discovery and deletion audits; it does not permit changes to
+identities outside the reserved prefix. The management grants apply to matching
+names across the tenancy; reserve this prefix for provisioned storage identities.
+Identity names come from the deployment ID. Crossplane
+creates this policy using the generated group OCID:
 
 ```text
-Allow group id <provisioner-group-ocid> to manage users in tenancy where all {target.user.id = '<storage-user-ocid>', any {request.permission = 'USER_READ', request.permission = 'USER_UPDATE', request.permission = 'USER_SECRETKEY_ADD', request.permission = 'USER_SECRETKEY_REMOVE'}}
+Allow group id <generated-storage-group-ocid> to read buckets in compartment id <compartment-ocid> where target.bucket.name = '<bucket-name>'
+Allow group id <generated-storage-group-ocid> to manage objects in compartment id <compartment-ocid> where target.bucket.name = '<bucket-name>'
 ```
 
-Oracle requires `USER_UPDATE` alongside the key permissions; it also permits
-updates to that user's metadata and capabilities. Keep the storage user separate
-from the provisioner. Leave a Customer Secret Key slot available; OCI permits two
-per user. The deployment never deletes an unrelated key to make room.
-
-Disable unused user capabilities, including console login. The provisioner needs
-API keys; the storage identity needs Customer Secret Keys. Avoid generating
-console passwords or authentication tokens. For identity-domain users, honour
-the domain's primary-email requirement and suppress account notifications for
-these service identities using the native `bypassNotification` creation field.
+The generated user enables Customer Secret Keys only. Crossplane disables console
+login and other credential capabilities, suppresses creation notifications and
+uses the contact email. The provisioner retains its separate API signing key.
+Neither identity is copied to OKE as an infrastructure credential.
 
 Store the provisioner's private signing key and OCI profile in owner-only files.
-Set the storage user OCID in [Storage identity](../../docs/getting-started.md#storage-identity).
-The Kind Job creates its key during deployment and ESO persists the response in
+There is no storage user OCID to enter. The Kind Job creates its key during
+deployment and ESO persists the response in
 Vault. Keep credential output out of logs and shared manifests. Validate the profile with
 the [pinned OCI CLI](../../docs/operations.md#native-oci-cli) and read-only
 compartment inventory before deployment; new IAM
@@ -60,13 +65,15 @@ credentials and policies can take time to propagate.
 
 ## Retirement
 
-Retain these identities, policies and keys until `mise run down` has verified cloud
-deletion. `down` revokes the deployment-created storage key after workload deletion
-and verifies its absence before retiring Vault secrets. It retains the storage
-user and unrelated keys. For temporary account prerequisites owned by the run, revoke remaining keys,
-remove memberships and policies, delete the users/groups, then delete the empty
-compartment through the administrator's credential workflow. Record identifiers
-privately so cleanup does not depend on matching names.
+Retain provisioner access until `mise run down` has verified deletion. After
+workload and bucket cleanup, `down` revokes the recorded storage key and verifies
+its absence. Crossplane then deletes the deployment's storage policy, membership, group and
+user before Vault secrets are retired. Unrecorded keys block identity deletion.
+OCI requires the group to be empty; provider reconciliation retries group
+deletion until its membership is removed.
+The original compartment and provisioner remain administrator-owned. Retire
+temporary account prerequisites through the administrator's credential workflow
+only after all deployment cleanup has completed.
 
 Both quick deployment and [GitOps](../gitops/README.md#inputs-and-secret-delivery)
 use the Vault/key, secret and runtime-policy permissions above. The retained

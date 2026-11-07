@@ -7,7 +7,7 @@ run = [
   '''test -f '{{ vars.ENV_DIR }}/environment.yaml' && test -f '{{ vars.ENV_DIR }}/settings.yaml' || { printf '%s\n' "Provide private environment and application settings" >&2; exit 1; }''',
   '''yq eval-all -e '[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0' {{ (vars.ENV_DIR) | quote }}/environment.yaml {{ (vars.ENV_DIR) | quote }}/settings.yaml || { printf '%s\n' "Replace example configuration before provisioning" >&2; exit 1; }''',
   '''yq -e '.spec.paused == false' {{ vars.ROOT_DIR }}/deploy/tamoss/instance/patch.yaml || { printf '%s\n' "Application configuration must be unpaused before deployment" >&2; exit 1; }''',
-  '''yq -e '.storageUserId | test("^ocid1[.]user[.]")' '{{ vars.ENV_DIR }}/settings.yaml' > /dev/null || { printf '%s\n' 'Provide a separate storage user OCID in values.yaml' >&2; exit 1; }''',
+  '''yq -e '.storageIdentity.domainId | test("^ocid1[.]domain[.]")' '{{ vars.ENV_DIR }}/settings.yaml' > /dev/null || { printf '%s\n' 'Default identity domain discovery is missing; prepare a fresh environment' >&2; exit 1; }''',
   '''yq -e '.metadata.namespace == "tamoss-infra" and .spec.providerConfigName == "oci" and .spec.database.credentialsSecret == "database-admin"' {{ vars.ENV_DIR }}/environment.yaml || { printf '%s\n' "The environment must reference the installed namespace, provider and database Secret" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:profile",
   "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' '{{ vars.ENV_DIR }}/environment.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",

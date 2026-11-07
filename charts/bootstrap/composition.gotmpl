@@ -1,7 +1,7 @@
 {{- $xr := .observed.composite.resource -}}
 {{- $p := $xr.spec -}}
-{{- if and (hasKey $p "storageCredentials") (or (not (hasKey $p "vaultAuth")) (eq $p.storageCredentials.userId (dig "vaultAuth" "user" "" $p))) -}}
-{{- fail "Automatic S3 credentials require a separate storage user and the Kind provisioner" -}}
+{{- if and (hasKey $p "storageCredentials") (not (hasKey $p "vaultAuth")) -}}
+{{- fail "Automatic storage identity requires the Kind provisioner" -}}
 {{- end -}}
 {{- $storageJobs := dig "storageJobs" "items" (list) (.extraResources | default dict) -}}
 {{- $storagePods := dig "storagePods" "items" (list) (.extraResources | default dict) -}}
@@ -63,6 +63,7 @@
 {{- $accessReady = and $accessReady $ready $synced -}}
 {{- end -}}
 {{- end -}}
+__STORAGE_IDENTITY__
 apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
 kind: ExtraResources
 requirements:
@@ -88,6 +89,7 @@ requirements:
     namespace: {{ $xr.metadata.namespace }}
     matchLabels:
       tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+      tamoss.livewyer.io/iam-role: runtime
   bindingInput:
     apiVersion: v1
     kind: Secret
@@ -131,7 +133,7 @@ spec:
 {{- if hasKey $p "vaultAuth" }}
 {{- $vault := dig "status" "vaultId" "" $foundation | default (dig "spec" "values" "oracle" "vault" "" $secretRelease) -}}
 {{- $key := dig "status" "keyId" "" $foundation | default (dig "spec" "values" "oracle" "encryptionKey" "" $secretRelease) -}}
-{{- if and $vault $key }}
+{{- if and $vault $key (or $storageIdentityReady $secretRelease (not (hasKey $p "storageCredentials"))) }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -162,7 +164,8 @@ spec:
     initialise: {{ and (not $p.released) (not ($p.credentialsEstablished | default false)) }}
 {{- with $p.storageCredentials }}
     s3:
-{{ . | toYaml | indent 6 }}
+      userId: {{ $storageUserId | quote }}
+      image: {{ .image | quote }}
 {{- end }}
     oracle:
       region: {{ $p.foundation.region | quote }}
@@ -275,11 +278,15 @@ apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 metadata:
   annotations:
-    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady) $remoteReady) | toString | title | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady) $remoteReady) | toString | title | quote }}
 status:
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
   credentialsReady: {{ $credentialsReady }}
+  storageIdentityReady: {{ $storageIdentityReady }}
+  storageIdentity:
+    userId: {{ $storageUserId | quote }}
+    groupId: {{ $storageGroupId | quote }}
   infrastructureReady: {{ $infrastructureReady }}
   bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady ($p.credentialsEstablished | default false) }}
   bindingsReady: {{ $bindingsReady }}
@@ -287,4 +294,4 @@ status:
   remoteBootstrapReady: {{ $remoteReady }}
   remoteBootstrapCompleted: {{ $remoteCompleted }}
   remoteBootstrapPhase: {{ $remotePhase | quote }}
-  released: {{ and $p.released $storageRetired (eq (len $remotePods) 0) (empty $remoteJob) (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}
+  released: {{ and $p.released $storageRetired $storageQuiesced (eq (len $remotePods) 0) (empty $remoteJob) (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}

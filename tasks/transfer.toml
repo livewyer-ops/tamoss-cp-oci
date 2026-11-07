@@ -111,7 +111,7 @@ run = [
   "yq -i '.runtimeWritesEnabled = true' {{ vars.ENV_DIR }}/identity.yaml",
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch helmrelease/runtime-access --type=merge -p '{"spec":{"values":{"providerWrites":true}}}'''',
   "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --for=condition=Synced --timeout=300s",
 ]
 
 ["transfer:stop-kind"]
@@ -174,7 +174,7 @@ run = [
   '''FILE={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:assert-quiesced''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch helmrelease/runtime-access --type=merge -p '{"spec":{"values":{"providerWrites":false}}}'''',
   "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io --all --for=condition=Synced --timeout=300s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --for=condition=Synced --timeout=300s",
   "yq -i '.runtimeWritesEnabled = false' {{ vars.ENV_DIR }}/identity.yaml",
   "cp '{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/values.yaml' '{{ vars.ENV_DIR }}/gitops-current-values.yaml'",
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} GITOPS_VALUES={{ ((vars.ENV_DIR) ~ "/gitops-current-values.yaml") | quote }} PRODUCT_COMMIT={{ ((env.TASKV_PRODUCT_COMMIT)) | quote }} mise run management:refresh''',

@@ -1,0 +1,142 @@
+{{- $storageIdentityReady := true -}}
+{{- $storageQuiesced := true -}}
+{{- $storageUserId := "" -}}
+{{- $storageGroupId := "" -}}
+{{- if $p.storageCredentials -}}
+{{- $s := $p.storageCredentials -}}
+{{- $name := printf "tamoss-storage-%s" $p.deploymentId -}}
+{{- $observed := .observed.resources | default dict -}}
+{{- $user := (get $observed "storage-user" | default dict).resource | default dict -}}
+{{- $group := (get $observed "storage-group" | default dict).resource | default dict -}}
+{{- $membership := (get $observed "storage-membership" | default dict).resource | default dict -}}
+{{- $policy := (get $observed "storage-policy" | default dict).resource | default dict -}}
+{{- $record := (get $observed "storage-identity-record" | default dict).resource | default dict -}}
+{{- $data := $record.data | default dict -}}
+{{- $storageUserId = dig "status" "atProvider" "ocid" "" $user | default ($data.USER_ID | default "") -}}
+{{- $storageGroupId = dig "status" "atProvider" "id" "" $group | default ($data.GROUP_ID | default "") -}}
+{{- $userId := dig "status" "atProvider" "id" "" $user | default ($data.USER_SCIM_ID | default "") -}}
+{{- $membershipId := dig "status" "atProvider" "id" "" $membership | default ($data.MEMBERSHIP_ID | default "") -}}
+{{- $policyId := dig "status" "atProvider" "id" "" $policy | default ($data.POLICY_ID | default "") -}}
+{{- $capabilities := dict "canUseApiKeys" false "canUseAuthTokens" false "canUseConsole" false "canUseConsolePassword" false "canUseCustomerSecretKeys" true "canUseDbCredentials" false "canUseOauth2ClientCredentials" false "canUseSmtpCredentials" false -}}
+{{- $actualCapabilities := first (dig "status" "atProvider" "urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser" (list) $user) | default dict -}}
+{{- $restricted := true -}}
+{{- range $key, $value := $capabilities -}}
+{{- $restricted = and $restricted (hasKey $actualCapabilities $key) (eq (get $actualCapabilities $key) $value) -}}
+{{- end -}}
+{{- range $resource := list $user -}}
+{{- $domain := dig "status" "atProvider" "domainOcid" "" $resource -}}
+{{- $owner := dig "status" "atProvider" "externalId" "" $resource -}}
+{{- if or (and $domain (ne $domain $s.domainId)) (and $owner (ne $owner $p.deploymentId)) -}}{{ fail "Storage identity belongs to a different domain or deployment" }}{{- end -}}
+{{- end -}}
+{{- if and $storageUserId (eq $storageUserId $p.vaultAuth.user) -}}{{ fail "Storage identity must be separate from the provisioner" }}{{- end -}}
+{{- if $record -}}
+{{- $expected := dict "DEPLOYMENT_ID" $p.deploymentId "BOOTSTRAP_UID" $xr.metadata.uid "DOMAIN_ID" $s.domainId "IDCS_ENDPOINT" $s.idcsEndpoint "USER_ID" $storageUserId "USER_SCIM_ID" $userId "GROUP_ID" $storageGroupId "MEMBERSHIP_ID" $membershipId "POLICY_ID" $policyId -}}
+{{- if ne (toJson $data) (toJson $expected) -}}{{ fail "Storage identity differs from its immutable ownership record" }}{{- end -}}
+{{- range $key, $id := dict "storage-user" $userId "storage-group" $storageGroupId "storage-membership" $membershipId "storage-policy" $policyId -}}
+{{- $bound := dig "resource" "metadata" "annotations" "crossplane.io/external-name" "" (get $observed $key | default dict) -}}
+{{- if and $bound (ne $bound $id) -}}{{ fail "Storage resource binding differs from its immutable ownership record" }}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $storageIdentityReady = and $storageUserId $storageGroupId $userId $membershipId $policyId | not | not -}}
+{{- $storageIdentityReady = and $storageIdentityReady $restricted -}}
+{{- $storageIdentityReady = and $storageIdentityReady (eq (dig "status" "atProvider" "userId" "" $membership) $storageUserId) (eq (dig "status" "atProvider" "groupId" "" $membership) $storageGroupId) -}}
+{{- range $key, $resource := dict "storage-user" $user "storage-group" $group "storage-membership" $membership "storage-policy" $policy -}}
+{{- $ready := false -}}{{- $synced := false -}}{{- $paused := false -}}{{- $busy := false -}}
+{{- range (dig "status" "conditions" (list) $resource) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
+{{- if and (eq .type "Synced") (eq .status "True") -}}{{- $synced = true -}}{{- end -}}
+{{- if and (eq .type "Synced") (eq .reason "ReconcilePaused") -}}{{- $paused = true -}}{{- end -}}
+{{- if and (eq .type "AsyncOperation") (eq .status "True") -}}{{- $busy = true -}}{{- end -}}
+{{- end -}}
+{{- $storageIdentityReady = and $storageIdentityReady $ready $synced (not $busy) -}}
+{{- if $resource -}}
+{{- $storageQuiesced = and $storageQuiesced $paused (not $busy) (eq (dig "metadata" "annotations" "crossplane.io/paused" "" $resource) "true") (eq (toJson $resource.spec.managementPolicies) (toJson (list "Observe"))) -}}
+{{- end -}}
+{{- end -}}
+{{- $policies := list "Observe" "Create" "Update" "Delete" -}}
+{{- if $record -}}{{- $policies = list "Observe" "Delete" -}}{{- end -}}
+{{- if $p.released -}}{{- $policies = list "Observe" -}}{{- end -}}
+{{- $tags := list (dict "key" "tamoss-deployment-id" "value" $p.deploymentId) (dict "key" "tamoss-bootstrap-uid" "value" $xr.metadata.uid) -}}
+{{- $userParameters := dict "idcsEndpoint" $s.idcsEndpoint "schemas" (list "urn:ietf:params:scim:schemas:core:2.0:User" "urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User" "urn:ietf:params:scim:schemas:oracle:idcs:extension:capabilities:User" "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociTags") "userName" $name "displayName" $name "name" (list (dict "givenName" "TAMOSS" "familyName" "Storage")) "externalId" $p.deploymentId "active" true "forceDelete" false "emails" (list (dict "value" $s.email "primary" true "type" "work")) "urnietfparamsscimschemasoracleidcsextensionuserUser" (list (dict "bypassNotification" true)) "urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser" (list $capabilities) "urnietfparamsscimschemasoracleidcsextensionOciTags" (list (dict "freeformTags" $tags)) -}}
+{{- $iamTags := dict "tamoss-deployment-id" $p.deploymentId "tamoss-bootstrap-uid" $xr.metadata.uid -}}
+{{- $groupParameters := dict "compartmentId" $p.vaultAuth.tenancy "name" $name "description" "Deployment media storage identity" "freeformTags" $iamTags -}}
+{{- $membershipParameters := dict "groupId" $storageGroupId "userId" $storageUserId -}}
+{{- $statements := dig "spec" "forProvider" "statements" (list) $policy -}}
+{{- if $storageGroupId -}}
+{{- $statements = list (printf "Allow group id %s to read buckets in compartment id %s where target.bucket.name = '%s'" $storageGroupId $p.environment.compartmentId $p.environment.storage.bucket) (printf "Allow group id %s to manage objects in compartment id %s where target.bucket.name = '%s'" $storageGroupId $p.environment.compartmentId $p.environment.storage.bucket) -}}
+{{- end -}}
+{{- $storageIdentityReady = and $storageIdentityReady (dig "status" "atProvider" "active" false $user) (eq (dig "status" "atProvider" "userName" "" $user) $name) -}}
+{{- range $resource := list $group $policy -}}
+{{- $storageIdentityReady = and $storageIdentityReady (eq (dig "status" "atProvider" "name" "" $resource) $name) (eq (dig "status" "atProvider" "state" "" $resource) "ACTIVE") -}}
+{{- end -}}
+{{- $storageIdentityReady = and $storageIdentityReady (eq (dig "status" "atProvider" "compartmentId" "" $group) $p.vaultAuth.tenancy) (eq (dig "status" "atProvider" "compartmentId" "" $policy) $p.environment.compartmentId) (eq (dig "status" "atProvider" "state" "" $membership) "ACTIVE") -}}
+{{- $storageIdentityReady = and $storageIdentityReady (eq (toJson (sortAlpha (dig "status" "atProvider" "statements" (list) $policy))) (toJson (sortAlpha $statements))) -}}
+{{- $policyParameters := dict "compartmentId" $p.environment.compartmentId "name" $name "description" "Application access to the deployment media bucket" "freeformTags" (dict "tamoss-deployment-id" $p.deploymentId "tamoss-bootstrap-uid" $xr.metadata.uid) "statements" $statements -}}
+{{- $resources := dict "storage-user" (dict "apiVersion" "identitydomains.oci.m.upbound.io/v1alpha1" "kind" "User" "parameters" $userParameters "observed" $user "emit" true) "storage-group" (dict "apiVersion" "identity.oci.m.upbound.io/v1alpha1" "kind" "Group" "parameters" $groupParameters "observed" $group "emit" (and (not (empty $userId)) $restricted)) "storage-membership" (dict "apiVersion" "identity.oci.m.upbound.io/v1alpha1" "kind" "UserGroupMembership" "parameters" $membershipParameters "observed" $membership "emit" (and (not (empty $storageUserId)) (not (empty $storageGroupId)) $restricted)) "storage-policy" (dict "apiVersion" "identity.oci.m.upbound.io/v1alpha1" "kind" "Policy" "parameters" $policyParameters "observed" $policy "emit" (not (empty $statements))) -}}
+{{- range $key, $resource := $resources -}}
+{{- if and (or $resource.emit $resource.observed) (or (not $p.released) $resource.observed) }}
+---
+apiVersion: {{ $resource.apiVersion }}
+kind: {{ $resource.kind }}
+metadata:
+  name: {{ $xr.metadata.name }}-{{ $key }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation $key }}
+{{- if $record }}
+    crossplane.io/external-name: {{ get (dict "storage-user" $userId "storage-group" $storageGroupId "storage-membership" $membershipId "storage-policy" $policyId) $key | quote }}
+{{- end }}
+{{- if $p.released }}
+    crossplane.io/paused: 'true'
+{{- end }}
+  labels:
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+    tamoss.livewyer.io/iam-role: storage
+spec:
+  managementPolicies: {{ $policies | toJson }}
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+{{ $resource.parameters | toYaml | indent 4 }}
+{{- end -}}
+{{- end }}
+---
+apiVersion: protection.crossplane.io/v1beta1
+kind: Usage
+metadata:
+  name: {{ $xr.metadata.name }}-storage-credentials
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "usage-storage-credentials" }}
+    gotemplating.fn.crossplane.io/ready: 'True'
+spec:
+  replayDeletion: true
+  of:
+    apiVersion: identitydomains.oci.m.upbound.io/v1alpha1
+    kind: User
+    resourceRef: {name: {{ $xr.metadata.name }}-storage-user}
+  reason: Revoke and verify the deployment S3 key before retiring its storage identity
+{{- if or $record $storageIdentityReady }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-identity
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "storage-identity-record" }}
+    gotemplating.fn.crossplane.io/ready: 'True'
+immutable: true
+data:
+  DEPLOYMENT_ID: {{ $p.deploymentId | quote }}
+  BOOTSTRAP_UID: {{ $xr.metadata.uid | quote }}
+  DOMAIN_ID: {{ $s.domainId | quote }}
+  IDCS_ENDPOINT: {{ $s.idcsEndpoint | quote }}
+  USER_ID: {{ $storageUserId | quote }}
+  USER_SCIM_ID: {{ $userId | quote }}
+  GROUP_ID: {{ $storageGroupId | quote }}
+  MEMBERSHIP_ID: {{ $membershipId | quote }}
+  POLICY_ID: {{ $policyId | quote }}
+{{- end -}}
+{{- $storageIdentityReady = and $storageIdentityReady (not (empty $record)) -}}
+{{- end }}
+---

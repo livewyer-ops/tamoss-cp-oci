@@ -3,7 +3,7 @@ kind: Test
 metadata: {name: s3-credential-ownership-admission}
 spec:
   steps:
-    - name: admit the production schema with a separate storage user
+    - name: admit the production schema with a discovered storage domain
       try:
         - apply: {file: ../../../.local/tmp/check/s3-credentials/schema.yaml}
         - assert:
@@ -23,7 +23,7 @@ spec:
       try:
         - command:
             entrypoint: kubectl
-            args: [-n, s3-admission, patch, s3fixturebootstrap, storage-admission, --type=merge, --dry-run=server, '-p={"spec":{"storageCredentials":{"userId":"ocid1.user.oc1..replacement"}}}']
+            args: [-n, s3-admission, patch, s3fixturebootstrap, storage-admission, --type=merge, --dry-run=server, '-p={"spec":{"storageCredentials":{"domainId":"ocid1.domain.oc1.replacement"}}}']
             check: {($error != null): true}
         - command:
             entrypoint: kubectl
@@ -33,7 +33,7 @@ spec:
             entrypoint: kubectl
             args: [-n, s3-admission, patch, s3fixturebootstrap, storage-admission, --type=merge, --dry-run=server, '-p={"spec":{"vaultAuth":null}}']
             check: {($error != null): true}
-    - name: reject sharing the provisioner identity on a fresh object
+    - name: reject the removed user ID interface on a fresh object
       bindings:
         - name: original
           value: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'S3FixtureBootstrap', 's3-admission', 'storage-admission'))

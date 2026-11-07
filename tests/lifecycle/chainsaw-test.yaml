@@ -175,7 +175,7 @@ spec:
             args: ["ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:invalid-storage"]
             check:
               ($error != null): true
-              (contains($stderr, 'Provide a separate storage user OCID')): true
+              (contains($stderr, 'Default identity domain discovery is missing')): true
     - name: reject a missing identity record for existing state
       try:
         - command:

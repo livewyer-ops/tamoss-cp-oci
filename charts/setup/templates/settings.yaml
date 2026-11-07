@@ -1,5 +1,15 @@
 {{- if .Values.discovery }}
+{{- $domains := list -}}
+{{- range .Values.discovery.identityDomains -}}
+{{- if and (eq (index . "display-name") "Default") (eq (index . "lifecycle-state") "ACTIVE") -}}
+{{- $domains = append $domains . -}}
+{{- end -}}
+{{- end -}}
+{{- if ne (len $domains) 1 -}}{{ fail "Expected exactly one active Default identity domain; verify the provisioner's domain discovery permissions" }}{{- end }}
 acmeEmail: {{ .Values.acmeEmail | default .Values.contactEmail | quote }}
 adminEmail: {{ .Values.adminEmail | default .Values.contactEmail | quote }}
-storageUserId: {{ .Values.storage.userId | quote }}
+storageIdentity:
+  domainId: {{ (first $domains).id | quote }}
+  idcsEndpoint: {{ required "Default identity domain endpoint is required" (first $domains).url | trimSuffix "/" | quote }}
+  email: {{ .Values.contactEmail | quote }}
 {{- end }}

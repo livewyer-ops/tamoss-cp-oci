@@ -45,14 +45,16 @@ run = [
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''yq '.spec.storageCredentials = {"userId":"ocid1.user.oc1..storage", "image": load("dependencies.yaml").bootstrapTools.image}' .local/tmp/check/bootstrap/native-root.yaml > .local/tmp/check/s3-credentials/root.yaml''',
-  '''crossplane composition render .local/tmp/check/s3-credentials/root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/bootstrap/native-observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/s3-credentials/composed.yaml''',
-  '''yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | .spec.values.s3.userId == "ocid1.user.oc1..storage" and .spec.values.initialise == true and .spec.install.disableWaitForJobs == true' .local/tmp/check/s3-credentials/composed.yaml''',
+  "mise run test:storage-identity:render",
+  "cp .local/tmp/check/storage-identity/root.yaml .local/tmp/check/s3-credentials/root.yaml",
+  "cp .local/tmp/check/storage-identity/ready.yaml .local/tmp/check/s3-credentials/composed.yaml",
   '''yq '.spec.released = true' .local/tmp/check/s3-credentials/root.yaml > .local/tmp/check/s3-credentials/released-root.yaml''',
-  '''yq 'select(.kind != "TamossBootstrap") | with(select(.kind == "HelmRelease"); .metadata.generation = 2 | .status.observedGeneration = 2 | .status.conditions = [{"type":"Ready","status":"True"}])' .local/tmp/check/s3-credentials/composed.yaml > .local/tmp/check/s3-credentials/active-observed.yaml''',
+  '''yq 'select(.kind != "TamossBootstrap") | with(select(.metadata.labels."tamoss.livewyer.io/iam-role" == "storage"); .metadata.annotations."crossplane.io/paused" = "true" | .spec.managementPolicies = ["Observe"] | .status.conditions = [{"type":"Synced","status":"False","reason":"ReconcilePaused"}]) | with(select(.kind == "HelmRelease"); .metadata.generation = 2 | .status.observedGeneration = 2 | .status.conditions = [{"type":"Ready","status":"True"}])' .local/tmp/check/s3-credentials/composed.yaml > .local/tmp/check/s3-credentials/active-observed.yaml''',
   '''yq 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets"); .spec.values.initialise = false)' .local/tmp/check/s3-credentials/active-observed.yaml > .local/tmp/check/s3-credentials/retired-observed.yaml''',
   '''yq 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets"); .status.observedGeneration = 1)' .local/tmp/check/s3-credentials/retired-observed.yaml > .local/tmp/check/s3-credentials/stale-observed.yaml''',
-  '''{% for case in ["active", "retired", "stale"] %}
+  '''yq 'with(select(.kind == "User"); .status.conditions += [{"type":"AsyncOperation","status":"True"}])' .local/tmp/check/s3-credentials/retired-observed.yaml > .local/tmp/check/s3-credentials/busy-observed.yaml''',
+  '''yq 'with(select(.kind == "User"); .metadata.annotations."crossplane.io/paused" = "false")' .local/tmp/check/s3-credentials/retired-observed.yaml > .local/tmp/check/s3-credentials/writing-observed.yaml''',
+  '''{% for case in ["active", "retired", "stale", "busy", "writing"] %}
 crossplane composition render .local/tmp/check/s3-credentials/released-root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/s3-credentials/{{ case }}-observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/s3-credentials/{{ case }}.yaml
 yq -e 'select(.kind == "TamossBootstrap") | .status.released == {{ case == "retired" }}' .local/tmp/check/s3-credentials/{{ case }}.yaml
 {% endfor %}''',
@@ -64,4 +66,11 @@ yq -e 'select(.kind == "TamossBootstrap") | .status.released == {{ case == "reti
   '''yq -e 'select(.kind == "TamossBootstrap") | .status.released == false' .local/tmp/check/s3-credentials/pod-active.yaml''',
   '''yq 'select(.kind == "CompositeResourceDefinition") | {"apiVersion":"apiextensions.k8s.io/v1", "kind":"CustomResourceDefinition", "metadata":{"name":"s3fixturebootstraps.tamoss.livewyer.io"}, "spec":{"group":.spec.group,"scope":"Namespaced","names":{"plural":"s3fixturebootstraps","singular":"s3fixturebootstrap","kind":"S3FixtureBootstrap"}, "versions":(.spec.versions | map(.storage = .referenceable | del(.referenceable)))}}' .local/tmp/check/bootstrap/api.yaml > .local/tmp/check/s3-credentials/schema.yaml''',
   '''yq '.kind = "S3FixtureBootstrap" | .metadata.name = "storage-admission" | .metadata.namespace = "s3-admission"' .local/tmp/check/s3-credentials/root.yaml > .local/tmp/check/s3-credentials/admission.yaml''',
+]
+
+["test:s3:retirement-receipt"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "kubectl -n tamoss-infra get configmap s3-credential-operation -o json > .local/tmp/check/s3-credentials/retirement/s3-operation-before-retirement.json",
 ]

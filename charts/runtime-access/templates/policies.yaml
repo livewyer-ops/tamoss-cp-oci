@@ -10,6 +10,7 @@ metadata:
   name: {{ $.Values.deploymentId }}-{{ $service }}
   namespace: {{ $.Release.Namespace }}
   labels:
+    tamoss.livewyer.io/iam-role: runtime
     tamoss.livewyer.io/deployment-id: {{ $.Values.deploymentId | quote }}
 spec:
   providerConfigRef: {kind: ProviderConfig, name: {{ $.Values.providerConfigName }}}
@@ -35,6 +36,7 @@ metadata:
   name: {{ .Values.deploymentId }}-database-connection
   namespace: {{ .Release.Namespace }}
   labels:
+    tamoss.livewyer.io/iam-role: runtime
     tamoss.livewyer.io/deployment-id: {{ .Values.deploymentId | quote }}
 spec:
   providerConfigRef: {kind: ProviderConfig, name: {{ .Values.providerConfigName }}}
@@ -54,6 +56,7 @@ metadata:
   name: {{ $.Values.deploymentId }}-secrets-{{ $namespace }}
   namespace: {{ $.Release.Namespace }}
   labels:
+    tamoss.livewyer.io/iam-role: runtime
     tamoss.livewyer.io/deployment-id: {{ $.Values.deploymentId | quote }}
 spec:
   providerConfigRef: {kind: ProviderConfig, name: {{ $.Values.providerConfigName }}}

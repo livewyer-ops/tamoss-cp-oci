@@ -3,7 +3,7 @@
 [Overview](../README.md) | [Getting started](getting-started.md) | [Operations](operations.md) | [Testing](testing.md)
 
 Flux in Kind installs Crossplane and External Secrets from a private seed.
-Crossplane creates the retained OCI Vault/key and the OKE environment.
+Crossplane creates the retained OCI Vault/key, storage identity and OKE environment.
 Flux, Crossplane and External Secrets on OKE take over ongoing reconciliation.
 The original Kind stops after verified ownership transfer and is retained for
 teardown. The quick deployment seeds configuration from the private local
@@ -69,8 +69,9 @@ secret delivery. Release upgrades and credential rotation remain unqualified.
 
 | Owner | Responsibility |
 | --- | --- |
-| Account administrator | Dedicated compartment, scoped OCI identities, policies and signing/storage keys |
+| Account administrator | Dedicated compartment, authorised provisioner and its signing key |
 | Crossplane | Kind initially owns the environment; OKE takes the same provider bindings after verified handover |
+| Crossplane in retained Kind | Storage user, group and bucket policy; paused after handover and deleted after key revocation during teardown |
 | OKE cloud controller | Load balancer created by the ingress `LoadBalancer` Service |
 | Flux | Kind bootstrap releases; OKE platform releases, HA/OCI overlays, controllers and TAMOSS declarations |
 | TAMOSS operator | Application workloads, runtime images, schema migrations, StorageBackend and IngestRun Jobs |
@@ -199,12 +200,24 @@ configured retention, but teardown deletes the owned system and its backups.
 
 The private OCI bucket stores media. TAMOSS registers it through an external
 StorageBackend and uses the S3-compatible HTTPS endpoint for application and
-browser media access. A bounded Kind Job creates a Customer Secret Key for the
-separate bucket-scoped storage user. ESO persists the one-time response in Vault
+browser media access. Crossplane in Kind creates a separate user and group in
+the Default identity domain and grants access to the media bucket. An immutable
+`storage-identity` ConfigMap records their exact IDs before the bounded Kind Job
+creates a Customer Secret Key. ESO persists the one-time response in Vault
 and delivers it to OKE; Crossplane sees only references and non-secret receipts.
 The creation claim prevents a repeated Job from creating another key. Teardown
-revokes the recorded key after workload deletion. Qualification's ingest source
+revokes the recorded key after workload deletion, then removes the storage IAM
+resources through Crossplane. These resources remain with retained Kind during
+handover; stopping Kind does not affect S3 access. Qualification's ingest source
 is restricted to its input prefix.
+
+Crossplane records the user, group, membership and policy IDs before freezing
+their management policies to `Observe,Delete`. This prevents replacement of a
+recorded identity. The pinned provider does not support updating without create
+permission. Readiness checks detect changes to capabilities, membership and the
+bucket policy; repairing recorded IAM drift requires operator review. A Usage
+protects the user until its key has been revoked. OCI and provider reconciliation
+enforce removal of membership before the group can be deleted.
 
 Worker-drain availability has passed live checks. That result does not establish
 managed-database failover, regional recovery or management-state restoration.

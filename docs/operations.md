@@ -115,8 +115,9 @@ for a later teardown attempt.
 
 ### S3 credential recovery
 
-The `s3-credential-operation` ConfigMap records the deployment identity, storage
-user, attempt and key ID. Preserve it and the original Kind cluster. The Job
+The immutable `storage-identity` ConfigMap records the generated user, group,
+membership and policy IDs. The `s3-credential-operation` ConfigMap records the deployment identity,
+storage user, attempt and key ID. Preserve both and the original Kind cluster. The Job
 claims the operation before calling OCI, with automatic API retries disabled.
 An interruption after creation can lose the one-time secret response, so a
 failed Job is not evidence that OCI created no key.
@@ -135,6 +136,14 @@ retained. If the claim has no recorded ID and OCI cannot identify its key,
 recovery stops: retain the records and use OCI Audit to establish the creation
 outcome before changing the claim. A timeout or empty list alone cannot prove
 that an in-flight create failed. Do not clear the receipt to force a retry.
+
+Recorded IAM resources use `Observe,Delete` to prevent replacement. If
+`status.storageIdentityReady` becomes false, inspect their observed capabilities,
+membership and bucket policy against `spec.forProvider`. These resources do not
+repair drift automatically after recording. Restore the recorded configuration
+through the account administrator; retain Kind and the ownership record if an
+identity has been deleted. Do not replace the record or enable `Create` to bypass
+that failure.
 
 ## Convergence and handover
 
@@ -322,7 +331,9 @@ provider credentials remain until direct OCI inventory matches the baseline.
 | Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
 
 After the cloud audit, teardown revokes the deployment's S3 key, verifies its
-absence, retires the binding PushSecret and schedules
+absence, deletes the generated storage policy, membership, group and user through Crossplane,
+and verifies their absence through OCI. Unrelated keys block user deletion.
+It retires the binding PushSecret and schedules
 environment secrets for deletion. A bounded Kubernetes Job waits
 for OCI to report `PENDING_DELETION` or `DELETED`; a timeout retains Kind and the
 Job for diagnosis. `retained-foundation.yaml` records the owner, Vault/key and
@@ -337,7 +348,7 @@ owner access; local exported credentials remain your responsibility.
 
 Resolve the failure and repeat `mise run down` with the same directory. Preserve
 `identity.yaml`, `tamoss-release.yaml`, `qualification.sha256`, `resources.yaml`,
-`owned-cloud.yaml`, the baseline inventory and credentials until cleanup completes.
+`owned-cloud.yaml`, `storage-inventory.yaml`, the baseline inventory and credentials until cleanup completes.
 Do not edit records to bypass mismatches or remove finalisers to simulate deletion.
 
 ## Retained management state

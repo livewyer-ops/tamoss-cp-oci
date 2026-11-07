@@ -13,7 +13,7 @@ spec:
 {{- $services = concat $services (list "networking" "containerengine" "psql" "objectstorage") }}
 {{- end }}
 {{- if .Values.foundation }}
-{{- $services = concat $services (list "kms" "identity") }}
+{{- $services = concat $services (list "kms" "identity" "identitydomains") }}
 {{- end }}
 {{- range $service := $services }}
 ---

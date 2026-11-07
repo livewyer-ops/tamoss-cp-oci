@@ -52,7 +52,7 @@ mise install --locked
 mise run setup
 ```
 
-Complete [Getting started](docs/getting-started.md) with an OCI profile, storage user,
+Complete [Getting started](docs/getting-started.md) with an authorised OCI profile,
 compartment, contact email and administrator CIDR. Then deploy:
 
 ```bash

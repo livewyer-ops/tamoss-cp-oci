@@ -63,15 +63,14 @@ mise exec -- oci os ns get
 
 ### Storage identity
 
-Use a separate storage user with access scoped to the intended bucket.
-The default bucket is `tamoss-media-demo-media`. Setting `name` in
-`values.yaml` changes it to `tamoss-<name>-media`. Configure the storage policy for that exact name, or set
-`storage.bucket` to the bucket name already authorised by your administrator.
-Crossplane creates the bucket during deployment.
+Crossplane creates a dedicated storage user, group and bucket access policy in
+the tenancy's Default identity domain. Setup discovers that domain and reuses
+`contactEmail`; there is no storage user OCID to enter. The provisioner needs the
+[storage IAM permissions](../deploy/oci/README.md#storage-iam-permissions).
 
-Set its OCID as `storage.userId` in `values.yaml`. The provisioner needs the
-[scoped key-management policy](../deploy/oci/README.md) for this user. Leave at
-least one of the user's two Customer Secret Key slots available.
+The default bucket is `tamoss-media-demo-media`. Setting `name` changes it to
+`tamoss-<name>-media`; `storage.bucket` overrides the bucket name. Crossplane
+creates the bucket and grants the generated user access to that bucket only.
 
 During `up`, a bounded Job in Kind creates the key and stages its one-time
 response in a Kubernetes Secret. ESO persists it in OCI Vault and reads it back
@@ -90,8 +89,6 @@ Edit `.local/environment/values.yaml`:
 compartmentId: ocid1.compartment.oc1..REPLACE
 contactEmail: operator@example.com
 adminCidrs: [192.0.2.10/32]
-storage:
-  userId: ocid1.user.oc1..REPLACE
 ```
 
 Use your actual public egress IPv4 address, including any VPN gateway, for the

@@ -34,7 +34,6 @@ database:
   backupRetentionDays: 1
 storage:
   bucket: ''
-  userId: ''
 foundation:
   name: ''
   adoption: {}

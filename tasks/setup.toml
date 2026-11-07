@@ -78,9 +78,8 @@ run = [
   '''yq -e '[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0' {{ (vars.ENV_DIR) | quote }}/values.yaml || { printf '%s\n' "Replace example configuration before deploying" >&2; exit 1; }''',
   '''test -s '{{ env.TASKV_OCI_CONFIG }}' || { printf '%s\n' "Configure the OCI provisioner profile before deploying" >&2; exit 1; }''',
   "helm lint '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml'",
-  '''OCI_PROFILE={{ env.TASKV_OCI_PROFILE | quote }} yq -p=ini -e '(. * (.[strenv(OCI_PROFILE)] // {})) | .user != null and .user != load("{{ vars.ENV_DIR }}/values.yaml").storage.userId' {{ env.TASKV_OCI_CONFIG | quote }} > /dev/null || { printf '%s\n' 'The storage user must be separate from the infrastructure provisioner' >&2; exit 1; }''',
   "install -d -m 700 '{{ vars.ENV_DIR }}/discovery'",
-  '''OCI_PROFILE={{ (env.TASKV_OCI_PROFILE) | quote }} yq -p=ini -o=yaml '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
+  '''OCI_PROFILE={{ (env.TASKV_OCI_PROFILE) | quote }} yq -p=ini -o=yaml '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region, "tenancy": .tenancy}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
   '''yq -e '.region | test("^[a-z]+-[a-z]+-[0-9]+$")' {{ vars.ENV_DIR }}/discovery/profile.yaml > /dev/null''',
 ]
 env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
@@ -91,6 +90,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
+  '''{{ env.TASKV_OCI }} iam domain list --compartment-id "$(yq -r .tenancy '{{ vars.ENV_DIR }}/discovery/profile.yaml')" --all > '{{ vars.ENV_DIR }}/discovery/identity-domains.json' ''',
   "{{ env.TASKV_OCI }} os ns get > {{ (vars.ENV_DIR) | quote }}/discovery/namespace.json",
   "{{ env.TASKV_OCI }} network service list --all > {{ (vars.ENV_DIR) | quote }}/discovery/services.json",
   "{{ env.TASKV_OCI }} iam availability-domain list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ (vars.ENV_DIR) | quote }}/discovery/domains.json",
@@ -107,7 +107,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''yq -n '{"discovery": { "region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "bundles": {"tamoss": load("{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'''',
+  '''yq -n '{"discovery": { "region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "identityDomains": load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "bundles": {"tamoss": load("{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'''',
   '''helm template setup '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/discovery/values.yaml' --set-string product.commit="$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" --output-dir '{{ vars.ENV_DIR }}/setup-render'''',
   "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/environment/definition.yaml,{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' '{{ vars.ENV_DIR }}/setup-render/setup/templates/environment.yaml,{{ vars.ENV_DIR }}/setup-render/setup/templates/foundation.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
 ]
