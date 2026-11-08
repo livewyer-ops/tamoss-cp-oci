@@ -131,7 +131,7 @@ run = [
   "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-token.json'",
   "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-access.yaml'",
   "kubectl --kubeconfig '{{ env.DIRECTORY }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=10m -o json > '{{ env.DIRECTORY }}/remote-token.json'",
-  "helm template inputs charts/deployment-inputs --show-only templates/remote-access.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.remoteConfig='{{ env.DIRECTORY }}/remote.kubeconfig',files.remoteToken='{{ env.DIRECTORY }}/remote-token.json' > '{{ env.DIRECTORY }}/remote-access.yaml'",
+  "helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/remote-access.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.remoteConfig='{{ env.DIRECTORY }}/remote.kubeconfig',files.remoteToken='{{ env.DIRECTORY }}/remote-token.json' > '{{ env.DIRECTORY }}/remote-access.yaml'",
   "kubectl --kubeconfig '{{ env.DIRECTORY }}/management.kubeconfig' apply --server-side -f '{{ env.DIRECTORY }}/remote-access.yaml'",
   "install -m 600 '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
   "mise run test:oke-bootstrap:capture-access",
