@@ -28,9 +28,9 @@ coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md
 Flux, Crossplane and External Secrets on OKE. Deployment definitions are published
 from the checked-out commit to a [client-owned asset store](deploy/assets/README.md).
 Flux reads that store; an optional client Git repository selects configuration
-and asset releases. Earlier OCI application and handover tests passed with
-assistance. The client-asset lifecycle requires fresh full OCI qualification.
-Release upgrades and credential rotation remain unqualified.
+and asset releases. Client snapshot deployment, SSH handover and Git-enabled
+TADOSS passed assisted OCI testing with Kind stopped during operations. Fresh
+unattended installation, release upgrades and credential rotation remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
 through the environment Git repository, using the same platform services. Live

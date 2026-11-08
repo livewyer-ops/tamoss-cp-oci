@@ -9,10 +9,10 @@ snapshot built from the committed checkout and verified upstream releases. Kind 
 the running configuration and transfers infrastructure ownership to OKE.
 TAMOSS and TADOSS source and release assets remain read-only.
 
-The client-asset seed and SSH handover require fresh full OCI qualification. Earlier
-GitHub App-based deployments passed assisted OCI deployment, ownership transfer,
-Kind-off application operation and teardown. These results do not qualify the
-new authentication path. See [coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
+The client snapshot and native SSH handover passed assisted OCI testing, including
+Vault delivery, repeated handover and Git-enabled TADOSS with Kind stopped.
+A fresh unattended lifecycle remains unqualified. See
+[coverage and limits](../../docs/testing.md#verified-coverage-and-limits).
 
 ## Repository contents
 

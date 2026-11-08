@@ -166,51 +166,42 @@ evidence and continue independent checks as appropriate. Follow
 
 Setup contracts exercise private initialisation, preserved edits, deterministic
 regional selections, unavailable/ambiguous images, invalid configuration and
-repeat preparation without discovery. The client-asset lifecycle still requires
-a fresh full OCI deployment, native GitHub bootstrap and Vault-backed SSH
-handover. An isolated OCI test passed private snapshot upload/readback, restricted
-reader access, Flux Bucket consumption, Helm/Kustomize reconciliation and source
-cache recovery. Those results do not establish the complete OKE lifecycle.
-Local contracts and controller tests cannot establish unobserved cloud outcomes.
+repeat preparation without discovery. An assisted OCI deployment consumed a
+private client-owned snapshot built from a committed, unpushed product revision.
+Kind and OKE used that snapshot without product Git access. Native GitHub
+bootstrap and Vault-backed SSH handover passed, followed by Git-only TADOSS
+enablement and qualification with Kind stopped. Neither application source
+nor the selected snapshot changed during enablement.
 
-The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption
-bindings passed an assisted OCI run. The Job succeeded on its first Pod attempt;
-runtime values and applications converged through ordinary reconciliation.
-Repeat up preserved identity and Git while Kind remained stopped.
+The run required manual recovery of an OCI policy whose Kubernetes record had
+lost its external binding after successful creation. Its underlying cause remains
+unresolved. It also exposed a missing report directory, a duplicate Flux namespace
+and a field-ownership conflict when returning deletion authority; these product
+defects are corrected and covered by local checks. Asset-reader retirement needed
+an empty-list handling correction and administrator removal of a membership that
+the scoped provisioner could list but could not delete. A narrow additional IAM
+grant did not resolve that refusal. An uninterrupted lifecycle from the corrected
+product remains unqualified.
 
-The run required retries while new OCI credentials propagated, host comparison
-and teardown corrections, and native certificate renewal after an ACME timeout.
-The corrected comparisons retain resource identity and desired configuration
-while allowing provider-owned IP attachments and approximate bucket usage to
-differ. Native API tests cover the deletion-policy transition and interrupted
-ownership return. An uninterrupted lifecycle from the corrected product remains
-unqualified.
-
-Deployment readiness now includes current-generation public certificates for
-Authentik, TAMOSS and enabled TADOSS. Native Flux checks cover missing, false,
-unknown and stale certificate readiness and recovery. This prevents false
-success while TLS is unavailable; it does not resolve or qualify the original
-ACME connection timeout. The separate `up` and `handover` commands still need
-a fresh uninterrupted OCI lifecycle.
+Public TLS passed for Authentik, TAMOSS and TADOSS in this run. Native readiness
+checks also reject missing, false, unknown and stale certificate observations.
+These results do not establish that every cold certificate request will succeed
+or that earlier intermittent ACME connection timeouts are resolved.
 
 | Behaviour | Observed status |
 | --- | --- |
-| Automatic storage identity and credentials | Isolated OCI qualification passed Crossplane IAM creation, restricted capabilities, Job creation, exact Vault readback, bucket read/write and denial for another existing bucket. Repeats and provider restarts preserved IDs and credentials; S3 reads passed with Kind stopped. Exact-key revocation, native IAM deletion and repeated cleanup passed. This does not establish a full deployment or GitOps handover |
+| Client-owned assets | Private upload/readback, exact object-set verification, repeated publication and denied reader writes passed. Kind and OKE consumed the same snapshot while its product commit remained unpushed. OKE source-controller replacement recovered the identical artifact digest with Kind stopped |
+| Automatic storage identity and credentials | Crossplane IAM creation, generated key, exact Vault readback, application storage and native storage IAM retirement passed during the full deployment. Separate isolated checks cover restricted capabilities, denial for another bucket and preservation across provider restarts |
 | TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
 | Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
 | Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Bootstrap root | Flux installed the Kind controllers; Crossplane's OKE Job completed on its first attempt with zero container restarts. Vault-delivered bindings and derived runtime values converged without a provider restart |
+| Remote bootstrap | The host supplied temporary OKE access to Kind. Native Flux stages installed remote Flux, ESO and asset access before the shared seed. Vault-delivered bindings and runtime values converged; successful up retired temporary remote access |
 | Initial Flux convergence | All initial runtime Kustomizations, including TAMOSS, reached Ready before any host reconciliation request. Current-Git refresh and ownership transfer remain explicit operations |
-| Public GitOps lifecycle | Resumed bootstrap, repeat with unchanged identity/Git/Kind state, current-Git qualification, workload authentication, persisted secrets, private Git/GHCR pulls and ownership transfer/return passed |
-| Shared TAMOSS/TADOSS operation | Git-enabled TADOSS, trusted HTTPS, OAuth scope enforcement, timed metadata linked to ingested media and persistence after four verified pod replacements passed with Kind stopped; all 34 OCI resource IDs were unchanged |
-| Combined environment cleanup | Resumed public down passed after the comparison and interrupted-return corrections, with the pinned host checkout retained throughout. Current-Git ownership return, application finalisation, all 21 hardware categories empty, scheduled Vault secret deletion and Kind removal passed |
-| Workload convergence | Git-enabled TADOSS converged without a host reconciliation request; its OAuth Job completed on the first attempt with unchanged Authentik pod UIDs/restart counts. Cold public certificate issuance remains subject to the ACME qualification limit above |
+| Public GitOps lifecycle | Repeated up preserved exact resource bindings. Native SSH bootstrap, Vault persistence, ownership transfer and repeated handover passed after the namespace correction. Repeated handover preserved Git and left Kind stopped |
+| Shared TAMOSS/TADOSS operation | Changing only `tadoss.enabled` in client Git deployed TADOSS without asset publication or a host reconcile request. Trusted HTTPS, OAuth scopes, linked timed metadata and persistence after four verified pod replacements passed; all 35 inventoried OCI IDs, including the asset store, were unchanged |
+| Workload convergence | TADOSS's OAuth Job completed on its first attempt with unchanged Authentik pod UIDs and restart counts |
+| Environment cleanup | Assisted `down` and its repeat passed. Workloads, storage IAM and Kind were removed; Vault secret deletion was scheduled. Explicit asset-store retirement and its repeat passed. Independent administrator inventory found all 21 hardware categories empty; the pre-existing compartment, Vault and key remain retained |
 | Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
-
-The storage identity test used narrower bucket permissions than the documented
-provisioner prerequisites. Its independent OCI audit found buckets remaining
-after their Kubernetes records disappeared; administrator-assisted cleanup
-removed them. This test qualifies IAM retirement, not unattended bucket teardown.
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).

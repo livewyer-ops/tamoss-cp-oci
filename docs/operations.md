@@ -71,6 +71,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
+| IAM `PolicyAlreadyExists` with no external-name | Preserve the original managed resource and inspect OCI Audit; verify the cloud policy's exact ownership before restoring its binding |
+| Asset-reader membership deletion returns `NotAuthorizedOrNotFound` | Retain Kind and the environment records. Have the account administrator verify the exact owned user/group and review IAM access; the scoped provisioner may list the membership while deletion is denied. Resume `down` after ownership-verified recovery |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
 | Pending certificate | Certificate events, public DNS and ports 80/443 |
