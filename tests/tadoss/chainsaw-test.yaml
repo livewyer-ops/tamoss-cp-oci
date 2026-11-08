@@ -25,8 +25,8 @@ spec:
       try:
         - command:
             entrypoint: helm
-            args: [template, integration, ../../charts/gitops, -f, ../gitops/values.yaml, -f, ../../.local/tmp/check/gitops-pins.yaml, --set, tadoss.enabled=true]
+            args: [template, integration, ../../charts/gitops, -f, ../gitops/values.yaml, -f, ../../.local/tmp/check/gitops-pins.yaml, --set, tadoss.enabled=true, --set-string, tadoss.release.releaseSha256=invalid]
             check:
               ($error != null): true
               (contains($stderr, '/tadoss/release')): true
-              (contains($stderr, 'bundleURL')): true
+              (contains($stderr, 'releaseSha256')): true

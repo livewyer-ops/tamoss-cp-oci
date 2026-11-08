@@ -1,0 +1,36 @@
+{{- if .Values.files.assetBuild }}
+{{- $build := .Values.files.assetBuild | fromYaml -}}
+{{- $store := .Values.files.assetStore | fromYaml -}}
+{{- $prefix := printf "releases/%s/" (.Values.files.assetBuild | sha256sum) -}}
+{{- $pins := .Values.files.pins | default "{}" | fromYaml -}}
+{{- with $pins.tadoss }}{{- $_ := unset . "enabled" }}{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-assets
+  namespace: tamoss-infra
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+  annotations: {kustomize.toolkit.fluxcd.io/substitute: disabled}
+data:
+  schemaVersion: '1'
+  bucketName: {{ $store.bucketName | quote }}
+  endpoint: {{ $store.endpoint | quote }}
+  region: {{ $store.region | quote }}
+  prefix: {{ $prefix | quote }}
+  root: {{ printf "./%s" (trimSuffix "/" $prefix) | quote }}
+  storeId: {{ $store.storeId | quote }}
+  manifestSha256: {{ .Values.assetManifestSha256 | default "" | quote }}
+  productCommit: {{ $build.product.commit | quote }}
+  externalSecretsVersion: {{ $pins.dependencies.externalSecrets.version | quote }}
+  externalSecretsValues: |
+{{ $pins.externalSecrets | toYaml | indent 4 }}
+  values.yaml: |
+{{ $pins | toYaml | indent 4 }}
+    assets:
+      bucketName: {{ $store.bucketName | quote }}
+      endpoint: {{ $store.endpoint | quote }}
+      region: {{ $store.region | quote }}
+      prefix: {{ $prefix | quote }}
+      storeId: {{ $store.storeId | quote }}
+      manifestSha256: {{ .Values.assetManifestSha256 | default "" | quote }}
+{{- end }}

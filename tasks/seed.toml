@@ -2,7 +2,7 @@
 hide = true
 run = [
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:management",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomizations oke-flux oke-seed --ignore-not-found -o json > '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomizations -l tamoss.livewyer.io/remote-bootstrap=true -o json > '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json'",
   '''yq -e '[.items[] | .metadata.labels."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null''',
 ]
 
@@ -11,7 +11,7 @@ hide = true
 run = [
   '''yq -e '.deploymentReady != true and .handoverComplete != true and .teardownStarted != true and .returnComplete != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\n' "Completed, transferred or retiring environments cannot be seeded" >&2; exit 1; }''',
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-observe",
-  '''yq -e '[(.items | length == 2), (.items[] | [.spec.suspend != true, .metadata.deletionTimestamp == null, .spec.kubeConfig.secretRef.name == "oke-bootstrap-access", .spec.prune == false, .spec.deletionPolicy == "Orphan"] | all)] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null || { printf '%s\n' "Remote bootstrap is missing or retired; never recreate its authority" >&2; exit 1; }''',
+  '''yq -e '[(.items | length == 4), (.items[] | [.spec.suspend != true, .metadata.deletionTimestamp == null, .spec.kubeConfig.secretRef.name == "oke-bootstrap-access", .spec.prune == false, .spec.deletionPolicy == "Orphan"] | all)] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null || { printf '%s\n' "Remote bootstrap is missing or retired; never recreate its authority" >&2; exit 1; }''',
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:observe",
   '''yq -e '.spec.released == false and .spec.credentialsEstablished == true and .status.bootstrapReady == true and .status.observedGeneration == .metadata.generation' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null || { printf '%s\n' "Bootstrap must be current, ready, unreleased and have established credentials" >&2; exit 1; }''',
   "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/credentials-established.yaml' --timeout=300s",
@@ -120,6 +120,6 @@ run = [
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "helm template inputs '{{ vars.ROOT_DIR }}/charts/deployment-inputs' --show-only templates/bootstrap.yaml --set-file files.environment='{{ vars.ENV_DIR }}/environment.yaml',files.foundation='{{ vars.ENV_DIR }}/foundation.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.settings='{{ vars.ENV_DIR }}/settings.yaml',files.dependencies='{{ vars.ROOT_DIR }}/dependencies.yaml' > '{{ vars.ENV_DIR }}/bootstrap.yaml'",
+  "helm template inputs '{{ vars.ROOT_DIR }}/charts/deployment-inputs' --show-only templates/bootstrap.yaml --set-file files.assets='{{ vars.ENV_DIR }}/assets.lock.yaml',files.environment='{{ vars.ENV_DIR }}/environment.yaml',files.foundation='{{ vars.ENV_DIR }}/foundation.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.settings='{{ vars.ENV_DIR }}/settings.yaml',files.dependencies='{{ vars.ROOT_DIR }}/dependencies.yaml' > '{{ vars.ENV_DIR }}/bootstrap.yaml'",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run management:render",
 ]

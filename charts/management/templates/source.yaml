@@ -3,13 +3,17 @@ kind: Namespace
 metadata: {name: tamoss-infra}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
-metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
+kind: Bucket
+metadata: {name: {{ .Values.sourceName }}, namespace: tamoss-infra}
 spec:
   interval: 1m
   timeout: 1m
-  url: {{ required "product.url is required" .Values.product.url | quote }}
-  ref: {commit: {{ required "product.commit is required" .Values.product.commit | quote }}}
+  provider: generic
+  bucketName: {{ required "assets.bucketName is required" .Values.assets.bucketName | quote }}
+  endpoint: {{ required "assets.endpoint is required" .Values.assets.endpoint | quote }}
+  region: {{ required "assets.region is required" .Values.assets.region | quote }}
+  prefix: {{ .Values.assets.prefix | quote }}
+  secretRef: {name: asset-reader}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository

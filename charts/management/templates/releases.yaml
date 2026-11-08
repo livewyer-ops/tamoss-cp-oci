@@ -1,6 +1,6 @@
 {{- $packages := mergeOverwrite (deepCopy .Values.packages) (dict "family" false "services" false "foundation" false "okeWorkloadIdentity" (dict "region" "")) -}}
 {{- $releases := list
-  (dict "name" "crossplane" "repository" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" dict "needs" list)
+  (dict "name" "crossplane" "repository" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" (dict "image" (dict "repository" .Values.dependencies.crossplane.imageRepository)) "needs" list)
   (dict "name" "external-secrets" "repository" "external-secrets" "chart" "external-secrets" "version" .Values.dependencies.externalSecrets.version "values" .Values.externalSecrets "needs" list)
   (dict "name" "oci-family" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "crossplane"))
   (dict "name" "oci-services" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true "foundation" true)) "needs" (list "oci-family"))
@@ -34,13 +34,13 @@ spec:
 {{ end }}
   chart:
     spec:
-      chart: {{ .chart }}
+      chart: {{ if .repository }}{{ .chart }}{{ else }}{{ printf "./%s%s" $.Values.assets.prefix (trimPrefix "./" .chart) | quote }}{{ end }}
 {{ if .repository }}
       version: {{ .version | quote }}
       sourceRef: {kind: HelmRepository, name: {{ .repository }}}
 {{ else }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+      sourceRef: {kind: Bucket, name: {{ $.Values.sourceName }}}
 {{ end }}
   values:
 {{ .values | toYaml | indent 4 }}

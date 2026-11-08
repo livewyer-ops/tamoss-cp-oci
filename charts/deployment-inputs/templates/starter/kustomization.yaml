@@ -2,7 +2,7 @@
 {{- $identity := .Values.files.identity | fromYaml }}
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: [namespaces.yaml, sources.yaml, releases.yaml]
+resources: [namespaces.yaml, sources.yaml, releases.yaml, assets.lock.yaml, bootstrap-access.yaml]
 configurations: [kustomizeconfig.yaml]
 configMapGenerator:
   - name: tamoss-gitops-values
@@ -17,6 +17,32 @@ generatorOptions:
   labels:
     reconcile.fluxcd.io/watch: Enabled
 replacements:
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.externalSecretsVersion}
+    targets:
+      - select: {kind: HelmRelease, name: external-secrets}
+        fieldPaths: [spec.chart.spec.version]
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.externalSecretsValues}
+    targets:
+      - select: {kind: ConfigMap, name: external-secrets-values}
+        fieldPaths: [data.values\.yaml]
+{{- range $field := list "bucketName" "endpoint" "region" "prefix" }}
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: 'data.{{ $field }}'}
+    targets:
+      - select: {kind: Bucket, name: tamoss-product}
+        fieldPaths: ['spec.{{ $field }}']
+{{- end }}
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.root}
+    targets:
+      - select: {kind: Kustomization, name: 'platform-defaults|infrastructure|runtime|infrastructure-controllers'}
+        fieldPaths: [spec.path]
+        options: {delimiter: '/', index: 0}
+      - select: {kind: HelmRelease, name: tamoss-gitops-bootstrap}
+        fieldPaths: [spec.chart.spec.chart]
+        options: {delimiter: '/', index: 0}
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.prefix}
+    targets:
+      - select: {kind: Kustomization, name: runtime}
+        fieldPaths: [spec.postBuild.substitute.ASSET_PREFIX]
   - source:
       kind: ConfigMap
       name: infrastructure-intent

@@ -11,6 +11,9 @@ releases:
     namespace: crossplane-system
     chart: crossplane-stable/crossplane
     version: {{ $selection.dependencies.crossplane.version | quote }}
+    values:
+      - image:
+          repository: {{ $selection.dependencies.crossplane.imageRepository | quote }}
     labels:
       stage: crossplane
   - name: oci-family

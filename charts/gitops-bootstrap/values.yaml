@@ -9,3 +9,5 @@ tadoss:
 dependencies: {}
 packages: {}
 externalSecrets: {}
+assets:
+  prefix: ''

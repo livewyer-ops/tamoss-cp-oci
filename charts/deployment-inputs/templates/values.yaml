@@ -1,16 +1,7 @@
-{{- if .Values.files.pins }}
+{{- if and .Values.files.pins .Values.files.environment }}
 {{- $e := (.Values.files.environment | fromYaml).spec -}}
 {{- $s := .Values.files.settings | fromYaml -}}
-{{- $g := .Values.files.product | fromYaml -}}
-{{- $tadoss := $g.tadoss | default dict -}}
-{{- $pins := .Values.files.pins | fromYaml -}}
-{{- $_ := set $pins.release "bundleURL" $g.bundle.url -}}
-{{- $_ := set $pins.release "digest" $g.bundle.digest -}}
-{{- with $tadoss.bundle -}}
-{{- $_ := set $pins.tadoss.release "bundleURL" .url -}}
-{{- $_ := set $pins.tadoss.release "digest" .digest -}}
-{{- end }}
-{{ $pins | toYaml }}
+tadoss: {enabled: false}
 deploymentId: {{ (.Values.files.identity | fromYaml).deploymentUID | quote }}
 region: {{ $e.region | quote }}
 databaseAdministrator: {{ $e.database.administrator | quote }}

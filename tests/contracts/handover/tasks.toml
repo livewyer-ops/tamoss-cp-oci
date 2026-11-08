@@ -21,7 +21,7 @@ select(fileIndex == 0) |
   '''yq -n '{"deploymentUID": "original", "deploymentReady": true, "gitopsEstablished": true, "provisions": 0, "starts": 0, "publications": 0, "observations": 0}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
   '''yq -n '{"branch": "main", "path": "clusters/fixture"}' > {{ env.TASKV_DIRECTORY }}/gitops.yaml''',
   '''yq -n '{"spec": {"managementPolicies": ["Observe"]}}' > {{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/infrastructure/environment.yaml''',
-  '''PRODUCT_COMMIT="$(git -C '{{ vars.PROJECT_ROOT }}' rev-parse HEAD)" yq -n '{"metadata": {"name": "tamoss-product"}, "spec": {"ref": {"commit": strenv(PRODUCT_COMMIT)}}}' > '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/sources.yaml'''',
+  '''PRODUCT_COMMIT="$(git -C '{{ vars.PROJECT_ROOT }}' rev-parse HEAD)" yq -n '{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "tamoss-assets"}, "data": {"productCommit": strenv(PRODUCT_COMMIT)}}' > '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/assets.lock.yaml'''',
   "touch '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/values.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/runtime/release.yaml'",
   "git init --initial-branch=main '{{ env.TASKV_DIRECTORY }}/checkout'",
   "git init --bare --initial-branch=main '{{ env.TASKV_DIRECTORY }}/origin.git'",

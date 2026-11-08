@@ -1,8 +1,3 @@
 files:
   identity: 'deploymentUID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-  product: |
-    product:
-      url: https://github.com/example/fixture
-      commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  upstreamRelease: '{"sourceCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
   seedValues: 'fixture: true'

@@ -7,8 +7,8 @@ spec:
   interval: 1m
   timeout: 5m
   prune: false
-  path: ./deploy/gitops/readiness
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   healthChecks:
 {{ range $ns, $names := dict "tamoss-infra" (list "database-admin") "auth" (list "database-admin" "tams-database" "authentik-values") "tams" (list "tams-database" "tams-s3" "qualification-source") }}
 {{ range $names }}
@@ -23,8 +23,8 @@ spec:
   interval: 1m
   timeout: 5m
   prune: false
-  path: ./deploy/gitops/readiness
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   healthChecks:
     - {apiVersion: batch/v1, kind: Job, name: database-connection-{{ $revision }}, namespace: auth}
     - {apiVersion: v1, kind: ConfigMap, name: database-connection, namespace: auth}
@@ -44,8 +44,8 @@ spec:
   timeout: 5m
   prune: true
   dependsOn: [{name: database-connection}]
-  path: ./deploy/gitops/database-ca
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/gitops/database-ca" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: database-connection}]
 ---
@@ -57,8 +57,8 @@ spec:
   timeout: 15m
   prune: false
   dependsOn: [{name: credentials}, {name: database-ca}]
-  path: ./deploy/gitops/readiness
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   healthChecks:
 {{ range $ns, $names := dict "cert-manager" (list "cert-manager") "traefik" (list "traefik") "auth" (list "authentik" "tamoss-database-init") "tamoss-platform" (list "tamoss-platform-config") }}
 {{ range $names }}
@@ -83,8 +83,8 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: platform}]
-  path: ./
-  sourceRef: {kind: OCIRepository, name: tamoss-release, namespace: flux-system}
+  path: {{ printf "./%supstream/tamoss" .Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   healthChecks:
     - {apiVersion: apps/v1, kind: Deployment, name: operator-controller-manager, namespace: tamoss-system}
   images:
@@ -121,8 +121,8 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: tamoss-operator}, {name: credentials}, {name: database-ca}, {name: calico}]
-  path: ./deploy/tamoss/instance
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/tamoss/instance" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: database-connection}]
   healthChecks:

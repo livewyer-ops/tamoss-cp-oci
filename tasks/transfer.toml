@@ -176,7 +176,7 @@ run = [
   "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/runtime-access-ready.yaml' --timeout=600s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --for=condition=Synced --timeout=300s",
   "yq -i '.runtimeWritesEnabled = false' {{ vars.ENV_DIR }}/identity.yaml",
-  "cp '{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/values.yaml' '{{ vars.ENV_DIR }}/gitops-current-values.yaml'",
+  '''yq -n 'load("{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/values.yaml") * (load("{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/assets.lock.yaml").data."values.yaml" | from_yaml)' > '{{ vars.ENV_DIR }}/gitops-current-values.yaml' ''',
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} GITOPS_VALUES={{ ((vars.ENV_DIR) ~ "/gitops-current-values.yaml") | quote }} PRODUCT_COMMIT={{ ((env.TASKV_PRODUCT_COMMIT)) | quote }} mise run management:refresh''',
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=create --timeout=1800s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret/adoption-bindings --for=condition=Ready --timeout=300s",
@@ -192,7 +192,7 @@ run = [
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
 env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
 env.TASKV_REVISION = '''{% if env.REVISION is defined %}{{ env.REVISION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "git -C " ~ ((vars.CHECKOUT) | quote) ~ " rev-parse HEAD") }}{% endif %}'''
-env.TASKV_PRODUCT_COMMIT = '''{% if env.PRODUCT_COMMIT is defined %}{{ env.PRODUCT_COMMIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r 'select(.metadata.name == \"tamoss-product\") | .spec.ref.commit' " ~ ((vars.CHECKOUT) | quote) ~ "/" ~ (env.TASKV_PATH_IN_GIT) ~ "/sources.yaml") }}{% endif %}'''
+env.TASKV_PRODUCT_COMMIT = '''{% if env.PRODUCT_COMMIT is defined %}{{ env.PRODUCT_COMMIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .data.productCommit " ~ ((vars.CHECKOUT) | quote) ~ "/" ~ (env.TASKV_PATH_IN_GIT) ~ "/assets.lock.yaml") }}{% endif %}'''
 
 ["transfer:deletion-authority"]
 hide = true

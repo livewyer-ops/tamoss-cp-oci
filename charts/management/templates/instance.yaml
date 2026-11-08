@@ -32,9 +32,9 @@ spec:
     - name: external-secrets
   chart:
     spec:
-      chart: ./charts/bootstrap-instance
+      chart: {{ printf "./%scharts/bootstrap-instance" $.Values.assets.prefix | quote }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+      sourceRef: {kind: Bucket, name: {{ $.Values.sourceName }}}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-bootstrap-instance}
 {{- end }}

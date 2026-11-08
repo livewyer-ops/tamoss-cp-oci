@@ -47,7 +47,7 @@ spec:
     freeformTags: {tamoss-deployment: {{ .Values.deploymentId | quote }}}
     statements:
       - {{ printf "Allow any-user to read postgres-db-systems in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'auth', request.principal.service_account = 'database-connection', request.permission = 'POSTGRES_DB_SYSTEM_READ', request.operation = 'GetConnectionDetails'}" $compartment $cluster | quote }}
-{{- $deliveries := dict "tamoss-infra" (list "database-admin" "adoption-bindings") "flux-system" (list "gitops") "auth" (list "database-admin" "tams-database" "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database" "tadoss-database" "tadoss-oauth") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
+{{- $deliveries := dict "tamoss-infra" (list "database-admin" "adoption-bindings") "flux-system" (list "gitops" "asset-reader") "auth" (list "database-admin" "tams-database" "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database" "tadoss-database" "tadoss-oauth") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
 {{ range $namespace, $names := $deliveries }}
 ---
 apiVersion: identity.oci.m.upbound.io/v1alpha1
@@ -67,6 +67,6 @@ spec:
     freeformTags: {tamoss-deployment: {{ $.Values.deploymentId | quote }}}
     statements:
 {{ range $names }}
-      - {{ printf "Allow any-user to read secret-bundles in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = '%s', request.principal.service_account = 'tamoss-vault', target.vault.id = '%s', target.secret.name = '%s-%s'}" $compartment $cluster $namespace $.Values.vaultId $.Values.deploymentId . | quote }}
+      - {{ printf "Allow any-user to read secret-bundles in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = '%s', request.principal.service_account = '%s', target.vault.id = '%s', target.secret.name = '%s-%s'}" $compartment $cluster $namespace (ternary "asset-vault" "tamoss-vault" (eq . "asset-reader")) $.Values.vaultId $.Values.deploymentId . | quote }}
 {{ end }}
 {{ end }}

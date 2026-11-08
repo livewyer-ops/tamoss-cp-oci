@@ -9,8 +9,8 @@ spec:
   timeout: 5m
   prune: false
   deletionPolicy: Orphan
-  path: ./deploy/gitops/bindings
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/gitops/bindings" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   dependsOn: [{name: infrastructure-controllers, namespace: flux-system}]
   postBuild:
     substitute:

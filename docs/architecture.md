@@ -26,12 +26,14 @@ Once the OKE API and initial worker, runtime IAM and persisted credentials are
 ready, the host retrieves the OKE kubeconfig with the pinned OCI CLI and checks
 the recorded identity and TLS. It creates a dedicated bootstrap ServiceAccount,
 requests a one-hour token and submits a self-contained kubeconfig Secret to Kind.
-Kind's `oke-flux` Kustomization installs the pinned official Flux OCI manifests;
-`oke-seed` depends on its readiness and applies the product's shared seed base.
+Kind's `oke-flux` Kustomization installs the pinned official Flux OCI manifests.
+`oke-eso` installs ESO from its public Helm repository; `oke-asset-access` uses
+OKE workload identity to retrieve the asset reader from Vault. Only then does
+`oke-seed` apply the deployment's Bucket source and shared seed base.
 Crossplane supplies the Vault identifier through `oke-bootstrap-facts` in Kind.
 The database can continue provisioning while these controllers reconcile.
 
-After deployment readiness passes, both remote Kustomizations are suspended and
+After deployment readiness passes, all remote bootstrap Kustomizations are suspended and
 Kind's kustomize-controller is stopped before bootstrap RBAC and credentials are
 removed. The suspended declarations retain the retirement decision across host
 interruption and Kind restart. They use non-pruning, orphan deletion semantics.
@@ -63,7 +65,10 @@ flowchart LR
     Git[Optional environment Git configuration]
     Kind --> Bindings[Immutable adoption bindings in Vault]
     Git --> Flux[Flux on OKE]
-    Release[Verified TAMOSS assets] --> Flux
+    Checkout[Committed local checkout and verified releases] --> Store[Private client asset bucket]
+    Store --> Kind
+    Store --> Flux
+    Git -->|Select asset lock| Store
     Flux --> Runtime[Crossplane and External Secrets on OKE]
     Runtime --> OCI
     Vault --> Runtime
@@ -80,6 +85,7 @@ secret delivery. Release upgrades and credential rotation remain unqualified.
 | Owner | Responsibility |
 | --- | --- |
 | Account administrator | Dedicated compartment, authorised provisioner and its signing key |
+| Host OCI CLI | Client asset bucket, append-only publication and restricted reader IAM; store retained after down |
 | Crossplane | Kind initially owns the environment; OKE takes the same provider bindings after verified handover |
 | Crossplane in retained Kind | Storage user, group and bucket policy; paused after handover and deleted after key revocation during teardown |
 | OKE cloud controller | Load balancer created by the ingress `LoadBalancer` Service |
@@ -94,8 +100,8 @@ provider bindings. Only one control plane may write at a time. The original Kind
 is retained without write authority, stopped, and later receives current Git/live
 configuration for deletion. This does not recover lost Kind state.
 
-After Kind's Flux submits the remote seed, OKE's Flux fetches the pinned public product
-sources and creates runtime releases through their declared dependencies. The
+After Kind's Flux submits the remote seed, OKE's Flux fetches the selected client
+snapshot and creates runtime releases through their declared dependencies. The
 seed contains the Vault identifier and non-secret configuration. Flux installs
 ESO and infrastructure controllers independently of database outputs; ESO delivers
 application credentials and adoption bindings from Vault. An environment Git
@@ -173,6 +179,7 @@ See [recovery procedures](operations.md#operation-recovery).
 | [Bootstrap chart](../charts/bootstrap/) | Kind root, child dependencies and release state; reuses the foundation and environment schemas |
 | [dependencies.yaml](../dependencies.yaml), [mise.toml](../mise.toml) | Infrastructure component selections/checksums and workstation tools |
 | [TAMOSS release lock](../deploy/tamoss/release.yaml) | Verified release record and matching source archive |
+| [Client asset lock](../deploy/assets/README.md) | Selected immutable prefix, checksums and release/dependency pins; Git owns selection after handover |
 | [TAMOSS integration](../deploy/tamoss/README.md) | Platform settings, instance overlays, database bootstrap and qualification assets |
 
 Once all cloud resources are ready, Kind's Crossplane creates an immutable snapshot
@@ -246,7 +253,8 @@ removes staging inputs. The bootstrap instance records `credentialsEstablished`
 irreversibly; its secret HelmRelease then removes credential generators and PushSecrets.
 The separate adoption-binding PushSecret remains until infrastructure deletion
 and the direct cloud audit finish.
-Product sources and release packages are read anonymously. During handover, a
+The host reads public upstream packages while building a snapshot. Cluster
+product sources use a bucket-scoped reader, delivered through Vault. During handover, a
 separate credential-establishment step persists the generated SSH deploy key
 without restarting application password generators. A missing established value must fail secret delivery
 without silently generating a replacement. Secret retirement remains an explicit

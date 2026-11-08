@@ -47,8 +47,9 @@ image digests and published asset checksums. To select another release, update
 requirements, then run `mise run check`. Upstream interface changes may require local
 overlay or test-selection changes. Verified database TLS remains mandatory.
 
-Initial deployment verifies the repository lock. Before or after handover, `qualify` verifies
-the current environment Git selection, records it in `tamoss-release.yaml` and
+Initial deployment verifies the repository lock and publishes a client snapshot.
+`qualify` restores the selected release from that snapshot, records it in
+`tamoss-release.yaml` and
 retains the initial lock as `tamoss-release.bootstrap.yaml`. Repeat deployment
 preserves Git-owned configuration. This bookkeeping alone does not qualify an
 upgrade or establish that database migrations can be reversed.
@@ -71,6 +72,8 @@ public visibility in GitHub's package settings after the first publication, then
 rerun the workflow. The workflow checks anonymous consumption and records the
 immutable digest for the release lock.
 
-Deployments pull that digest without a registry login. TAMOSS charts and profiles
-come from the matching public source commit. Local overlays remain separate from
-upstream release assets.
+The host pulls that digest without a registry login when building a
+[client snapshot](../assets/README.md). It copies the matching source's deployment
+directory unchanged and resolves Kustomize includes locally. Kind and OKE read the
+client bucket. Upstream assets and this product's overlays remain separate;
+no TAMOSS source or release file is modified.

@@ -7,5 +7,5 @@ spec:
   chart:
     spec:
       chart: ./charts/gitops-bootstrap
-      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   values: {vaultId: ocid1.vault.oc1.changed-after-retirement}

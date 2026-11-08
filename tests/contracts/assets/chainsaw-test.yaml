@@ -1,0 +1,80 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: asset-credential-recovery}
+spec:
+  bindings:
+    - {name: directory, value: "(join('/', [$values.root, '.local/tmp/check/asset-credential-recovery']))"}
+  steps:
+    - name: reuse the captured key response after interruption
+      try:
+        - command:
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: DIRECTORY, value: ($directory)}
+              - {name: ENV_DIR, value: ($directory)}
+            entrypoint: mkdir
+            args: [-p, "$DIRECTORY/assets-state"]
+        - command:
+            env: *paths
+            entrypoint: cp
+            args: [key.json, "$DIRECTORY/assets-state/key.pending.json"]
+        - command:
+            env: *paths
+            entrypoint: cp
+            args: [keys.json, "$DIRECTORY/assets-state/keys.json"]
+        - command: &recover
+            env: *paths
+            entrypoint: env
+            args: [mise, -C, "$PROJECT_ROOT", run, 'assets:reader:key:recover']
+        - command:
+            env: *paths
+            entrypoint: yq
+            args: [-p=json, -e, '.data.id == "fixture-key" and .data.key == "fixture-secret"', "$DIRECTORY/assets-state/key.json"]
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/assets-state/key.pending.json"]
+        - command: *recover
+    - name: reject a response whose key is absent from OCI
+      try:
+        - command:
+            env: *paths
+            entrypoint: mv
+            args: ["$DIRECTORY/assets-state/key.json", "$DIRECTORY/assets-state/key.pending.json"]
+        - command:
+            env: *paths
+            entrypoint: cp
+            args: [empty-keys.json, "$DIRECTORY/assets-state/keys.json"]
+        - command:
+            <<: *recover
+            check: {($error != null): true}
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/assets-state/key.json"]
+    - name: retain an ambiguous creation claim even when key listing is empty
+      try:
+        - command:
+            env: *paths
+            entrypoint: truncate
+            args: [-s, '0', "$DIRECTORY/assets-state/key.pending.json"]
+        - command:
+            <<: *recover
+            check: {($error != null): true}
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/assets-state/key.json"]
+    - name: require the foundation record after controllers may have started
+      try:
+        - command:
+            env: *paths
+            entrypoint: cp
+            args: [identity.json, "$DIRECTORY/identity.yaml"]
+        - command:
+            env: *paths
+            entrypoint: env
+            args: [mise, -C, "$PROJECT_ROOT", run, 'bootstrap:down:early']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Restore the retained foundation record')): true

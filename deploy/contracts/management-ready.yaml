@@ -1,10 +1,10 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
+kind: Bucket
 metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
 (spec.suspend != `true`): true
 (status.observedGeneration == metadata.generation): true
-(ends_with(status.artifact.revision || '', spec.ref.commit)): true
+(length(status.artifact.revision || '') > `0`): true
 status:
   (conditions[?type == 'Ready'] | [0].status): 'True'
 (length(x_k8s_list($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra').items[?metadata.labels."tamoss.livewyer.io/bootstrap-controller" == 'true' && spec.suspend != `true` && status.observedGeneration == metadata.generation && status.conditions[?type == 'Ready' && status == 'True'] && status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra', join('', ['tamoss-infra-', metadata.name])).status.artifact.revision])): 7
-(length(x_k8s_list($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra').items[?contains(['tamoss-infra-oci-family', 'tamoss-infra-oci-services', 'tamoss-infra-tamoss-environment-api', 'tamoss-infra-tamoss-secret-foundation-api', 'tamoss-infra-tamoss-bootstrap-api'], metadata.name) && status.observedGeneration == metadata.generation && status.conditions[?type == 'Ready' && status == 'True'] && status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision])): 5
+(length(x_k8s_list($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra').items[?contains(['tamoss-infra-oci-family', 'tamoss-infra-oci-services', 'tamoss-infra-tamoss-environment-api', 'tamoss-infra-tamoss-secret-foundation-api', 'tamoss-infra-tamoss-bootstrap-api'], metadata.name) && status.observedGeneration == metadata.generation && status.conditions[?type == 'Ready' && status == 'True'] && status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', spec.sourceRef.name).status.artifact.revision])): 5

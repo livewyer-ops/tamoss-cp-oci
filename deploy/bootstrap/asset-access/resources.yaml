@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: asset-vault, namespace: flux-system}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: asset-vault-token, namespace: flux-system}
+rules:
+  - apiGroups: ['']
+    resources: [serviceaccounts/token]
+    resourceNames: [asset-vault]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: asset-vault-token, namespace: flux-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: asset-vault-token}
+subjects:
+  - {kind: ServiceAccount, name: external-secrets, namespace: external-secrets}
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata: {name: asset-vault, namespace: flux-system}
+spec:
+  provider:
+    oracle:
+      region: REPLACE
+      vault: ${VAULT_ID}
+      principalType: Workload
+      serviceAccountRef: {name: asset-vault}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: asset-reader, namespace: flux-system}
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {kind: SecretStore, name: asset-vault}
+  target: {name: asset-reader, creationPolicy: Owner, deletionPolicy: Retain}
+  dataFrom:
+    - extract: {key: REPLACE}

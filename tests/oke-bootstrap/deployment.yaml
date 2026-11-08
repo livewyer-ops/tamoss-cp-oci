@@ -6,4 +6,4 @@ spec:
   chart:
     spec:
       chart: ./chart
-      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}

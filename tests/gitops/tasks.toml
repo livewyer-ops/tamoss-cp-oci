@@ -35,17 +35,28 @@ env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''yq eval-all -o=json '[select(.kind != null) | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace")] | sort_by(.kind, .metadata.namespace, .metadata.name) | sort_keys(..)' '{{ env.TASKV_DIRECTORY }}/inputs/deployment.yaml' > '{{ env.TASKV_DIRECTORY }}/native-seed.json'''',
-  '''kubectl kustomize '{{ env.TASKV_DIRECTORY }}/inputs/deployment' | yq eval-all -o=json '[select(.kind != null)] | sort_by(.kind, .metadata.namespace, .metadata.name) | sort_keys(..)' > '{{ env.TASKV_DIRECTORY }}/export-seed.json'''',
+  '''yq eval-all -o=json '[select(.kind != null) | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace")] | map(with(select(.kind == "ConfigMap"); .data |= with_entries(with(select(.key == "values.yaml" or .key == "externalSecretsValues"); .value |= (from_yaml | to_json(0)))))) | sort_by(.kind, .metadata.namespace, .metadata.name) | sort_keys(..)' '{{ env.TASKV_DIRECTORY }}/inputs/deployment.yaml' '{{ env.TASKV_DIRECTORY }}/inputs/deployment/bootstrap-access.yaml' > '{{ env.TASKV_DIRECTORY }}/native-seed.json'''',
+  '''kubectl kustomize '{{ env.TASKV_DIRECTORY }}/inputs/deployment' | yq eval-all -o=json '[select(.kind != null)] | map(with(select(.kind == "ConfigMap"); .data |= with_entries(with(select(.key == "values.yaml" or .key == "externalSecretsValues"); .value |= (from_yaml | to_json(0)))))) | sort_by(.kind, .metadata.namespace, .metadata.name) | sort_keys(..)' > '{{ env.TASKV_DIRECTORY }}/export-seed.json'''',
   "diff -u '{{ env.TASKV_DIRECTORY }}/native-seed.json' '{{ env.TASKV_DIRECTORY }}/export-seed.json'",
   "cmp '{{ env.TASKV_DIRECTORY }}/inputs/deployment/values.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/values.yaml'",
   "cmp '{{ env.TASKV_DIRECTORY }}/inputs/deployment/infrastructure/environment.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/infrastructure/environment.yaml'",
-  '''kubectl kustomize '{{ env.TASKV_DIRECTORY }}/inputs/deployment' | yq 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap"); .spec.values.vaultId = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId) | with(select(.kind == "Kustomization" and .metadata.name == "runtime"); .spec.postBuild.substitute.VAULT_ID = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId)' > '{{ env.TASKV_DIRECTORY }}/seed-resolved.yaml'''',
+  '''kubectl kustomize '{{ env.TASKV_DIRECTORY }}/inputs/deployment' | yq 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap"); .spec.values.vaultId = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId) | with(select(.kind == "Kustomization" and .metadata.name == "runtime"); .spec.postBuild.substitute.VAULT_ID = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId) | with(select(.kind == "SecretStore" and .metadata.name == "asset-vault"); .spec.provider.oracle.vault = load("{{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml").vaultId)' > '{{ env.TASKV_DIRECTORY }}/seed-resolved.yaml'''',
   "kubectl kustomize '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev' | yq '.' > '{{ env.TASKV_DIRECTORY }}/exported.yaml'",
   "diff -u '{{ env.TASKV_DIRECTORY }}/seed-resolved.yaml' '{{ env.TASKV_DIRECTORY }}/exported.yaml'",
   '''yq 'select(.kind == "Kustomization" and .metadata.name == "infrastructure") | .spec.postBuild.substitute *= (load("{{ vars.ROOT_DIR }}/.local/tmp/check/adoption.yaml").spec.adoption | {"DEPLOYMENT_ID": .deploymentId, "CREATION_COMPOSITE_UID": .creationCompositeUID} * (.externalNames | with_entries(.key |= upcase | .key |= sub("-"; "_"))))' '{{ env.TASKV_DIRECTORY }}/exported.yaml' > '{{ env.TASKV_DIRECTORY }}/infrastructure-kustomization.yaml'''',
   "flux build kustomization infrastructure -n tamoss-infra --dry-run --strict-substitute --kustomization-file '{{ env.TASKV_DIRECTORY }}/infrastructure-kustomization.yaml' --path '{{ vars.ROOT_DIR }}/deploy/gitops/infrastructure' > '{{ env.TASKV_DIRECTORY }}/infrastructure-rendered.yaml'",
   '''yq -e 'select(.kind == "TamossEnvironment") | . as $xr | [$xr.metadata.name == load("{{ env.TASKV_DIRECTORY }}/inputs/environment.yaml").metadata.name, ($xr.spec.managementPolicies | join(",")) == "Observe", ($xr.spec.adoption | sort_keys(..) | to_json(0)) == (load("{{ vars.ROOT_DIR }}/.local/tmp/check/adoption.yaml").spec.adoption | sort_keys(..) | to_json(0)), ($xr.spec.database | sort_keys(..) | to_json(0)) == (load("{{ env.TASKV_DIRECTORY }}/inputs/environment.yaml").spec.database | sort_keys(..) | to_json(0))] | all' '{{ env.TASKV_DIRECTORY }}/infrastructure-rendered.yaml'''',
+  "cp -a '{{ env.TASKV_DIRECTORY }}/inputs/deployment' '{{ env.TASKV_DIRECTORY }}/selection'",
+  "yq -i '.tadoss.enabled = true' '{{ env.TASKV_DIRECTORY }}/selection/values.yaml'",
+  "yq -i '.data.prefix = \"releases/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/\" | .data.root = \"./releases/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\" | .data.externalSecretsVersion = \"0.0.0-fixture\" | .data.externalSecretsValues = \"replicaCount: 3\n\"' '{{ env.TASKV_DIRECTORY }}/selection/assets.lock.yaml'",
+  "kubectl kustomize '{{ env.TASKV_DIRECTORY }}/selection' > '{{ env.TASKV_DIRECTORY }}/selection.yaml'",
+  "yq -e 'select(.kind == \"Bucket\") | .spec.prefix == load(\"{{ env.TASKV_DIRECTORY }}/selection/assets.lock.yaml\").data.prefix' '{{ env.TASKV_DIRECTORY }}/selection.yaml' > /dev/null",
+  "yq eval-all -e '[select(.kind == \"Kustomization\") | .spec.path | test(\"^./releases/b{64}/deploy/gitops/\")] | (length == 4 and all)' '{{ env.TASKV_DIRECTORY }}/selection.yaml' > /dev/null",
+  "yq -e 'select(.kind == \"HelmRelease\" and .metadata.name == \"tamoss-gitops-bootstrap\") | .spec.chart.spec.chart == \"./releases/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/charts/gitops-bootstrap\"' '{{ env.TASKV_DIRECTORY }}/selection.yaml' > /dev/null",
+  "yq -e 'select(.kind == \"HelmRelease\" and .metadata.name == \"external-secrets\") | .spec.chart.spec.version == \"0.0.0-fixture\"' '{{ env.TASKV_DIRECTORY }}/selection.yaml' > /dev/null",
+  "yq -e 'select(.kind == \"ConfigMap\" and .metadata.name == \"external-secrets-values\") | (.data.\"values.yaml\" | from_yaml).replicaCount == 3' '{{ env.TASKV_DIRECTORY }}/selection.yaml' > /dev/null",
+  "yq -e 'select(.kind == \"ConfigMap\" and (.metadata.name | test(\"^tamoss-gitops-values-\"))) | (.data.\"values.yaml\" | from_yaml).tadoss.enabled == true' '{{ env.TASKV_DIRECTORY }}/selection.yaml' > /dev/null",
+  "yq -e '.data.\"values.yaml\" | from_yaml | .tadoss.enabled == null' '{{ env.TASKV_DIRECTORY }}/selection/assets.lock.yaml' > /dev/null",
 ]
 env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
 
@@ -76,7 +87,7 @@ env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} MESSAGE={{ ("feat: publish fixture") | quote }} FILES={{ ("values.yaml sources.yaml infrastructure/environment.yaml releases.yaml namespaces.yaml kustomization.yaml kustomizeconfig.yaml") | quote }} mise run gitops:publish''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} MESSAGE={{ ("feat: publish fixture") | quote }} FILES={{ ("values.yaml assets.lock.yaml bootstrap-access.yaml sources.yaml infrastructure/environment.yaml releases.yaml namespaces.yaml kustomization.yaml kustomizeconfig.yaml") | quote }} mise run gitops:publish''',
 ]
 env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
 
@@ -138,7 +149,17 @@ run = [
   '''yq -n '{"vaultId": "ocid1.vault.oc1.eu-frankfurt-1.example"}' > {{ env.TASKV_DIRECTORY }}/inputs/foundation-record.yaml''',
   '''yq -n '{"url": "https://github.com/example/tamoss-environments", "branch": "main", "path": "clusters/oci-dev", "product": {"url": "https://github.com/example/tamoss-cp-oci", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "bundle": {"url": load("{{ vars.ROOT_DIR }}/tests/gitops/values.yaml").release.bundleURL, "digest": load("{{ vars.ROOT_DIR }}/tests/gitops/values.yaml").release.digest}, "tadoss": {"bundle": {"url": load("{{ vars.ROOT_DIR }}/tests/tadoss/values.yaml").tadoss.release.bundleURL, "digest": load("{{ vars.ROOT_DIR }}/tests/tadoss/values.yaml").tadoss.release.digest}}}' > '{{ env.TASKV_DIRECTORY }}/inputs/gitops.yaml'''',
   "cp '{{ env.TASKV_DIRECTORY }}/inputs/gitops.yaml' '{{ env.TASKV_DIRECTORY }}/inputs/product.yaml'",
+  "cp '{{ vars.ROOT_DIR }}/tests/assets/lock.yaml' '{{ env.TASKV_DIRECTORY }}/inputs/assets.lock.yaml'",
+  '''yq -i '.data."values.yaml" = ((load("{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml") | del(.tadoss.enabled)) * (.data."values.yaml" | from_yaml) | to_yaml) | .data.externalSecretsVersion = load("{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml").dependencies.externalSecrets.version | .data.externalSecretsValues = (load("{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml").externalSecrets | to_yaml)' '{{ env.TASKV_DIRECTORY }}/inputs/assets.lock.yaml' ''',
   '''yq -n 'load("{{ vars.ROOT_DIR }}/.local/tmp/check/adoption.yaml").spec.adoption.externalNames | to_entries | map({"resourceName": .key, "externalName": .value})' > '{{ env.TASKV_DIRECTORY }}/inputs/resources-current.yaml'''',
   '''yq -i '.loadBalancerSubnetId = "ocid1.subnet.oc1.eu-frankfurt-1.example" | .databaseId = "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example"' '{{ env.TASKV_DIRECTORY }}/inputs/outputs.json'''',
 ]
 env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
+
+["test:gitops:lint-bootstrap"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq '.data."values.yaml" | from_yaml' '{{ env.DIRECTORY }}/checkout/clusters/oci-dev/assets.lock.yaml' > '{{ env.DIRECTORY }}/selected-pins.yaml' ''',
+  "helm lint '{{ vars.ROOT_DIR }}/charts/gitops-bootstrap' -f '{{ env.DIRECTORY }}/checkout/clusters/oci-dev/values.yaml' -f '{{ env.DIRECTORY }}/selected-pins.yaml' --set vaultId=ocid1.vault.oc1.fixture",
+]

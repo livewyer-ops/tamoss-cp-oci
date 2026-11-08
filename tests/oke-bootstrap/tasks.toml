@@ -2,7 +2,7 @@
 hide = true
 run = [
   "mkdir -p .local/tmp/check/remote-render/flux-manifests",
-  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.environment=environments/example/environment.yaml,files.seedEnvironment=environments/example/environment.yaml,files.dependencies=dependencies.yaml > .local/tmp/check/remote-render/controllers.yaml",
+  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.environment=environments/example/environment.yaml,files.seedEnvironment=environments/example/environment.yaml,files.assets=tests/assets/lock.yaml,files.externalSecrets=deploy/secrets/controller-values.yaml,files.dependencies=dependencies.yaml > .local/tmp/check/remote-render/controllers.yaml",
   '''yq 'select(.kind == "Kustomization" and .metadata.name == "oke-flux")' .local/tmp/check/remote-render/controllers.yaml > .local/tmp/check/remote-render/flux.yaml''',
   '''flux pull artifact "oci://ghcr.io/fluxcd/flux-manifests@$(yq -r .flux.manifestsDigest dependencies.yaml)" --output .local/tmp/check/remote-render/flux-manifests --timeout=60s''',
   "flux build kustomization oke-flux -n tamoss-infra --dry-run --in-memory-build --path .local/tmp/check/remote-render/flux-manifests --kustomization-file .local/tmp/check/remote-render/flux.yaml > .local/tmp/check/remote-render/installed.yaml",
@@ -48,7 +48,7 @@ run = [
   "kind delete cluster --name '{{ env.TARGET }}'",
   "kubectl -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
   "kubectl -n flux-system scale deployment/kustomize-controller --replicas=1",
-  "kubectl -n tamoss-infra delete kustomization oke-flux oke-seed --ignore-not-found --timeout=60s",
+  "kubectl -n tamoss-infra delete kustomization oke-flux oke-eso oke-asset-access oke-seed --ignore-not-found --timeout=60s",
   "rm -f '{{ env.DIRECTORY }}/target.kubeconfig' '{{ env.DIRECTORY }}/management.kubeconfig' '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.pending.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig' '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' '{{ env.DIRECTORY }}/remote-token.json' '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
 ]
 
@@ -68,11 +68,17 @@ run = [
   "cp '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig'",
   "mkdir -p '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote'",
   "cp deploy/bootstrap/remote/*.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/'",
+  "cp -a deploy/bootstrap/eso deploy/bootstrap/asset-access '{{ env.DIRECTORY }}/product/deploy/bootstrap/'",
+  '''yq 'select(.kind == "Namespace" and .metadata.name == "secret-backend" or .metadata.namespace == "secret-backend") | with(select(.kind == "RoleBinding"); .subjects = [{"kind": "ServiceAccount", "name": "asset-vault", "namespace": "flux-system"}])' tests/secret-persistence/backend.yaml > '{{ env.DIRECTORY }}/product/deploy/bootstrap/asset-access/backend.yaml' ''',
+  "cp tests/assets/reader-backend.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/asset-access/'",
+  '''yq -i '.resources += ["backend.yaml", "reader-backend.yaml"]' '{{ env.DIRECTORY }}/product/deploy/bootstrap/asset-access/kustomization.yaml' ''',
+  '''yq '.data.prefix = "" | .data.root = "." | .data.externalSecretsVersion = load("dependencies.yaml").externalSecrets.version | .data.externalSecretsValues = load_str("deploy/secrets/controller-values.yaml")' tests/assets/lock.yaml > '{{ env.DIRECTORY }}/assets.lock.yaml' ''',
   "cp tests/oke-bootstrap/deployment.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/proof.yaml'",
   '''yq -i '.resources += ["proof.yaml"]' '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/kustomization.yaml'''',
   "tar -czf '{{ env.DIRECTORY }}/product.tar.gz' -C '{{ env.DIRECTORY }}/product' .",
-  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.environment='{{ env.DIRECTORY }}/environment.yaml',files.seedEnvironment='{{ env.DIRECTORY }}/environment.yaml',files.dependencies=dependencies.yaml > '{{ env.DIRECTORY }}/remote-bootstrap.yaml'",
-  '''yq -i 'with(select(.metadata.name == "oke-seed"); .spec.sourceRef.name = "oke-bootstrap-fixture" | .spec.patches += [{"target": {"kind": "HelmRelease|Kustomization", "name": "tamoss-gitops-bootstrap|platform-defaults|infrastructure|runtime|infrastructure-controllers"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}, {"target": {"kind": "GitRepository"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml'''',
+  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.environment='{{ env.DIRECTORY }}/environment.yaml',files.seedEnvironment='{{ env.DIRECTORY }}/environment.yaml',files.assets='{{ env.DIRECTORY }}/assets.lock.yaml',files.externalSecrets=deploy/secrets/controller-values.yaml,files.dependencies=dependencies.yaml > '{{ env.DIRECTORY }}/remote-bootstrap.yaml'",
+  '''yq -i 'with(select(.kind == "Kustomization" and .metadata.name != "oke-flux"); .spec.sourceRef.name = "oke-bootstrap-fixture") | with(select(.metadata.name == "oke-seed"); .spec.patches += [{"target": {"kind": "HelmRelease|Kustomization", "name": "tamoss-gitops-bootstrap|platform-defaults|infrastructure|runtime|infrastructure-controllers"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}, {"target": {"kind": "Bucket"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml'''',
+  "yq -i 'with(select(.metadata.name == \"oke-asset-access\"); .spec.patches += [{\"target\": {\"kind\": \"SecretStore\", \"name\": \"asset-vault\"}, \"patch\": ([{\"op\": \"replace\", \"path\": \"/spec/provider\", \"value\": (load(\"tests/secret-persistence/provider.yaml\") | .kubernetes.auth.serviceAccount.name = \"asset-vault\")} ] | to_yaml)}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml' ",
   "tar -czf '{{ env.DIRECTORY }}/seed-proof.tar.gz' -C tests/oke-bootstrap chart handover",
   '''yq -n '{"vaultId": "ocid1.vault.oc1.fixture"}' > '{{ env.DIRECTORY }}/foundation-record.yaml'''',
 ]

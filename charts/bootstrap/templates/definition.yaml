@@ -40,6 +40,15 @@ spec:
                 - rule: '!has(self.storageCredentials) || has(self.vaultAuth)'
                   message: Automatic storage identity requires the Kind provisioner
               properties:
+                assets:
+                  type: object
+                  properties:
+                    prefix: {type: string, pattern: '^$|^releases/[a-f0-9]{64}/$'}
+                    bucketName: {type: string}
+                    endpoint: {type: string}
+                    region: {type: string}
+                    storeId: {type: string}
+                    manifestSha256: {type: string}
                 storageCredentials:
                   type: object
                   required: [domainId, idcsEndpoint, email, image]

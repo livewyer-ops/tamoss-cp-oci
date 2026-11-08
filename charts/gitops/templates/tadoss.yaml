@@ -8,15 +8,6 @@ apiVersion: v1
 kind: Namespace
 metadata: {name: tadoss-system}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata: {name: tadoss-release, namespace: flux-system}
-spec:
-  interval: 10m
-  url: {{ .Values.tadoss.release.bundleURL | quote }}
-  ref: {digest: {{ .Values.tadoss.release.digest | quote }}}
-  provider: generic
----
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata: {name: tadoss-config, namespace: auth}
@@ -31,9 +22,9 @@ spec:
     - {name: tamoss-database-init, namespace: auth}
   chart:
     spec:
-      chart: ./deploy/tadoss/config
+      chart: {{ printf "./%sdeploy/tadoss/config" $.Values.assets.prefix | quote }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   valuesFrom:
     - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_HOST, targetPath: host}
     - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_CA_BASE64, targetPath: caBase64}
@@ -50,11 +41,12 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: database-connection}]
-  path: ./deploy/tadoss/credentials
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/tadoss/credentials" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: database-connection}]
     substitute:
+      ASSET_PREFIX: {{ .Values.assets.prefix | quote }}
       DEPLOYMENT_ID: {{ .Values.deploymentId | quote }}
       OCI_REGION: {{ .Values.region }}
       VAULT_ID: {{ .Values.vaultId }}
@@ -82,8 +74,8 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: platform}]
-  path: ./
-  sourceRef: {kind: OCIRepository, name: tadoss-release, namespace: flux-system}
+  path: {{ printf "./%supstream/tadoss" .Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   healthChecks:
     - {apiVersion: apps/v1, kind: Deployment, name: tadoss-operator, namespace: tadoss-system}
   images:
@@ -120,13 +112,14 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: tadoss-operator}, {name: tadoss-credentials}, {name: platform}, {name: calico}]
-  path: ./deploy/tadoss/instance
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  path: {{ printf "./%sdeploy/tadoss/instance" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   postBuild:
     substitute:
       TADOSS_VERSION: {{ .Values.tadoss.release.version | quote }}
       TADOSS_IMAGE: {{ .Values.tadoss.release.runtimeImage | quote }}
       DOMAIN: {{ $domain }}
+      ASSET_PREFIX: {{ .Values.assets.prefix | quote }}
       DEPLOYMENT_ID: {{ .Values.deploymentId | quote }}
   healthChecks:
     - {apiVersion: tadoss.livewyer.io/v1alpha1, kind: Tadoss, name: tadoss, namespace: tads}

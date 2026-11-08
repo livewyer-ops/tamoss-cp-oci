@@ -35,8 +35,8 @@ following settings must be supplied before `up`.
 
 Use a precreated compartment with quota for three OKE workers, two PostgreSQL
 nodes, networking, storage and a load balancer. The [account prerequisites](../deploy/oci/README.md)
-define the provisioner's infrastructure permissions and a separate application
-storage identity. The provisioner also needs the [Vault and runtime IAM permissions](../deploy/gitops/README.md#inputs-and-secret-delivery).
+define infrastructure and restricted identity-management permissions. Deployment
+creates separate application storage and deployment-asset readers. The provisioner also needs the [Vault and runtime IAM permissions](../deploy/gitops/README.md#inputs-and-secret-delivery).
 These account prerequisites can be reused across deployments.
 
 ### API signing profile
@@ -80,11 +80,11 @@ Database and application passwords are also generated and persisted in Vault.
 ## Quick deployment
 
 The quick deployment needs no GitHub login, environment repository or registry
-credentials. Product assets are public and pinned by digest. Flux runs internally
-on OKE using pinned product definitions and the locally supplied configuration.
-The product Git repository must also permit anonymous reads, including when using
-a fork. A workstation's saved GitHub login does not give Flux access to a private
-product repository. The optional environment repository remains private.
+credentials. The host packages the committed checkout with verified public
+TAMOSS/TADOSS assets and uploads them to a private OCI bucket owned by the client.
+Flux in Kind and OKE reads this snapshot. The product checkout may be public or
+private and may contain unpushed commits; commit all changes before deployment.
+Neither cluster reads the product Git repository.
 
 Edit `.local/environment/values.yaml`:
 
@@ -108,17 +108,24 @@ administrator email use `contactEmail`. The Vault foundation defaults to
 mise run up
 ```
 
-`up` validates inputs and anonymous product Git/package access before provisioning. Native
+`up` validates the committed checkout, inputs and upstream package access. Native
 OCI queries resolve the storage namespace, service network, availability domains
 and pinned worker image. Default placement requires three availability domains;
 Frankfurt is the previously qualified region. Unavailable or ambiguous selections
 stop the build rather than silently choosing another image.
 
+Before Kind starts, the host creates the private asset bucket and a separate
+read-only identity, uploads the snapshot and verifies every uploaded file.
+The asset-reader key is seeded into Kind, persisted through ESO to Vault and
+removed from local staging after exact readback. Its permissions cover this
+asset bucket only; the application storage identity remains separate.
+
 Kind starts Flux, Crossplane and Vault credential persistence. Once OKE is ready,
 the host validates its identity and creates a temporary bootstrap ServiceAccount.
 It requests a one-hour token and submits a self-contained kubeconfig Secret to
 Kind. Keep `up` running until that submission; afterwards Kind's Flux installs
-and seeds OKE through declared dependencies. OKE's Flux reconciles the platform
+and seeds OKE through declared dependencies: Flux, ESO, Vault-backed asset access,
+then the deployment. OKE's Flux reconciles the platform
 and applications independently of the host.
 
 After public TLS and application readiness pass, `up` suspends Kind's remote
@@ -198,14 +205,17 @@ Keep subnets inside the selected VCN. Reuse an owned Vault/key through
 `foundation.name` and recorded `foundation.adoption` fields; a matching name is
 not proof of ownership.
 
-`product.url` supports a published fork. The local product commit must be on that
-repository's `main` history. Release digests come from its release locks.
+`product.url` records source provenance. Publication uses the exact local commit;
+no remote branch membership is required. `assets.bucket` overrides the derived
+asset bucket name. A same-named bucket must carry the recorded ownership tag;
+the workflow never adopts an unrelated store. See [client assets](../deploy/assets/README.md).
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
 | Recorded bootstrap input | `setup-values.yaml` |
 | Resolved product, infrastructure and settings | `product.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
 | Initial deployment configuration | `deployment/`, `deployment.yaml` |
+| Client asset store and selected snapshot | `asset-store.yaml`, `assets.lock.yaml` |
 | OCI discovery and package checks | `discovery/` |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Cloud outputs and adoption record | `outputs.json`, `adoption.yaml` |

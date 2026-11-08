@@ -12,7 +12,7 @@ metadata: {name: infrastructure, namespace: tamoss-infra}
 spec:
   interval: 1m
   prune: false
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
 status:
   observedGeneration: 1
   lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
@@ -25,7 +25,7 @@ metadata: {name: runtime, namespace: tamoss-infra}
 spec:
   interval: 1m
   prune: false
-  sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
 status:
   observedGeneration: 1
   lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
@@ -65,12 +65,14 @@ status:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
+kind: Bucket
 metadata: {name: tamoss-product, namespace: flux-system}
 spec:
   interval: 1m
-  url: https://example.invalid/product
-  ref: {commit: cccccccccccccccccccccccccccccccccccccccc}
+  bucketName: fixture-assets
+  endpoint: storage.example.invalid
+  provider: generic
+  prefix: releases/fixture/
 status:
   observedGeneration: 1
   artifact:
@@ -88,7 +90,7 @@ metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
 spec:
   interval: 1m
   chart: ./charts/gitops
-  sourceRef: {kind: GitRepository, name: tamoss-product}
+  sourceRef: {kind: Bucket, name: tamoss-product}
 status:
   observedGeneration: 1
   artifact:
@@ -109,7 +111,7 @@ spec:
   chart:
     spec:
       chart: ./charts/gitops
-      sourceRef: {kind: GitRepository, name: tamoss-product}
+      sourceRef: {kind: Bucket, name: tamoss-product}
 status:
   observedGeneration: 1
   lastAttemptedRevision: 0.1.0+fixture
@@ -123,7 +125,7 @@ spec:
   interval: 1m
   prune: false
   path: ./deploy/gitops/readiness
-  sourceRef: {kind: GitRepository, name: tamoss-product}
+  sourceRef: {kind: Bucket, name: tamoss-product}
 status:
   observedGeneration: 1
   lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc

@@ -1,0 +1,508 @@
+["assets:checkout"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -z "$(git status --porcelain --untracked-files=all)" || { printf '%s\n' "Commit deployment changes before publishing client assets" >&2; exit 1; }''',
+  "git rev-parse --verify HEAD > /dev/null",
+  "mise run verify:privacy",
+]
+
+["assets:build"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run assets:checkout",
+  "mise run tamoss:fetch",
+  "mise run tadoss:fetch",
+  "mise run tamoss:release",
+  '''{% for artifact in read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") | get(key="artifacts") %}
+{% if artifact.path == "calico/calico-policy-only.yaml" %}
+URL={{ artifact.url | quote }} TARGET={{ artifact.path | quote }} SHA={{ artifact.sha256 | quote }} mise run verify:artifact
+{% endif %}{% endfor %}''',
+  "install -d -m 700 '{{ vars.ENV_DIR }}/assets-build'",
+  '''PRODUCT_COMMIT="$(git rev-parse HEAD)" yq -n -P 'sort_keys(..) | {"format": 1, "product": {"commit": strenv(PRODUCT_COMMIT), "url": load("{{ vars.ENV_DIR }}/product.yaml").product.url}, "store": load("{{ vars.ENV_DIR }}/asset-store.yaml"), "configuration": load("{{ vars.ENV_DIR }}/setup-values.yaml"), "tamoss": load("{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml"), "tadoss": load("{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml")} | sort_keys(..)' > '{{ vars.ENV_DIR }}/assets-build/input.yaml' ''',
+  "RELEASE_LOCK='{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' OUTPUT='{{ vars.ENV_DIR }}/assets-build/pins.yaml' mise run gitops:pins",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run assets:assemble",
+]
+
+["assets:assemble"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ vars.ENV_DIR }}/assets-build/tree'",
+  "install -d -m 700 '{{ vars.ENV_DIR }}/assets-build/tree'",
+  '''git archive --format=tar HEAD {% for path in read_file(path=vars.ROOT_DIR ~ "/deploy/assets/paths.txt") | trim | split(pat="\n") %} {{ path | quote }}{% endfor %} | tar --extract --no-same-owner --directory '{{ vars.ENV_DIR }}/assets-build/tree' ''',
+  "git archive --format=tar.gz --output='{{ vars.ENV_DIR }}/assets-build/tree/operator-source.tar.gz' HEAD",
+  "git cat-file commit HEAD > '{{ vars.ENV_DIR }}/assets-build/tree/operator-commit.txt'",
+  "install -d '{{ vars.ENV_DIR }}/assets-build/tree/deploy/tamoss/instance/upstream' '{{ vars.ENV_DIR }}/assets-build/tree/deploy/gitops/platform-defaults/upstream' '{{ vars.ENV_DIR }}/assets-build/tree/upstream/tamoss' '{{ vars.ENV_DIR }}/assets-build/tree/upstream/tadoss'",
+  "cp -a '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_TAMOSS_KEY }}/source/deploy' '{{ vars.ENV_DIR }}/assets-build/tree/deploy/tamoss/instance/upstream/'",
+  "cp '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_TAMOSS_KEY }}/source/deploy/platform/values/defaults.yaml' '{{ vars.ENV_DIR }}/assets-build/tree/deploy/gitops/platform-defaults/upstream/defaults.yaml'",
+  '''{% for item in ["tamoss", "tadoss"] %}
+DOCKER_CONFIG='{{ vars.ENV_DIR }}/registry' flux pull artifact "$(yq -r '.bundle.url + "@" + .bundle.digest' '{{ vars.ROOT_DIR }}/deploy/{{ item }}/release.yaml')" --output '{{ vars.ENV_DIR }}/assets-build/tree/upstream/{{ item }}' --timeout=60s
+{% endfor %}''',
+  "{% for item in [\"tamoss\", \"tadoss\"] %}\n{% set lock = read_yaml(path=vars.ROOT_DIR ~ \"/deploy/\" ~ item ~ \"/release.yaml\") %}\n{% if item == \"tamoss\" %}{% set key = lock.releaseSha256 %}{% set names = [\"release.json\", \"install.yaml\", \"compatibility.yaml\", \"catalogue.json\", \"dependencies.yaml\"] %}{% else %}{% set key = lock.artifacts[\"release.json\"] %}{% set names = [\"release.json\", \"install.yaml\", \"compatibility.yaml\", \"catalogue.json\"] %}{% endif %}\n{% for name in names %}\ncmp '{{ vars.ROOT_DIR }}/.local/tmp/{{ item }}/{{ key }}/{{ name }}' '{{ vars.ENV_DIR }}/assets-build/tree/upstream/{{ item }}/{{ name }}'\n{% endfor %}{% endfor %}",
+  "install -d '{{ vars.ENV_DIR }}/assets-build/tree/upstream/calico'",
+  "cp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/calico-policy-only.yaml' '{{ vars.ENV_DIR }}/assets-build/tree/upstream/calico/'",
+  "cp '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_TAMOSS_KEY }}/source.tar.gz' '{{ vars.ENV_DIR }}/assets-build/tree/upstream/tamoss/source.tar.gz'",
+  "cp '{{ vars.ENV_DIR }}/assets-build/input.yaml' '{{ vars.ENV_DIR }}/assets-build/tree/build.yaml'",
+  '''test -z "$(find '{{ vars.ENV_DIR }}/assets-build/tree' -type l -print)" || { printf '%s\n' "Deployment assets must not contain symlinks" >&2; exit 1; }''',
+  '''test -z "$(find '{{ vars.ENV_DIR }}/assets-build/tree' \( -name .local -o -name .git -o -name AGENTS.md -o -name CLAUDE.md -o -name '*.pem' -o -name '*.kubeconfig' \) -print)" || { printf '%s\n' "Private material found in deployment assets" >&2; exit 1; }''',
+  "kubectl kustomize '{{ vars.ENV_DIR }}/assets-build/tree/deploy/tamoss/instance' > /dev/null",
+  "kubectl kustomize '{{ vars.ENV_DIR }}/assets-build/tree/upstream/tamoss' > /dev/null",
+  "kubectl kustomize '{{ vars.ENV_DIR }}/assets-build/tree/upstream/tadoss' > /dev/null",
+  '''cd '{{ vars.ENV_DIR }}/assets-build/tree' && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > '../SHA256SUMS' ''',
+  "mv '{{ vars.ENV_DIR }}/assets-build/SHA256SUMS' '{{ vars.ENV_DIR }}/assets-build/tree/SHA256SUMS'",
+  '''helm template inputs '{{ vars.ROOT_DIR }}/charts/deployment-inputs' --show-only templates/asset-lock.yaml --set-file files.pins='{{ vars.ENV_DIR }}/assets-build/pins.yaml',files.assetBuild='{{ vars.ENV_DIR }}/assets-build/input.yaml',files.assetStore='{{ vars.ENV_DIR }}/asset-store.yaml' --set-string assetManifestSha256="$(sha256sum '{{ vars.ENV_DIR }}/assets-build/tree/SHA256SUMS' | cut -d ' ' -f 1)" > '{{ vars.ENV_DIR }}/assets-build/assets.lock.yaml' ''',
+]
+env.TASKV_TAMOSS_KEY = '''{{ exec(command="yq -r .releaseSha256 " ~ ((vars.ROOT_DIR ~ "/deploy/tamoss/release.yaml") | quote)) }}'''
+
+["assets:upload"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run assets:store:verify",
+  "{{ env.TASKV_OCI }} os object bulk-upload --namespace-name {{ env.TASKV_NAMESPACE | quote }} --bucket-name {{ env.TASKV_BUCKET | quote }} --src-dir '{{ vars.ENV_DIR }}/assets-build/tree' --object-prefix {{ env.TASKV_PREFIX | quote }} --no-follow-symlinks --no-multipart --no-overwrite --verify-checksum > '{{ vars.ENV_DIR }}/assets-build/upload.json'",
+  '''yq -p=json -e '."upload-failures" | length == 0' '{{ vars.ENV_DIR }}/assets-build/upload.json' > /dev/null''',
+  "ENV_DIR={{ vars.ENV_DIR | quote }} ASSET_LOCK='{{ vars.ENV_DIR }}/assets-build/assets.lock.yaml' mise run assets:verify",
+  "{{ env.TASKV_OCI }} os object put --namespace-name {{ env.TASKV_NAMESPACE | quote }} --bucket-name {{ env.TASKV_BUCKET | quote }} --name {{ env.TASKV_RECEIPT | quote }} --file '{{ vars.ENV_DIR }}/assets-build/assets.lock.yaml' --no-overwrite > '{{ vars.ENV_DIR }}/assets-build/publication.json'",
+  "{{ env.TASKV_OCI }} os object get --namespace-name {{ env.TASKV_NAMESPACE | quote }} --bucket-name {{ env.TASKV_BUCKET | quote }} --name {{ env.TASKV_RECEIPT | quote }} --file '{{ vars.ENV_DIR }}/assets-build/published.lock.yaml' > /dev/null",
+  "cmp '{{ vars.ENV_DIR }}/assets-build/assets.lock.yaml' '{{ vars.ENV_DIR }}/assets-build/published.lock.yaml'",
+]
+env.TASKV_NAMESPACE = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="namespace") }}'''
+env.TASKV_BUCKET = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="bucketName") }}'''
+env.TASKV_PREFIX = '''{{ read_yaml(path=vars.ENV_DIR ~ "/assets-build/assets.lock.yaml") | get(key="data") | get(key="prefix") }}'''
+env.TASKV_RECEIPT = '''publications/{{ env.TASKV_PREFIX | trim_start_matches(pat="releases/") | trim_end_matches(pat="/") }}.yaml'''
+env.TASKV_OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
+
+["assets:verify"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.apiVersion == \"v1\" and .kind == \"ConfigMap\" and .metadata.name == \"tamoss-assets\" and .data.schemaVersion == \"1\" and (.data.prefix | test(\"^releases/[a-f0-9]{64}/$\")) and (.data.manifestSha256 | test(\"^[a-f0-9]{64}$\")) and .data.storeId == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId and .data.bucketName == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").bucketName and .data.endpoint == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").endpoint' '{{ env.TASKV_LOCK }}' > /dev/null",
+  "yq -e '.data as $d | ($d.\"values.yaml\" | from_yaml) as $v | [$d.region == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").region, $d.root == (\"./\" + ($d.prefix | sub(\"/$\"; \"\"))), ($d.productCommit | test(\"^[a-f0-9]{40}$\")), ($v.assets | length == 6), ($v.assets | to_entries | all_c(.value == $d[.key])), $v.dependencies.externalSecrets.version == $d.externalSecretsVersion, (($v.externalSecrets | sort_keys(..) | to_json(0)) == ($d.externalSecretsValues | from_yaml | sort_keys(..) | to_json(0))), $v.tadoss.enabled == null] | all' '{{ env.TASKV_LOCK }}' > /dev/null",
+  "rm -rf '{{ vars.ENV_DIR }}/assets-verification'",
+  "install -d -m 700 '{{ vars.ENV_DIR }}/assets-verification'",
+  "{{ env.TASKV_OCI }} os object bulk-download --namespace-name {{ env.TASKV_NAMESPACE | quote }} --bucket-name {{ env.TASKV_BUCKET | quote }} --prefix {{ env.TASKV_PREFIX | quote }} --download-dir '{{ vars.ENV_DIR }}/assets-verification' --no-overwrite > '{{ vars.ENV_DIR }}/assets-verification/download.json'",
+  "yq -p=json -e '.\"download-failures\" | length == 0' '{{ vars.ENV_DIR }}/assets-verification/download.json' > /dev/null",
+  "cd '{{ vars.ENV_DIR }}/assets-verification/{{ env.TASKV_PREFIX }}' && printf '%s  SHA256SUMS\\n' {{ env.TASKV_MANIFEST | quote }} | sha256sum --check --status",
+  "cd '{{ vars.ENV_DIR }}/assets-verification/{{ env.TASKV_PREFIX }}' && find . -type f ! -path './SHA256SUMS' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > '{{ vars.ENV_DIR }}/assets-verification/SHA256SUMS' ",
+  "cmp '{{ vars.ENV_DIR }}/assets-verification/{{ env.TASKV_PREFIX }}SHA256SUMS' '{{ vars.ENV_DIR }}/assets-verification/SHA256SUMS'",
+  "test \"$(sha256sum '{{ vars.ENV_DIR }}/assets-verification/{{ env.TASKV_PREFIX }}build.yaml' | cut -d ' ' -f 1)\" = '{{ env.TASKV_PREFIX | trim_start_matches(pat=\"releases/\") | trim_end_matches(pat=\"/\") }}'",
+  "yq -e '.product.commit == load(\"{{ env.TASKV_LOCK }}\").data.productCommit and .store.storeId == load(\"{{ env.TASKV_LOCK }}\").data.storeId' '{{ vars.ENV_DIR }}/assets-verification/{{ env.TASKV_PREFIX }}build.yaml' > /dev/null",
+  "test \"$(git hash-object -t commit '{{ vars.ENV_DIR }}/assets-verification/{{ env.TASKV_PREFIX }}operator-commit.txt')\" = \"$(yq -r .data.productCommit '{{ env.TASKV_LOCK }}')\" ",
+]
+env.TASKV_LOCK = '''{{ env.ASSET_LOCK | default(value=vars.ENV_DIR ~ "/assets.lock.yaml") }}'''
+env.TASKV_NAMESPACE = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="namespace") }}'''
+env.TASKV_BUCKET = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="bucketName") }}'''
+env.TASKV_PREFIX = '''{{ read_yaml(path=env.TASKV_LOCK) | get(key="data") | get(key="prefix") }}'''
+env.TASKV_MANIFEST = '''{{ read_yaml(path=env.TASKV_LOCK) | get(key="data") | get(key="manifestSha256") }}'''
+env.TASKV_OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
+
+["assets:requests"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "install -d -m 700 '{{ vars.ENV_DIR }}/assets-state'",
+  "test -s '{{ vars.ENV_DIR }}/assets-state/reader.yaml' || printf '{}\n' > '{{ vars.ENV_DIR }}/assets-state/reader.yaml'",
+  "helm template inputs '{{ vars.ROOT_DIR }}/charts/deployment-inputs' --show-only templates/asset-requests.yaml --set-file files.assetStore='{{ vars.ENV_DIR }}/asset-store.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.settings='{{ vars.ENV_DIR }}/settings.yaml',files.assetReader='{{ vars.ENV_DIR }}/assets-state/reader.yaml' > '{{ vars.ENV_DIR }}/assets-state/requests.yaml'",
+  '''{% for resource in ["bucket", "user", "capabilities", "group", "membership", "policy"] %}
+yq -o=json '.{{ resource }}' '{{ vars.ENV_DIR }}/assets-state/requests.yaml' > '{{ vars.ENV_DIR }}/assets-state/{{ resource }}-request.json'
+{% endfor %}''',
+]
+
+["assets:store:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run assets:requests",
+  "{{ env.TASKV_OCI }} os bucket list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --namespace-name {{ env.TASKV_NAMESPACE | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/buckets.json'",
+  "mise run assets:store:create",
+  "mise run assets:store:verify",
+]
+env.TASKV_OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
+env.TASKV_COMPARTMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="compartmentId") }}'''
+env.TASKV_NAMESPACE = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="namespace") }}'''
+
+["assets:store:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -p=json -e '[.data[] | select(.name == load("{{ vars.ENV_DIR }}/asset-store.yaml").bucketName)] | length == 1' '{{ vars.ENV_DIR }}/assets-state/buckets.json' > /dev/null'''
+run = [
+  "{{ env.TASKV_OCI }} os bucket create --from-json 'file://{{ vars.ENV_DIR }}/assets-state/bucket-request.json' > '{{ vars.ENV_DIR }}/assets-state/bucket-created.json'",
+]
+env.TASKV_OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
+
+["assets:store:verify"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "{{ env.TASKV_OCI }} os bucket get --namespace-name {{ env.TASKV_NAMESPACE | quote }} --name {{ env.TASKV_BUCKET | quote }} > '{{ vars.ENV_DIR }}/assets-state/bucket.json'",
+  '''yq -p=json -e '.data | [.name == load("{{ vars.ENV_DIR }}/asset-store.yaml").bucketName, .namespace == load("{{ vars.ENV_DIR }}/asset-store.yaml").namespace, ."compartment-id" == load("{{ vars.ENV_DIR }}/asset-store.yaml").compartmentId, ."public-access-type" == "NoPublicAccess", ."freeform-tags"."tamoss-asset-store-id" == load("{{ vars.ENV_DIR }}/asset-store.yaml").storeId] | all' '{{ vars.ENV_DIR }}/assets-state/bucket.json' > /dev/null''',
+]
+env.TASKV_OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
+env.TASKV_NAMESPACE = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="namespace") }}'''
+env.TASKV_BUCKET = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="bucketName") }}'''
+
+["assets:reader:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.credentialsEstablished == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null'''
+run = [
+  "yq -e '.teardownStarted != true and .assetReaderRetired != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null",
+  "mise run assets:requests",
+  "mise run assets:reader:user",
+  "mise run assets:reader:group",
+  "mise run assets:requests",
+  "mise run assets:reader:membership",
+  "mise run assets:reader:policy",
+  "mise run assets:reader:key",
+]
+
+["assets:reader:user"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains users list --filter 'userName eq \"{{ env.TASKV_NAME }}\"' --all > '{{ vars.ENV_DIR }}/assets-state/users.json'",
+  "yq -p=json -e '(.data.resources // []) | length <= 1' '{{ vars.ENV_DIR }}/assets-state/users.json' > /dev/null",
+  "yq -p=json -o=json '{\"data\": .data.resources[0]}' '{{ vars.ENV_DIR }}/assets-state/users.json' > '{{ vars.ENV_DIR }}/assets-state/user.json'",
+  "mise run assets:reader:user:create",
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains user get --user-id \"$(yq -r .data.id '{{ vars.ENV_DIR }}/assets-state/user.json')\" > '{{ vars.ENV_DIR }}/assets-state/user-current.json'",
+  "yq -p=json -e '.data | [.\"external-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID, .\"domain-ocid\" == load(\"{{ vars.ENV_DIR }}/settings.yaml\").storageIdentity.domainId, .active == true] | all' '{{ vars.ENV_DIR }}/assets-state/user-current.json' > /dev/null",
+  "mise run assets:reader:capabilities",
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains user get --user-id \"$(yq -r .data.id '{{ vars.ENV_DIR }}/assets-state/user.json')\" > '{{ vars.ENV_DIR }}/assets-state/user-current.json'",
+  "yq -p=json -e '.data | [.\"external-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID, .\"domain-ocid\" == load(\"{{ vars.ENV_DIR }}/settings.yaml\").storageIdentity.domainId, .\"user-name\" == \"{{ env.TASKV_NAME }}\", .active == true, (.ocid | test(\"^ocid1.user.\")), (.\"urn-ietf-params-scim-schemas-oracle-idcs-extension-capabilities-user\" | to_entries | map(select(.key != \"can-use-customer-secret-keys\")) | all_c(.value == false)), .\"urn-ietf-params-scim-schemas-oracle-idcs-extension-capabilities-user\".\"can-use-customer-secret-keys\" == true] | all' '{{ vars.ENV_DIR }}/assets-state/user-current.json' > /dev/null",
+  "yq -e '.userId == null or .userId == load(\"{{ vars.ENV_DIR }}/assets-state/user-current.json\").data.ocid' '{{ vars.ENV_DIR }}/assets-state/reader.yaml' > /dev/null || { printf '%s\\n' 'Recorded asset identity changed; review before continuing' >&2; exit 1; }",
+  "yq -i '.userId = load(\"{{ vars.ENV_DIR }}/assets-state/user-current.json\").data.ocid | .userScimId = load(\"{{ vars.ENV_DIR }}/assets-state/user-current.json\").data.id | .deploymentId = load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID | .storeId = load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId' '{{ vars.ENV_DIR }}/assets-state/reader.yaml'"
+]
+env.TASKV_ENDPOINT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/settings.yaml") | get(key="storageIdentity") | get(key="idcsEndpoint") }}'''
+env.TASKV_NAME = '''tamoss-assets-{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'''
+
+["assets:initialise"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run assets:initialise:publish",
+  "mise run assets:store:verify",
+  "mise run assets:verify",
+  "mise run assets:reader:prepare",
+]
+
+["assets:initialise:publish"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "test -s '{{ vars.ENV_DIR }}/assets.lock.yaml'"
+run = [
+  "mise run assets:build",
+  "mise run assets:store:prepare",
+  "mise run assets:upload",
+  "install -m 600 '{{ vars.ENV_DIR }}/assets-build/published.lock.yaml' '{{ vars.ENV_DIR }}/assets.lock.yaml'",
+]
+
+["assets:publish:run"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "test -s '{{ vars.ENV_DIR }}/assets.lock.yaml'",
+  "mise run assets:store:verify",
+  "mise run assets:build",
+  "mise run assets:upload",
+  "printf 'Published candidate: %s/assets-build/published.lock.yaml\nCommit this lock in the client Git repository to select it.\n' '{{ vars.ENV_DIR }}'",
+]
+
+["assets:reader:user:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -p=json -e '.data.id != null' '{{ vars.ENV_DIR }}/assets-state/user.json' > /dev/null'''
+run = [
+  '''test "$(yq -r '.userScimId // ""' '{{ vars.ENV_DIR }}/assets-state/reader.yaml')" = "" || { printf '%s\n' "Recorded asset reader is absent; restore or retire its original identity" >&2; exit 1; }''',
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains user create --from-json 'file://{{ vars.ENV_DIR }}/assets-state/user-request.json' > '{{ vars.ENV_DIR }}/assets-state/user.json'",
+]
+env.TASKV_ENDPOINT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/settings.yaml") | get(key="storageIdentity") | get(key="idcsEndpoint") }}'''
+
+["assets:reader:group"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "oci iam group list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/group-list.json'",
+  "yq -p=json -o=json '{\"data\": (.data | map(select(.name == \"{{ env.TASKV_NAME }}\")))}' '{{ vars.ENV_DIR }}/assets-state/group-list.json' > '{{ vars.ENV_DIR }}/assets-state/group-matches.json'",
+  "yq -p=json -e '.data | length <= 1' '{{ vars.ENV_DIR }}/assets-state/group-matches.json' > /dev/null",
+  "yq -p=json -o=json '{\"data\": .data[0]}' '{{ vars.ENV_DIR }}/assets-state/group-matches.json' > '{{ vars.ENV_DIR }}/assets-state/group.json'",
+  "mise run assets:reader:group:create",
+  "yq -p=json -e '.data | [.name == \"{{ env.TASKV_NAME }}\", .\"freeform-tags\".\"tamoss-asset-store-id\" == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId, .\"freeform-tags\".\"tamoss-asset-reader-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID, .\"compartment-id\" == \"{{ env.TASKV_COMPARTMENT }}\"] | all' '{{ vars.ENV_DIR }}/assets-state/group.json' > /dev/null",
+  "yq -e '.groupId == null or .groupId == load(\"{{ vars.ENV_DIR }}/assets-state/group.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/reader.yaml' > /dev/null || { printf '%s\\n' 'Recorded asset identity changed; review before continuing' >&2; exit 1; }",
+  "yq -i '.groupId = load(\"{{ vars.ENV_DIR }}/assets-state/group.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/reader.yaml'",
+]
+env.TASKV_COMPARTMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="tenancyId") }}'''
+env.TASKV_NAME = '''tamoss-assets-{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'''
+
+["assets:reader:group:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -p=json -e '.data.id != null' '{{ vars.ENV_DIR }}/assets-state/group.json' > /dev/null'''
+run = [
+  '''test "$(yq -r '.groupId // ""' '{{ vars.ENV_DIR }}/assets-state/reader.yaml')" = "" || { printf '%s\n' "Recorded asset group is absent; recover its original identity" >&2; exit 1; }''',
+  "oci iam group create --from-json 'file://{{ vars.ENV_DIR }}/assets-state/group-request.json' --wait-for-state ACTIVE --max-wait-seconds 120 > '{{ vars.ENV_DIR }}/assets-state/group.json'",
+]
+
+["assets:reader:policy"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "oci iam policy list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/policy-list.json'",
+  "yq -p=json -o=json '{\"data\": (.data | map(select(.name == \"{{ env.TASKV_NAME }}\")))}' '{{ vars.ENV_DIR }}/assets-state/policy-list.json' > '{{ vars.ENV_DIR }}/assets-state/policy-matches.json'",
+  "yq -p=json -e '.data | length <= 1' '{{ vars.ENV_DIR }}/assets-state/policy-matches.json' > /dev/null",
+  "yq -p=json -o=json '{\"data\": .data[0]}' '{{ vars.ENV_DIR }}/assets-state/policy-matches.json' > '{{ vars.ENV_DIR }}/assets-state/policy.json'",
+  "mise run assets:reader:policy:create",
+  "yq -p=json -e '.data | [.name == \"{{ env.TASKV_NAME }}\", .\"freeform-tags\".\"tamoss-asset-store-id\" == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId, .\"freeform-tags\".\"tamoss-asset-reader-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID, .\"compartment-id\" == \"{{ env.TASKV_COMPARTMENT }}\"] | all' '{{ vars.ENV_DIR }}/assets-state/policy.json' > /dev/null",
+  "yq -p=json -e '(.data.statements | sort | to_json(0)) == (load(\"{{ vars.ENV_DIR }}/assets-state/policy-request.json\").statements | sort | to_json(0))' '{{ vars.ENV_DIR }}/assets-state/policy.json' > /dev/null",
+  "yq -e '.policyId == null or .policyId == load(\"{{ vars.ENV_DIR }}/assets-state/policy.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/reader.yaml' > /dev/null || { printf '%s\\n' 'Recorded asset identity changed; review before continuing' >&2; exit 1; }",
+  "yq -i '.policyId = load(\"{{ vars.ENV_DIR }}/assets-state/policy.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/reader.yaml'",
+]
+env.TASKV_COMPARTMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/asset-store.yaml") | get(key="compartmentId") }}'''
+env.TASKV_NAME = '''tamoss-assets-{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'''
+
+["assets:reader:policy:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -p=json -e '.data.id != null' '{{ vars.ENV_DIR }}/assets-state/policy.json' > /dev/null'''
+run = [
+  '''test "$(yq -r '.policyId // ""' '{{ vars.ENV_DIR }}/assets-state/reader.yaml')" = "" || { printf '%s\n' "Recorded asset policy is absent; recover its original identity" >&2; exit 1; }''',
+  "oci iam policy create --from-json 'file://{{ vars.ENV_DIR }}/assets-state/policy-request.json' --wait-for-state ACTIVE --max-wait-seconds 120 > '{{ vars.ENV_DIR }}/assets-state/policy.json'",
+]
+
+["assets:reader:membership"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "oci iam user list-groups --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/memberships.json'",
+  "mise run assets:reader:membership:create",
+  "oci iam user list-groups --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/memberships.json'",
+  "yq -p=json -e '(.data | length == 1) and .data[0].id == load(\"{{ vars.ENV_DIR }}/assets-state/reader.yaml\").groupId' '{{ vars.ENV_DIR }}/assets-state/memberships.json' > /dev/null",
+]
+env.TASKV_USER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/assets-state/reader.yaml") | get(key="userId") }}'''
+
+["assets:reader:membership:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -p=json -e '[.data[] | select(.id == load("{{ vars.ENV_DIR }}/assets-state/reader.yaml").groupId)] | length == 1' '{{ vars.ENV_DIR }}/assets-state/memberships.json' > /dev/null'''
+run = [
+  "oci iam group add-user --from-json 'file://{{ vars.ENV_DIR }}/assets-state/membership-request.json' > '{{ vars.ENV_DIR }}/assets-state/membership.json'",
+]
+
+["assets:reader:key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+run = [
+  "install -d -m 700 '{{ vars.ENV_DIR }}/secrets'",
+  "oci iam customer-secret-key list --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/keys.json'",
+  "mise run assets:reader:key:recover",
+  "mise run assets:reader:key:create",
+  "oci iam customer-secret-key list --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/keys.json'",
+  "yq -p=json -e '[.data.id != null, .data.key != null, (.data.key | length > 0)] | all' '{{ vars.ENV_DIR }}/assets-state/key.json' > /dev/null",
+  "yq -p=json -e '(.data | length == 1) and .data[0].id == load(\"{{ vars.ENV_DIR }}/assets-state/key.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/keys.json' > /dev/null",
+  "yq -i '.keyId = load(\"{{ vars.ENV_DIR }}/assets-state/key.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/reader.yaml'",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/secrets/asset-accesskey'",
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/secrets/asset-secretkey'",
+  "yq -r '.data.id' '{{ vars.ENV_DIR }}/assets-state/key.json' | tr -d '\\n' > '{{ vars.ENV_DIR }}/secrets/asset-accesskey'",
+  "yq -r '.data.key' '{{ vars.ENV_DIR }}/assets-state/key.json' | tr -d '\\n' > '{{ vars.ENV_DIR }}/secrets/asset-secretkey'",
+]
+env.TASKV_USER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/assets-state/reader.yaml") | get(key="userId") }}'''
+
+["assets:reader:key:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+quiet = true
+skip_if = "test -s '{{ vars.ENV_DIR }}/assets-state/key.json'"
+run = [
+  '''yq -p=json -e '.data | length == 0' '{{ vars.ENV_DIR }}/assets-state/keys.json' > /dev/null || { printf '%s\n' "An asset reader key already exists without its response; recover or revoke that exact key before retrying" >&2; exit 1; }''',
+  "install -m 600 /dev/null '{{ vars.ENV_DIR }}/assets-state/key.pending.json'",
+  "oci --max-retries 0 iam customer-secret-key create --user-id {{ env.TASKV_USER | quote }} --display-name {{ env.TASKV_NAME | quote }} > '{{ vars.ENV_DIR }}/assets-state/key.pending.json'",
+  '''yq -p=json -e '.data.id != null and .data.key != null' '{{ vars.ENV_DIR }}/assets-state/key.pending.json' > /dev/null''',
+  "mv '{{ vars.ENV_DIR }}/assets-state/key.pending.json' '{{ vars.ENV_DIR }}/assets-state/key.json'",
+]
+env.TASKV_USER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/assets-state/reader.yaml") | get(key="userId") }}'''
+env.TASKV_NAME = '''tamoss-assets-{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'''
+
+["assets:reader:retirement-inventory"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "install -d -m 700 '{{ vars.ENV_DIR }}/assets-state'",
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains users list --filter 'userName eq \"tamoss-assets-{{ env.TASKV_DEPLOYMENT }}\"' --all > '{{ vars.ENV_DIR }}/assets-state/retire-users.json' ",
+  "yq -p=json -e '[((.data.resources // []) | length <= 1), ((.data.resources // []) | all_c(.\"external-id\" == \"{{ env.TASKV_DEPLOYMENT }}\" and .\"domain-ocid\" == load(\"{{ vars.ENV_DIR }}/settings.yaml\").storageIdentity.domainId))] | all' '{{ vars.ENV_DIR }}/assets-state/retire-users.json' > /dev/null",
+  "oci iam group list --compartment-id \"$(yq -r .tenancyId '{{ vars.ENV_DIR }}/asset-store.yaml')\" --all > '{{ vars.ENV_DIR }}/assets-state/retire-group-list.json' ",
+  "yq -p=json -o=json '.data | map(select(.name == \"tamoss-assets-{{ env.TASKV_DEPLOYMENT }}\"))' '{{ vars.ENV_DIR }}/assets-state/retire-group-list.json' > '{{ vars.ENV_DIR }}/assets-state/retire-group.json' ",
+  "yq -p=json -e '[(length <= 1), all_c(.\"freeform-tags\".\"tamoss-asset-store-id\" == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId and .\"freeform-tags\".\"tamoss-asset-reader-id\" == \"{{ env.TASKV_DEPLOYMENT }}\")] | all' '{{ vars.ENV_DIR }}/assets-state/retire-group.json' > /dev/null",
+  "oci iam policy list --compartment-id \"$(yq -r .compartmentId '{{ vars.ENV_DIR }}/asset-store.yaml')\" --all > '{{ vars.ENV_DIR }}/assets-state/retire-policy-list.json' ",
+  "yq -p=json -o=json '.data | map(select(.name == \"tamoss-assets-{{ env.TASKV_DEPLOYMENT }}\"))' '{{ vars.ENV_DIR }}/assets-state/retire-policy-list.json' > '{{ vars.ENV_DIR }}/assets-state/retire-policy.json' ",
+  "yq -p=json -e '[(length <= 1), all_c(.\"freeform-tags\".\"tamoss-asset-store-id\" == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId and .\"freeform-tags\".\"tamoss-asset-reader-id\" == \"{{ env.TASKV_DEPLOYMENT }}\")] | all' '{{ vars.ENV_DIR }}/assets-state/retire-policy.json' > /dev/null",
+  "yq -n '{\"userId\": (load(\"{{ vars.ENV_DIR }}/assets-state/retire-users.json\").data.resources[0].ocid // \"\"), \"userScimId\": (load(\"{{ vars.ENV_DIR }}/assets-state/retire-users.json\").data.resources[0].id // \"\"), \"groupId\": (load(\"{{ vars.ENV_DIR }}/assets-state/retire-group.json\")[0].id // \"\"), \"policyId\": (load(\"{{ vars.ENV_DIR }}/assets-state/retire-policy.json\")[0].id // \"\")}' > '{{ vars.ENV_DIR }}/assets-state/retirement.yaml' ",
+  "test -s '{{ vars.ENV_DIR }}/assets-state/reader.yaml' || printf '{}\\n' > '{{ vars.ENV_DIR }}/assets-state/reader.yaml' ",
+  "yq -e '. as $record | load(\"{{ vars.ENV_DIR }}/assets-state/retirement.yaml\") | to_entries | all_c(.value == \"\" or $record[.key] == null or $record[.key] == .value)' '{{ vars.ENV_DIR }}/assets-state/reader.yaml' > /dev/null",
+]
+env.TASKV_ENDPOINT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/settings.yaml\") | get(key=\"storageIdentity\") | get(key=\"idcsEndpoint\") }}"
+env.TASKV_DEPLOYMENT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/identity.yaml\") | get(key=\"deploymentUID\") }}"
+
+["assets:reader:retire"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.resourcesRetired == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\n' \"Remove workload consumers before retiring asset access\" >&2; exit 1; }",
+  "mise run assets:reader:retirement-inventory",
+  "mise run assets:reader:retire-user",
+  "mise run assets:reader:retire-policy",
+  "mise run assets:reader:retire-group",
+  "mise run assets:reader:retirement-inventory",
+  "yq -e 'to_entries | all_c(.value == \"\")' '{{ vars.ENV_DIR }}/assets-state/retirement.yaml' > /dev/null",
+  "rm -f '{{ vars.ENV_DIR }}/assets-state/key.json' '{{ vars.ENV_DIR }}/assets-state/key.pending.json' '{{ vars.ENV_DIR }}/secrets/asset-accesskey' '{{ vars.ENV_DIR }}/secrets/asset-secretkey'",
+  "yq -i '.assetReaderRetired = true' '{{ vars.ENV_DIR }}/identity.yaml' ",
+]
+
+["assets:reader:retire-user"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.userId == \"\"' '{{ vars.ENV_DIR }}/assets-state/retirement.yaml' > /dev/null"
+run = [
+  "oci iam customer-secret-key list --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/retire-keys.json' ",
+  "yq -p=json -e '.data | all_c(.\"display-name\" == \"tamoss-assets-{{ env.TASKV_DEPLOYMENT }}\")' '{{ vars.ENV_DIR }}/assets-state/retire-keys.json' > /dev/null || { printf '%s\n' \"Unrecognised reader key; preserve access for review\" >&2; exit 1; }",
+  "mise run assets:reader:delete-keys",
+  "oci iam customer-secret-key list --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/keys-after.json' ",
+  "yq -p=json -e '.data | length == 0' '{{ vars.ENV_DIR }}/assets-state/keys-after.json' > /dev/null",
+  "oci iam user list-groups --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/retire-memberships.json' ",
+  "yq -p=json -e '.data | all_c(.id == load(\"{{ vars.ENV_DIR }}/assets-state/retirement.yaml\").groupId)' '{{ vars.ENV_DIR }}/assets-state/retire-memberships.json' > /dev/null",
+  "mise run assets:reader:delete-membership",
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains user delete --user-id {{ env.TASKV_SCIM_USER | quote }} --force > '{{ vars.ENV_DIR }}/assets-state/user-deleted.json' ",
+]
+env.TASKV_USER = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"userId\") }}"
+env.TASKV_SCIM_USER = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"userScimId\") }}"
+env.TASKV_ENDPOINT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/settings.yaml\") | get(key=\"storageIdentity\") | get(key=\"idcsEndpoint\") }}"
+env.TASKV_DEPLOYMENT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/identity.yaml\") | get(key=\"deploymentUID\") }}"
+
+["assets:reader:delete-keys"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "{% for key in read_json(path=vars.ENV_DIR ~ \"/assets-state/retire-keys.json\") | get(key=\"data\") %}\noci iam customer-secret-key delete --user-id {{ env.TASKV_USER | quote }} --customer-secret-key-id {{ key.id | quote }} --force\n{% endfor %}",
+]
+env.TASKV_USER = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"userId\") }}"
+
+["assets:reader:delete-membership"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "{% for group in read_json(path=vars.ENV_DIR ~ \"/assets-state/retire-memberships.json\") | get(key=\"data\") %}\noci iam group remove-user --user-id {{ env.TASKV_USER | quote }} --group-id {{ group.id | quote }} --force\n{% endfor %}",
+]
+env.TASKV_USER = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"userId\") }}"
+
+["assets:reader:retire-policy"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.policyId == \"\"' '{{ vars.ENV_DIR }}/assets-state/retirement.yaml' > /dev/null"
+run = [
+  "oci iam policy delete --policy-id {{ env.TASKV_ID | quote }} --force > '{{ vars.ENV_DIR }}/assets-state/policy-deleted.json'",
+]
+env.TASKV_ID = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"policyId\") }}"
+
+["assets:reader:retire-group"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.groupId == \"\"' '{{ vars.ENV_DIR }}/assets-state/retirement.yaml' > /dev/null"
+run = [
+  "oci iam group delete --group-id {{ env.TASKV_ID | quote }} --force > '{{ vars.ENV_DIR }}/assets-state/group-deleted.json'",
+]
+env.TASKV_ID = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"groupId\") }}"
+
+["assets:retire:run"]
+dir = "{{ vars.ROOT_DIR }}"
+hide = true
+run = [
+  "yq -e '.teardownComplete == true and .assetReaderRetired == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\n' \"Complete down before retiring the client asset store\" >&2; exit 1; }",
+  "oci os bucket list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --namespace-name {{ env.TASKV_NAMESPACE | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/buckets.json'",
+  "mise run assets:retire:apply",
+  "oci os bucket list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --namespace-name {{ env.TASKV_NAMESPACE | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/buckets-after.json'",
+  "yq -p=json -e '[.data[] | select(.name == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").bucketName)] | length == 0' '{{ vars.ENV_DIR }}/assets-state/buckets-after.json' > /dev/null",
+  "yq -i '.assetStoreRetired = true' '{{ vars.ENV_DIR }}/identity.yaml' ",
+]
+env.TASKV_COMPARTMENT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/asset-store.yaml\") | get(key=\"compartmentId\") }}"
+env.TASKV_NAMESPACE = "{{ read_yaml(path=vars.ENV_DIR ~ \"/asset-store.yaml\") | get(key=\"namespace\") }}"
+
+["assets:retire:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -p=json -e '[.data[] | select(.name == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").bucketName)] | length == 0' '{{ vars.ENV_DIR }}/assets-state/buckets.json' > /dev/null"
+run = [
+  "mise run assets:store:verify",
+  "oci iam policy list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/store-policies.json' ",
+  "yq -p=json -e '[.data[] | select(.\"freeform-tags\".\"tamoss-asset-store-id\" == load(\"{{ vars.ENV_DIR }}/asset-store.yaml\").storeId)] | length == 0' '{{ vars.ENV_DIR }}/assets-state/store-policies.json' > /dev/null || { printf '%s\n' \"Another deployment still has asset-store access\" >&2; exit 1; }",
+  "yq -p=json -e '.data.versioning == \"Disabled\"' '{{ vars.ENV_DIR }}/assets-state/bucket.json' > /dev/null || { printf '%s\n' \"Review externally enabled bucket versioning before retiring the store\" >&2; exit 1; }",
+  "oci os object bulk-delete --namespace-name {{ env.TASKV_NAMESPACE | quote }} --bucket-name {{ env.TASKV_BUCKET | quote }} --force > '{{ vars.ENV_DIR }}/assets-state/objects-deleted.json'",
+  "yq -p=json -e '.\"delete-failures\" | length == 0' '{{ vars.ENV_DIR }}/assets-state/objects-deleted.json' > /dev/null",
+  "oci os bucket delete --namespace-name {{ env.TASKV_NAMESPACE | quote }} --bucket-name {{ env.TASKV_BUCKET | quote }} --force > '{{ vars.ENV_DIR }}/assets-state/bucket-deleted.json'",
+]
+env.TASKV_COMPARTMENT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/asset-store.yaml\") | get(key=\"compartmentId\") }}"
+env.TASKV_NAMESPACE = "{{ read_yaml(path=vars.ENV_DIR ~ \"/asset-store.yaml\") | get(key=\"namespace\") }}"
+env.TASKV_BUCKET = "{{ read_yaml(path=vars.ENV_DIR ~ \"/asset-store.yaml\") | get(key=\"bucketName\") }}"
+
+["assets:restore-runtime"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run assets:verify",
+  "yq '.data.\"values.yaml\" | from_yaml | .release | {\"tag\": .tag, \"releaseSha256\": .releaseSha256, \"sourceSha256\": .sourceSha256}' '{{ env.TASKV_LOCK }}' > '{{ vars.ENV_DIR }}/tamoss-release.current.yaml' ",
+  "mise run assets:restore-runtime:copy"
+]
+env.TASKV_LOCK = '''{{ env.ASSET_LOCK | default(value=vars.ENV_DIR ~ "/assets.lock.yaml") }}'''
+
+["assets:restore-runtime:copy"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "install -d -m 700 '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}'",
+  "cp '{{ env.TASKV_SOURCE }}upstream/tamoss/'* '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/'",
+  "printf '%s  %s\\n' \"$(yq -r .sourceSha256 '{{ vars.ENV_DIR }}/tamoss-release.current.yaml')\" '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/source.tar.gz' | sha256sum --check --status",
+  "ASSETS='{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}' mise run tamoss:extract",
+  "ASSETS='{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}' mise run tamoss:entrypoints",
+  "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:metadata"
+]
+env.TASKV_LOCK = "{{ env.ASSET_LOCK | default(value=vars.ENV_DIR ~ \"/assets.lock.yaml\") }}"
+env.TASKV_KEY = "{{ read_yaml(path=vars.ENV_DIR ~ \"/tamoss-release.current.yaml\") | get(key=\"releaseSha256\") }}"
+env.TASKV_SOURCE = "{{ vars.ENV_DIR }}/assets-verification/{{ read_yaml(path=env.TASKV_LOCK) | get(key=\"data\") | get(key=\"prefix\") }}"
+
+["assets:reader:readback"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.credentialsEstablished == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
+run = ["kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret asset-reader -o json | yq -p=json -e '.data.accesskey == (load_str(\"{{ vars.ENV_DIR }}/secrets/asset-accesskey\") | @base64) and .data.secretkey == (load_str(\"{{ vars.ENV_DIR }}/secrets/asset-secretkey\") | @base64) and ([.metadata.ownerReferences[] | select(.controller == true) | .kind + \"/\" + .name] | contains([\"ExternalSecret/asset-reader\"]))' > /dev/null"]
+
+["assets:reader:capabilities"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -p=json -e '.data.\"urn-ietf-params-scim-schemas-oracle-idcs-extension-capabilities-user\" | to_entries | all_c(.value == (.key == \"can-use-customer-secret-keys\"))' '{{ vars.ENV_DIR }}/assets-state/user-current.json' > /dev/null"
+run = [
+  "yq -e '.userId == null' '{{ vars.ENV_DIR }}/assets-state/reader.yaml' > /dev/null || { printf '%s\\n' 'Asset reader capabilities drifted; review before continuing' >&2; exit 1; }",
+  "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains user patch --user-id \"$(yq -r .data.id '{{ vars.ENV_DIR }}/assets-state/user-current.json')\" --from-json 'file://{{ vars.ENV_DIR }}/assets-state/capabilities-request.json' > '{{ vars.ENV_DIR }}/assets-state/user-restricted.json' "
+]
+env.TASKV_ENDPOINT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/settings.yaml") | get(key="storageIdentity") | get(key="idcsEndpoint") }}'''
+
+["assets:publish"]
+description = "Publish a verified client asset candidate without changing the running deployment"
+dir = "{{ vars.ROOT_DIR }}"
+run = ["ENV_DIR={{ vars.ENV_PATH | quote }} mise run assets:publish:run"]
+
+["assets:retire"]
+description = "Delete a retired client asset store and its published releases"
+dir = "{{ vars.ROOT_DIR }}"
+run = ["ENV_DIR={{ vars.ENV_PATH | quote }} mise run assets:retire:run"]
+
+["assets:reader:key:recover"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "test -s '{{ vars.ENV_DIR }}/assets-state/key.json' || test ! -e '{{ vars.ENV_DIR }}/assets-state/key.pending.json'"
+run = [
+  "yq -p=json -e '.data.id != null and (.data.key | length > 0)' '{{ vars.ENV_DIR }}/assets-state/key.pending.json' > /dev/null || { printf '%s\\n' 'Asset key creation has an incomplete response; review OCI Audit and recover or revoke the exact key before retrying' >&2; exit 1; }",
+  "yq -p=json -e '(.data | length == 1) and .data[0].id == load(\"{{ vars.ENV_DIR }}/assets-state/key.pending.json\").data.id' '{{ vars.ENV_DIR }}/assets-state/keys.json' > /dev/null",
+  "mv '{{ vars.ENV_DIR }}/assets-state/key.pending.json' '{{ vars.ENV_DIR }}/assets-state/key.json'",
+]

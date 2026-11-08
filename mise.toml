@@ -17,7 +17,7 @@ min_version = "2026.11.3"
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/seed.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/seed.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -29,7 +29,7 @@ STORAGE_DIR = '''{% if env.STORAGE_DIR | default(value="") %}{{ env.STORAGE_DIR 
 ENV_PATH = "{{vars.ENV_DIR | absolute}}"
 CHECKOUT_PATH = "{{vars.CHECKOUT | absolute}}"
 STORAGE_PATH = "{{vars.STORAGE_DIR | absolute}}"
-CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}xpkg.crossplane.io/crossplane/crossplane:v{{ dependencies.crossplane.version }}'''
+CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.crossplane.imageRepository }}:v{{ dependencies.crossplane.version }}'''
 OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.oci.version }}'''
 
 [tasks."setup"]
@@ -133,7 +133,6 @@ hide = false
 dir = "{{ vars.ROOT_DIR }}"
 description = "Remove hardware and retire secrets, returning GitOps ownership when needed"
 run = [
-  '''test -f '{{ vars.ENV_DIR }}/management.kubeconfig' || { printf '%s\n' "No selected management kubeconfig; no deletion attempted" >&2; exit 1; }''',
   "mise run verify:tools",
   "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} CHECKOUT={{ ((vars.CHECKOUT_PATH)) | quote }} mise run bootstrap:down",
 ]

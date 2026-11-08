@@ -1,5 +1,6 @@
 {{- $xr := .observed.composite.resource -}}
 {{- $p := $xr.spec -}}
+{{- $assets := $p.assets | default (dict "prefix" "") -}}
 {{- if and (hasKey $p "storageCredentials") (not (hasKey $p "vaultAuth")) -}}
 {{- fail "Automatic storage identity requires the Kind provisioner" -}}
 {{- end -}}
@@ -154,9 +155,9 @@ spec:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   chart:
     spec:
-      chart: ./charts/secrets
+      chart: {{ printf "./%scharts/secrets" ($assets.prefix | default "") | quote }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+      sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
   values:
 {{ $secretDefaults | toYaml | indent 4 }}
     deploymentId: {{ $p.deploymentId | quote }}
@@ -200,9 +201,9 @@ spec:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   chart:
     spec:
-      chart: ./charts/runtime-access
+      chart: {{ printf "./%scharts/runtime-access" ($assets.prefix | default "") | quote }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+      sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
   values:
     deploymentId: {{ $p.deploymentId | quote }}
     compartmentId: {{ $p.environment.compartmentId | quote }}

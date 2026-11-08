@@ -6,17 +6,15 @@ spec:
   retryInterval: 30s
   timeout: 15m
   prune: false
-  path: ./deploy/gitops/readiness
-  sourceRef: {kind: GitRepository, name: tamoss-product}
+  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: Bucket, name: tamoss-product}
   # Recheck health after a values change even when the resource names are unchanged.
   commonMetadata:
     annotations:
       tamoss.livewyer.io/configuration-sha256: {{ .Values | toJson | sha256sum | quote }}
   healthChecks:
-{{ range list "tamoss-product" "tamoss-upstream" "calico" }}
-    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: GitRepository, name: {{ . }}, namespace: flux-system}
-{{ end }}
-    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: OCIRepository, name: tamoss-release, namespace: flux-system}
+    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: Bucket, name: tamoss-product, namespace: flux-system}
+    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: asset-reader, namespace: flux-system}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: infrastructure, namespace: tamoss-infra}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: adoption-bindings, namespace: tamoss-infra}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: runtime, namespace: tamoss-infra}
@@ -36,7 +34,6 @@ spec:
 {{ end }}
 {{ if .Values.tadoss.enabled }}
     - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tadoss-public-tls, namespace: tads}
-    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: OCIRepository, name: tadoss-release, namespace: flux-system}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: auth}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tads}
 {{ range list "tadoss-credentials" "tadoss-operator" "tadoss" }}
@@ -50,7 +47,7 @@ spec:
         has(status.conditions) && status.conditions.exists(c,
         c.type == 'Ready' && c.status == 'True' &&
         has(c.observedGeneration) && c.observedGeneration == metadata.generation)
-{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "GitRepository") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "OCIRepository") }}
+{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "Bucket") }}
     - apiVersion: {{ .api }}
       kind: {{ .kind }}
       current: >-

@@ -180,7 +180,7 @@ spec:
         - command:
             entrypoint: yq
             env: *paths
-            args: [-i, '.spec.ref.commit = "different-product"', '$PROJECT_ROOT/.local/tmp/check/handover-flow/checkout/clusters/fixture/sources.yaml']
+            args: [-i, '.data.productCommit = "different-product"', '$PROJECT_ROOT/.local/tmp/check/handover-flow/checkout/clusters/fixture/assets.lock.yaml']
         - command:
             <<: *resume
             check:

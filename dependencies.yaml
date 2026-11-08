@@ -11,6 +11,7 @@ flux:
   manifestsDigest: sha256:e007ec3c575b9089fc7e96ad1d2159407be03450da7c220c6d25c8e8c1b42d01
 crossplane:
   version: 2.4.2
+  imageRepository: ghcr.io/crossplane/crossplane
 externalSecrets:
   version: 2.13.0
 connectionDetails:

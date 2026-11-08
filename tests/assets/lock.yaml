@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-assets
+  namespace: tamoss-infra
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+  annotations: {kustomize.toolkit.fluxcd.io/substitute: disabled}
+data:
+  schemaVersion: '1'
+  bucketName: fixture-assets
+  endpoint: storage.example.invalid
+  region: eu-frankfurt-1
+  prefix: releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/
+  root: ./releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  storeId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  manifestSha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  productCommit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  values.yaml: |
+    assets:
+      bucketName: fixture-assets
+      endpoint: storage.example.invalid
+      region: eu-frankfurt-1
+      prefix: releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/

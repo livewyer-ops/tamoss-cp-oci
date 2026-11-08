@@ -6,6 +6,8 @@
 tadoss:
   enabled: false
   release:
+    bundleURL: {{ ((.Values.files.tadossLock | fromYaml).bundle).url | quote }}
+    digest: {{ ((.Values.files.tadossLock | fromYaml).bundle).digest | quote }}
     version: {{ $tadoss.version | quote }}
     releaseSha256: {{ .Values.tadossKey | quote }}
     runtimeImage: {{ printf "docker.io/%s" $tadoss.runtimeImage | quote }}
@@ -30,6 +32,8 @@ connectionImages:
   yq: {{ $d.connectionDetails.yqImage | quote }}
   kubectl: {{ $d.connectionDetails.kubectlImage | quote }}
 release:
+  bundleURL: {{ $lock.bundle.url | quote }}
+  digest: {{ $lock.bundle.digest | quote }}
   tag: {{ $lock.tag | quote }}
   releaseSha256: {{ $lock.releaseSha256 | quote }}
   sourceSha256: {{ $lock.sourceSha256 | quote }}

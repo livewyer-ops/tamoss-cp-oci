@@ -18,7 +18,8 @@ The workflow verifies anonymous consumption; OKE needs no registry credential.
 
 Downloads have size/time limits and must match the committed checksums. The
 public `tadoss-release-assets` bundle contains only unchanged published assets
-and a static Kustomize entrypoint. Flux consumes its immutable digest. No local
+and a static Kustomize entrypoint. The host copies its digest-pinned contents into
+the client snapshot, which Flux consumes. No local
 credentials, source checkout or private notes are included.
 Select `tadoss` in the release publishing workflow's application input to publish
 that bundle; the existing TAMOSS bundle can retain its verified digest.
@@ -27,12 +28,13 @@ that bundle; the existing TAMOSS bundle can retain its verified digest.
 
 Use the [GitOps workflow](../gitops/README.md). The product's
 [release lock](release.yaml) selects the published public TADOSS bundle.
-Setup includes it alongside TAMOSS automatically; the package-read credential
-must have access to both bundles.
+Publication includes it alongside TAMOSS, even while TADOSS is disabled. Both
+upstream bundles are public; cluster access uses the client asset reader.
 
 Bootstrap prepares persisted TADOSS database and OAuth credentials in Vault and
 restricts their readers to this environment's cluster and service accounts.
-The initial Git export includes `tadoss.enabled: false` and the release pins.
+The initial Git export includes `tadoss.enabled: false`; `assets.lock.yaml` holds
+the release pins.
 No TADOSS workloads or logical database are created until enablement. Older
 environments require those bootstrap prerequisites before Kind is stopped.
 
@@ -46,8 +48,8 @@ tadoss:
   enabled: true
 ```
 
-Change only that field; preserve the sibling `release` mapping generated during
-export. Commit and push to the configured branch. Flux then delivers credentials,
+Change only that field and retain `assets.lock.yaml`. Commit and push to the
+configured branch. Flux then delivers credentials,
 initialises the separate database, configures Authentik, installs the released
 operator and reconciles the multi-server instance. Reconciliation uses the
 existing ingress address at `https://tads.<hyphenated-public-IP>.sslip.io`.

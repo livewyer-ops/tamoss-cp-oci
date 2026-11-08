@@ -1,0 +1,12 @@
+{{- if .Values.discovery }}
+{{- $bucket := .Values.assets.bucket | default (printf "tamoss-%s-assets-%s" .Values.name (.Values.compartmentId | sha256sum | trunc 8)) -}}
+apiVersion: tamoss.livewyer.io/assets/v1
+kind: AssetStore
+tenancyId: {{ .Values.discovery.tenancy | quote }}
+compartmentId: {{ .Values.compartmentId | quote }}
+region: {{ .Values.discovery.region | quote }}
+namespace: {{ .Values.discovery.namespace | quote }}
+bucketName: {{ $bucket | quote }}
+endpoint: {{ printf "%s.compat.objectstorage.%s.oci.customer-oci.com" .Values.discovery.namespace .Values.discovery.region | quote }}
+storeId: {{ printf "%s/%s/%s" .Values.discovery.tenancy .Values.compartmentId $bucket | sha256sum | quote }}
+{{- end }}

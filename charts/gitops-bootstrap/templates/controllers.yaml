@@ -1,6 +1,5 @@
 {{- $controllers := list
-  (dict "name" "crossplane" "namespace" "crossplane-system" "source" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" dict "needs" list)
-  (dict "name" "external-secrets" "namespace" "external-secrets" "source" "external-secrets" "chart" "external-secrets" "version" .Values.dependencies.externalSecrets.version "values" .Values.externalSecrets "needs" list)
+  (dict "name" "crossplane" "namespace" "crossplane-system" "source" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" (dict "image" (dict "repository" .Values.dependencies.crossplane.imageRepository)) "needs" list)
   (dict "name" "oci-family" "namespace" "crossplane-system" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy .Values.packages) (dict "family" true)) "needs" (list "crossplane"))
   (dict "name" "oci-services" "namespace" "crossplane-system" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy .Values.packages) (dict "services" true "foundation" false "okeWorkloadIdentity" (dict "region" .Values.region))) "needs" (list "oci-family"))
   (dict "name" "tamoss-environment-api" "namespace" "crossplane-system" "chart" "./charts/environment" "values" dict "needs" (list "oci-services")) -}}
@@ -30,13 +29,13 @@ spec:
 {{ end }}
   chart:
     spec:
-      chart: {{ .chart }}
+      chart: {{ if .source }}{{ .chart }}{{ else }}{{ printf "./%s%s" $.Values.assets.prefix (trimPrefix "./" .chart) | quote }}{{ end }}
 {{ if .source }}
       version: {{ .version | quote }}
       sourceRef: {kind: HelmRepository, name: {{ .source }}, namespace: flux-system}
 {{ else }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
 {{ end }}
   values:
 {{ .values | toYaml | indent 4 }}

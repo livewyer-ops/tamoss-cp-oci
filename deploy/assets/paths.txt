@@ -1,0 +1,10 @@
+charts
+deploy/bootstrap
+deploy/gitops
+deploy/tadoss/config
+deploy/tadoss/credentials
+deploy/tadoss/instance
+deploy/tamoss/database
+deploy/tamoss/instance
+deploy/tamoss/platform
+dependencies.yaml

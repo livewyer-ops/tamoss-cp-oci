@@ -65,9 +65,9 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | --- | --- |
 | Preflight rejection | Placeholder settings, OCI discovery, published product/public package access, file permissions and recorded-input consistency |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
-| Bootstrap installation stalled | Kind `tamoss-infra` GitRepository, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
+| Bootstrap installation stalled | Kind `tamoss-infra` Bucket, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
-| OKE Flux seed failed | Kind `tamoss-infra/oke-flux` and `oke-seed` Kustomization conditions and source readiness; repeat `mise run up` to renew expired bootstrap access |
+| OKE Flux seed failed | Kind `tamoss-infra` Kustomizations `oke-flux`, `oke-eso`, `oke-asset-access` and `oke-seed`; inspect source and ExternalSecret readiness, then repeat `mise run up` to renew expired bootstrap access |
 | Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
@@ -100,7 +100,7 @@ Treat diagnostic output as private and redact it before sharing. Report location
 Inspect remote bootstrap without exposing its credential:
 
 ```bash
-mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations oke-flux oke-seed
+mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations -l tamoss.livewyer.io/remote-bootstrap=true
 mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra describe kustomization oke-seed
 ```
 
@@ -177,7 +177,7 @@ Repeating completed `handover` observes readiness once without restarting Kind o
 publishing another commit. `qualify` works in either state. `down` also supports
 cleanup before handover and after an interrupted transfer.
 Keep the host checkout at the product commit recorded in `product.yaml`, or
-selected in environment Git after handover;
+selected by `assets.lock.yaml` in environment Git after handover;
 handover rejects a different revision before changing ownership.
 
 | Stage after remote seeding | Native actions |
@@ -249,8 +249,8 @@ environment explicitly with `down` when it is no longer needed.
 
 ## Release selection
 
-Initial deployment uses the repository's verified TAMOSS lock. Afterwards, Git
-owns the release selection. `qualify` verifies and records the current selection
+Initial deployment publishes the repository's verified release selection to the
+client asset store. After handover, Git owns selection through `assets.lock.yaml`. `qualify` verifies and records the current selection
 while preserving the initial release record. `down` returns current Git/live
 configuration to Kind for deletion.
 
@@ -323,7 +323,7 @@ invoice or a live resource inventory.
 and its backups. Keep the original environment directory and credentials.
 
 Run from the product commit recorded in `product.yaml`, or selected by
-`tamoss-product` in the environment repository after handover. If the product checkout has moved, save local edits and check out
+`assets.lock.yaml` in the environment repository after handover. If the product checkout has moved, save local edits and check out
 that commit before running `down`. Ownership return rejects a different product
 commit before freezing Flux or deleting cloud resources.
 
@@ -344,11 +344,12 @@ provider credentials remain until direct OCI inventory matches the baseline.
 
 | Deleted | Retained |
 | --- | --- |
-| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
+| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, client asset bucket/snapshots, private environment Git configuration and local records |
 
 After the cloud audit, teardown revokes the deployment's S3 key, verifies its
 absence, deletes the generated storage policy, membership, group and user through Crossplane,
 and verifies their absence through OCI. Unrelated keys block user deletion.
+The host also revokes the restricted asset reader and removes its dedicated IAM.
 It retires the binding PushSecret and schedules
 environment secrets for deletion. A bounded Kubernetes Job waits
 for OCI to report `PENDING_DELETION` or `DELETED`; a timeout retains Kind and the
@@ -360,12 +361,28 @@ temporary IAM prerequisites using [account retirement](../deploy/oci/README.md#r
 Keep access until deletion is confirmed. Retain the foundation's compartment and
 owner access; local exported credentials remain your responsibility.
 
+The asset bucket is retained for audit and tooling recovery. Delete it only when
+no consumers or recovery needs remain:
+
+```bash
+ENV_DIR=.local/environment mise run assets:retire
+```
+
+This requires completed teardown, verifies ownership and rejects an asset store
+with another recorded reader policy. It deletes the stored releases permanently.
+See [asset lifecycle](../deploy/assets/README.md).
+
 ### Interrupted teardown
 
 Resolve the failure and repeat `mise run down` with the same directory. Preserve
 `identity.yaml`, `tamoss-release.yaml`, `qualification.sha256`, `resources.yaml`,
 `owned-cloud.yaml`, `storage-inventory.yaml`, the baseline inventory and credentials until cleanup completes.
 Do not edit records to bypass mismatches or remove finalisers to simulate deletion.
+
+Before any cloud providers or deployment composites were installed, `down` can
+audit OCI and retire the asset reader without a foundation record. If provider
+CRDs or deployment identities exist, it requires the original foundation record;
+it does not infer that a partially started environment is empty.
 
 ## Retained management state
 

@@ -1,22 +1,11 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
-metadata: {name: tamoss-upstream, namespace: flux-system}
-spec:
-  interval: 10m
-  url: https://github.com/livewyer-ops/tamoss
-  ref: {commit: REPLACE}
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
+kind: Bucket
 metadata: {name: tamoss-product, namespace: flux-system}
 spec:
-  interval: 10m
-  url: https://github.com/REPLACE/REPLACE
-  ref: {commit: REPLACE}
-  include:
-    - repository: {name: tamoss-upstream}
-      fromPath: .
-      toPath: deploy/tamoss/instance/upstream
-    - repository: {name: tamoss-upstream}
-      fromPath: deploy/platform/values
-      toPath: deploy/gitops/platform-defaults/upstream
+  interval: 1m
+  provider: generic
+  bucketName: REPLACE
+  endpoint: REPLACE
+  region: REPLACE
+  prefix: REPLACE
+  secretRef: {name: asset-reader}

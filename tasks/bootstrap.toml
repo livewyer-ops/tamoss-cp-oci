@@ -50,11 +50,10 @@ run = [
   "mise run verify:tools",
   "mise run verify:privacy",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tamoss:assert-current",
-  "mise run tamoss:fetch",
-  "mise run tadoss:fetch",
-  "mise run tamoss:release",
   "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' '{{ vars.ENV_DIR }}/foundation.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:prepare",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run assets:initialise",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run assets:restore-runtime",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run gitops:render",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:render",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:baseline",
@@ -75,8 +74,8 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -s '{{ vars.ENV_DIR }}/foundation.yaml' && test -s '{{ vars.ENV_DIR }}/product.yaml' || { printf '%s\n' "Prepare the retained foundation and product inputs before provisioning" >&2; exit 1; }''',
-  '''(test -s '{{ vars.ENV_DIR }}/identity.yaml' && yq -e '.deploymentReady == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = "$(yq -r .product.commit '{{ vars.ENV_DIR }}/product.yaml')" || { printf '%s\n' "Check out the product commit selected for Flux before provisioning" >&2; exit 1; }''',
-  '''yq -e '[(.product.commit | test("^[a-f0-9]{40}$")), (.product.url | test("^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")), (.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")), (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))] | all' '{{ vars.ENV_DIR }}/product.yaml' > /dev/null || { printf '%s\n' "Select the published product commit and public release bundle digest before provisioning" >&2; exit 1; }''',
+  '''(test -s '{{ vars.ENV_DIR }}/identity.yaml' && yq -e '.deploymentReady == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = "$(yq -r .product.commit '{{ vars.ENV_DIR }}/product.yaml')" || { printf '%s\n' "Check out the recorded local product commit before provisioning" >&2; exit 1; }''',
+  '''yq -e '[(.product.commit | test("^[a-f0-9]{40}$")), (.product.url | test("^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")), (.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")), (.bundle.digest | test("^sha256:[a-f0-9]{64}$"))] | all' '{{ vars.ENV_DIR }}/product.yaml' > /dev/null || { printf '%s\n' "Select the local product commit and verified release bundle digest before provisioning" >&2; exit 1; }''',
   '''yq -e '(.tadoss == null) or ((.tadoss.bundle.url | test("^oci://ghcr.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")) and (.tadoss.bundle.digest | test("^sha256:[a-f0-9]{64}$")))' '{{ vars.ENV_DIR }}/product.yaml' > /dev/null || { printf '%s\n' "Optional TADOSS integration requires its published public bundle URL and digest" >&2; exit 1; }''',
   "mise run bootstrap:provision:apply",
 ]
@@ -283,7 +282,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
-  '''test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = "$(yq -r 'select(.metadata.name == "tamoss-product") | .spec.ref.commit' {{ (vars.CHECKOUT) | quote }}/{{ env.TASKV_PATH_IN_GIT }}/sources.yaml)" || { printf '%s\n' "Check out the product commit selected in environment Git before handover" >&2; exit 1; }''',
+  '''test "$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" = "$(yq -r .data.productCommit {{ (vars.CHECKOUT) | quote }}/{{ env.TASKV_PATH_IN_GIT }}/assets.lock.yaml)" || { printf '%s\n' "Check out the product commit selected in environment Git before handover" >&2; exit 1; }''',
   "mise run bootstrap:promote:apply",
 ]
 env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ ((vars.ENV_DIR) | quote) ~ "/gitops.yaml") }}{% endif %}'''
@@ -353,6 +352,7 @@ run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret -l tamoss.livewyer.io/credential=true --for=condition=Ready --timeout=300s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get externalsecret -l tamoss.livewyer.io/credential=true -o json > '{{ vars.ENV_DIR }}/credentials-observed.json'",
   '''yq -e '([.items[].metadata.name] | sort | join(",")) == (load("{{ vars.ROOT_DIR }}/deploy/secrets/bootstrap-values.yaml").deliveries | map(.name) | sort | join(","))' '{{ vars.ENV_DIR }}/credentials-observed.json' > /dev/null''',
+  "mise run assets:reader:readback",
   "yq -i '.credentialsEstablished = true' {{ vars.ENV_DIR }}/identity.yaml",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap/tamoss-bootstrap-instance -o yaml > '{{ vars.ENV_DIR }}/credential-retirement.yaml'",
   '''yq -i 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.managedFields) | .data."values.yaml" |= (from_yaml | .bootstrap.spec.credentialsEstablished = true | to_yaml)' '{{ vars.ENV_DIR }}/credential-retirement.yaml'''',
@@ -362,6 +362,7 @@ run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait pushsecret -l tamoss.livewyer.io/credential-staging=true --for=delete --timeout=120s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait password.generators.external-secrets.io --all --for=delete --timeout=120s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait secret/s3-input --for=delete --timeout=120s",
+  "rm -f '{{ vars.ENV_DIR }}/assets-state/key.json' '{{ vars.ENV_DIR }}/assets-state/key.pending.json' '{{ vars.ENV_DIR }}/secrets/asset-accesskey' '{{ vars.ENV_DIR }}/secrets/asset-secretkey'",
 ]
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
 
@@ -445,7 +446,7 @@ env.TASKV_KUBECONFIG = '''{{ env.KUBECONFIG | default(value="") }}'''
 env.TASKV_NAME = '''{{ env.NAME | default(value="") }}'''
 env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
 
-["bootstrap:down"]
+["bootstrap:down:managed"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
@@ -474,12 +475,15 @@ run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --for=delete --timeout=300s",
   "mise run storage:retire",
   "mise run storage:delete-identity",
+  "yq -i ' .resourcesRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "mise run assets:reader:retire",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:secret-inventory",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retire-secrets",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retained-foundation",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'",
   "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
+  "yq -i '.teardownComplete = true' '{{ vars.ENV_DIR }}/identity.yaml'",
   "echo 'Environment removed; vault/key ownership and scheduled secret deletions are recorded in {{ vars.ENV_DIR }}/retained-foundation.yaml'",
 ]
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
@@ -539,8 +543,8 @@ run = [
   '''kubectl kustomize '{{ env.TASKV_DEPLOYMENT_DIR }}' | yq -e 'select(.kind == "Kustomization" and .metadata.name == "runtime") | .spec.postBuild.substitute.VALUES_CONFIGMAP | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null || { printf '%s\n' "Update the environment starter to use content-hashed values references before checking this product revision" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} REVISION={{ ((env.TASKV_REVISION)) | quote }} mise run bootstrap:observe-git",
-  '''KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system --test-dir deploy/gitops/readiness-check --assert-timeout 1800s --set-string productRevision="$(yq -r 'select(.metadata.name == "tamoss-product") | .spec.ref.commit' '{{ env.TASKV_DEPLOYMENT_DIR }}/sources.yaml')" --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready''',
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss/tamoss -o json | yq -p=json -e '.spec.version == load("{{ env.TASKV_DEPLOYMENT_DIR }}/values.yaml").release.tag' > /dev/null''',
+  '''KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system --test-dir deploy/gitops/readiness-check --assert-timeout 1800s --set-string assetPrefix="$(yq -r .data.prefix '{{ env.TASKV_DEPLOYMENT_DIR }}/assets.lock.yaml')" --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss/tamoss -o json | yq -p=json -e '.spec.version == (load("{{ env.TASKV_DEPLOYMENT_DIR }}/assets.lock.yaml").data."values.yaml" | from_yaml).release.tag' > /dev/null''',
 ]
 env.TASKV_DEPLOYMENT_DIR = '''{{ env.DEPLOYMENT_DIR | default(value="") }}'''
 env.TASKV_REVISION = '''{{ env.REVISION | default(value="") }}'''
@@ -569,8 +573,7 @@ run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:ready",
-  '''yq '.release | {"tag": .tag, "releaseSha256": .releaseSha256, "sourceSha256": .sourceSha256}' '{{ env.TASKV_DEPLOYMENT_DIR }}/values.yaml' > '{{ vars.ENV_DIR }}/tamoss-release.current.yaml'''',
-  '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.current.yaml") | quote }} mise run tamoss:fetch''',
+  '''ASSET_LOCK='{{ env.TASKV_DEPLOYMENT_DIR }}/assets.lock.yaml' mise run assets:restore-runtime''',
   '''RELEASE_LOCK={{ ((vars.ENV_DIR) ~ "/tamoss-release.current.yaml") | quote }} mise run tamoss:release''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:record-release",
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
@@ -586,11 +589,66 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
-  '''yq -e 'select(.metadata.name == "tamoss-upstream") | .spec.ref.commit == load("{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/release.json").sourceCommit' '{{ env.TASKV_DEPLOYMENT_DIR }}/sources.yaml' > /dev/null''',
+  "yq -e '(.data.\"values.yaml\" | from_yaml | .release | {\"tag\": .tag, \"releaseSha256\": .releaseSha256, \"sourceSha256\": .sourceSha256} | sort_keys(..) | to_json(0)) == (load(\"{{ vars.ENV_DIR }}/tamoss-release.current.yaml\") | del(.bundle) | sort_keys(..) | to_json(0))' '{{ env.TASKV_DEPLOYMENT_DIR }}/assets.lock.yaml' > /dev/null || { printf '%s\\n' 'Client snapshot does not match the selected release' >&2; exit 1; }",
   "cp --no-clobber '{{ vars.ENV_DIR }}/tamoss-release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.bootstrap.yaml'",
   "mv '{{ vars.ENV_DIR }}/tamoss-release.current.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
 ]
 env.TASKV_GITOPS = '''{% if env.GITOPS is defined %}{{ env.GITOPS }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.gitopsEstablished == true' " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
-env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.ENV_DIR) ~ "/tamoss-release.current.yaml") }}{% endif %}'''
 env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "test ! -s " ~ (vars.ENV_DIR) ~ "/gitops.yaml || yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
 env.TASKV_DEPLOYMENT_DIR = '''{% if env.DEPLOYMENT_DIR is defined %}{{ env.DEPLOYMENT_DIR }}{% else %}{% if env.TASKV_GITOPS == "true" %}{{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}{% else %}{{ vars.ENV_DIR }}/deployment{% endif %}{% endif %}'''
+
+["bootstrap:down"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "test -s '{{ vars.ENV_DIR }}/identity.yaml' || { printf '%s\\n' 'No deployment identity; no deletion attempted' >&2; exit 1; }",
+  "mise run identity:inputs",
+  "mise run bootstrap:down:dispatch"
+]
+
+["bootstrap:down:dispatch"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.teardownComplete == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
+run = [
+  "yq -i '.teardownStarted = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "mise run bootstrap:down:{% if env.TASKV_FOUNDATION == \"true\" %}managed{% else %}early{% endif %}"
+]
+env.TASKV_FOUNDATION = '''{{ exec(command="test ! -s " ~ ((vars.ENV_DIR ~ "/foundation-record.yaml") | quote) ~ " && echo false || echo true") }}'''
+
+["bootstrap:down:early"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.bootstrapUID == null and .compositeUID == null and .remoteUID == null and .credentialsEstablished != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\\n' 'Restore the retained foundation record before managed teardown' >&2; exit 1; }",
+  "mise run bootstrap:down:early-management",
+  "INVENTORY_DIR='{{ vars.ENV_DIR }}/inventory-early-down' mise run cloud:inventory",
+  "yq eval-all -e '[.data | (select(tag == \"!!seq\"), (select(tag == \"!!map\") | .items)) | .[] | select(.\"lifecycle-state\" != \"DELETED\" and .\"lifecycle-state\" != \"TERMINATED\") | select(.\"freeform-tags\".\"tamoss-deployment-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID or .\"freeform-tags\".\"tamoss-environment\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").environment.name or .name == load(\"{{ vars.ENV_DIR }}/identity.yaml\").environment.storage.bucket)] | length == 0' '{{ vars.ENV_DIR }}/inventory-early-down/'*.json > /dev/null",
+  "yq -i '.resourcesRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "mise run assets:reader:retire",
+  "mise run bootstrap:down:early-kind",
+  "yq -i '.teardownComplete = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "printf '%s\\n' 'Partial deployment removed; client asset store retained.'"
+]
+
+["bootstrap:down:early-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
+run = [
+  "mise run transfer:start-kind",
+  "mise run identity:management",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get customresourcedefinitions -o json > '{{ vars.ENV_DIR }}/early-crds.json'",
+  "yq -p=json -e '[.items[] | select(.metadata.name | test(\"[.]oci[.]|[.]tamoss[.]livewyer[.]io$\"))] | length == 0' '{{ vars.ENV_DIR }}/early-crds.json' > /dev/null || { printf '%s\\n' 'Cloud controllers may have started; recover the foundation record before teardown' >&2; exit 1; }"
+]
+
+["bootstrap:down:early-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
+run = [
+  "mise run identity:management",
+  "kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'",
+  "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig'"
+]
+env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''

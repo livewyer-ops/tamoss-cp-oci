@@ -1,0 +1,60 @@
+{{- if and .Values.files.assetStore .Values.files.identity }}
+{{- $store := .Values.files.assetStore | fromYaml -}}
+{{- $id := .Values.files.identity | fromYaml -}}
+{{- $settings := .Values.files.settings | fromYaml -}}
+{{- $reader := .Values.files.assetReader | default "{}" | fromYaml -}}
+{{- $name := printf "tamoss-assets-%s" $id.deploymentUID -}}
+{{- $tags := dict "tamoss-asset-store-id" $store.storeId "tamoss-asset-reader-id" $id.deploymentUID -}}
+bucket:
+  compartmentId: {{ $store.compartmentId | quote }}
+  namespaceName: {{ $store.namespace | quote }}
+  name: {{ $store.bucketName | quote }}
+  publicAccessType: NoPublicAccess
+  storageTier: Standard
+  freeformTags: {tamoss-asset-store-id: {{ $store.storeId | quote }}}
+user:
+  schemas:
+    - urn:ietf:params:scim:schemas:core:2.0:User
+    - urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User
+    - urn:ietf:params:scim:schemas:oracle:idcs:extension:capabilities:User
+  userName: {{ $name | quote }}
+  displayName: Deployment asset reader
+  externalId: {{ $id.deploymentUID | quote }}
+  active: true
+  name: {givenName: Deployment, familyName: Assets}
+  emails: [{value: {{ $settings.storageIdentity.email | quote }}, primary: true, type: work}]
+  urnietfparamsscimschemasoracleidcsextensionuserUser: {bypassNotification: true}
+  urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser:
+    canUseApiKeys: false
+    canUseAuthTokens: false
+    canUseConsole: false
+    canUseConsolePassword: false
+    canUseCustomerSecretKeys: true
+    canUseDbCredentials: false
+    canUseOAuth2ClientCredentials: false
+    canUseSmtpCredentials: false
+capabilities:
+  schemas: [urn:ietf:params:scim:api:messages:2.0:PatchOp]
+  operations:
+{{- range $name, $enabled := dict "canUseApiKeys" false "canUseAuthTokens" false "canUseConsole" false "canUseConsolePassword" false "canUseCustomerSecretKeys" true "canUseDbCredentials" false "canUseOAuth2ClientCredentials" false "canUseSmtpCredentials" false }}
+    - op: replace
+      path: {{ printf "urn:ietf:params:scim:schemas:oracle:idcs:extension:capabilities:User:%s" $name | quote }}
+      value: {{ $enabled }}
+{{- end }}
+group:
+  compartmentId: {{ $store.tenancyId | quote }}
+  name: {{ $name | quote }}
+  description: Read the client deployment asset store
+  freeformTags: {{ $tags | toJson }}
+membership:
+  groupId: {{ $reader.groupId | default "" | quote }}
+  userId: {{ $reader.userId | default "" | quote }}
+policy:
+  compartmentId: {{ $store.compartmentId | quote }}
+  name: {{ $name | quote }}
+  description: Read the client deployment asset store
+  freeformTags: {{ $tags | toJson }}
+  statements:
+    - {{ printf "Allow group id %s to read buckets in compartment id %s where target.bucket.name = '%s'" ($reader.groupId | default "") $store.compartmentId $store.bucketName | quote }}
+    - {{ printf "Allow group id %s to read objects in compartment id %s where target.bucket.name = '%s'" ($reader.groupId | default "") $store.compartmentId $store.bucketName | quote }}
+{{- end }}

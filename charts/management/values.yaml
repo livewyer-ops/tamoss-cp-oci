@@ -2,8 +2,11 @@ dependencies: {}
 packages: {}
 externalSecrets: {}
 product: {}
+sourceName: tamoss-bootstrap-product
 environmentDefinition: ''
 foundationDefinition: ''
 secretBootstrapFile: ''
 instance: {}
 credentialsEstablished: false
+assets:
+  prefix: ''

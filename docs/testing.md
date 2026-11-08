@@ -166,11 +166,12 @@ evidence and continue independent checks as appropriate. Follow
 
 Setup contracts exercise private initialisation, preserved edits, deterministic
 regional selections, unavailable/ambiguous images, invalid configuration and
-repeat preparation without discovery. The simplified setup and removal of
-environment lifetime gates still require a fresh full OCI deployment. The Git-free
-quick seed, anonymous package consumption on OKE, native GitHub bootstrap and
-Vault-backed SSH key handover also require fresh OCI qualification. Local contract
-checks and controller tests cannot establish those external outcomes.
+repeat preparation without discovery. The client-asset lifecycle still requires
+a fresh full OCI deployment, native GitHub bootstrap and Vault-backed SSH
+handover. An isolated OCI test passed private snapshot upload/readback, restricted
+reader access, Flux Bucket consumption, Helm/Kustomize reconciliation and source
+cache recovery. Those results do not establish the complete OKE lifecycle.
+Local contracts and controller tests cannot establish unobserved cloud outcomes.
 
 The Flux-managed Kind bootstrap, OKE bootstrap Job and Vault-delivered adoption
 bindings passed an assisted OCI run. The Job succeeded on its first Pod attempt;

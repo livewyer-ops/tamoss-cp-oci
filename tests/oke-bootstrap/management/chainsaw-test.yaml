@@ -31,10 +31,10 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
+              kind: Bucket
               metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
               status:
-                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'tamoss-bootstrap-product').metadata.generation)
                 conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
     - name: provide the product artifact before credentials arrive
       bindings:
@@ -58,15 +58,15 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
+              kind: Bucket
               metadata: {name: oke-bootstrap-fixture, namespace: tamoss-infra}
               status:
-                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'oke-bootstrap-fixture').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'oke-bootstrap-fixture').metadata.generation)
                 conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
                 artifact:
                   path: oke-product.tar.gz
                   url: http://source-controller.flux-system.svc.cluster.local./oke-product.tar.gz
-                  revision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                  revision: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                   digest: ($digest)
                   lastUpdateTime: '2026-01-01T00:00:00Z'
         - assert:
@@ -106,7 +106,7 @@ spec:
             args: [-n, flux-system, scale, deployment/kustomize-controller, --replicas=1]
         - command:
             entrypoint: kubectl
-            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-seed, --timeout=60s]
+            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-eso, oke-asset-access, oke-seed, --timeout=60s]
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml'}
     - name: Kind installs Flux and seeds OKE after the credential process exits
       try:
@@ -189,15 +189,15 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
+              kind: Bucket
               metadata: {name: tamoss-product, namespace: flux-system}
               status:
-                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'flux-system', 'tamoss-product').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'flux-system', 'tamoss-product').metadata.generation)
                 conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
                 artifact:
                   path: seed-proof.tar.gz
                   url: http://source-controller.flux-system.svc.cluster.local./seed-proof.tar.gz
-                  revision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                  revision: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                   digest: ($digest)
                   lastUpdateTime: '2026-01-01T00:00:00Z'
         - assert:
@@ -406,7 +406,7 @@ spec:
                 prune: false
                 deletionPolicy: Orphan
                 path: ./handover
-                sourceRef: {kind: GitRepository, name: tamoss-product}
+                sourceRef: {kind: Bucket, name: tamoss-product}
         - assert:
             cluster: remote
             resource:

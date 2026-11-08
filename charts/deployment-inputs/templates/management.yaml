@@ -7,6 +7,8 @@ externalSecrets:
 {{ .Values.files.externalSecrets | fromYaml | toYaml | indent 2 }}
 product:
 {{ (.Values.files.product | fromYaml).product | toYaml | indent 2 }}
+assets:
+{{ include "deployment.assets" . | indent 2 }}
 credentialsEstablished: {{ (.Values.files.identity | fromYaml).credentialsEstablished | default false }}
 instance:
 {{ .Values.files.bootstrap | fromYaml | toYaml | indent 2 }}

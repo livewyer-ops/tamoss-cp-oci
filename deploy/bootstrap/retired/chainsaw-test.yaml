@@ -17,6 +17,18 @@ spec:
               kind: Kustomization
               metadata: {name: oke-seed, namespace: tamoss-infra}
               spec: {suspend: true, prune: false, deletionPolicy: Orphan}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-eso, namespace: tamoss-infra}
+              spec: {suspend: true, prune: false, deletionPolicy: Orphan}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-asset-access, namespace: tamoss-infra}
+              spec: {suspend: true, prune: false, deletionPolicy: Orphan}
         - error:
             resource:
               apiVersion: v1

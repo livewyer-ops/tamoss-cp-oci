@@ -7,7 +7,7 @@ run = [
   '''yq '.spec.vaultAuth = {"user": "ocid1.user.oc1.fixture", "tenancy": "ocid1.tenancy.oc1.fixture"}' {{ env.TASKV_DIRECTORY }}/root.yaml > {{ env.TASKV_DIRECTORY }}/native-root.yaml''',
   '''yq 'with(select(.kind == "TamossEnvironment"); .status.outputs.clusterId = "ocid1.cluster.oc1.fixture")' '{{ env.TASKV_DIRECTORY }}/ready-observed.yaml' > '{{ env.TASKV_DIRECTORY }}/native-observed.yaml'''',
   "crossplane composition render '{{ env.TASKV_DIRECTORY }}/native-root.yaml' '{{ env.TASKV_DIRECTORY }}/native-composition.yaml' '{{ vars.ROOT }}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{ env.TASKV_DIRECTORY }}/native-observed.yaml' --required-resources='{{ vars.ROOT }}/tests/bootstrap/credentials.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/native.yaml'",
-  '''yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | [.spec.values.initialise == true, (.spec.values.deliveries | length == 9), .spec.values.oracle.vault == "ocid1.vault.oc1.fixture", .spec.values.oracle.encryptionKey == "ocid1.key.oc1.fixture"] | all' '{{ env.TASKV_DIRECTORY }}/native.yaml'''',
+  '''yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | [.spec.values.initialise == true, (.spec.values.deliveries | length == 10), .spec.values.oracle.vault == "ocid1.vault.oc1.fixture", .spec.values.oracle.encryptionKey == "ocid1.key.oc1.fixture"] | all' '{{ env.TASKV_DIRECTORY }}/native.yaml'''',
   '''yq -e 'select(.kind == "HelmRelease" and .metadata.name == "runtime-access") | [.spec.values.providerWrites == false, .spec.values.clusterId == "ocid1.cluster.oc1.fixture", .spec.values.vaultId == "ocid1.vault.oc1.fixture"] | all' '{{ env.TASKV_DIRECTORY }}/native.yaml'''',
   '''yq 'select(.kind != "TamossBootstrap") | del(.status)' {{ env.TASKV_DIRECTORY }}/native.yaml > {{ env.TASKV_DIRECTORY }}/native-lost-status.yaml''',
   "crossplane composition render '{{ env.TASKV_DIRECTORY }}/native-root.yaml' '{{ env.TASKV_DIRECTORY }}/native-composition.yaml' '{{ vars.ROOT }}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{ env.TASKV_DIRECTORY }}/native-lost-status.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/native-recovering.yaml'",
@@ -23,7 +23,7 @@ yq -i 'del(.metadata.annotations."gotemplating.fn.crossplane.io/ready")' {{ env.
   '''yq 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | .spec.values' {{ env.TASKV_DIRECTORY }}/native-retired.yaml > {{ env.TASKV_DIRECTORY }}/native-secret-values.yaml''',
   "helm template tamoss-secrets '{{ vars.ROOT }}/charts/secrets' -n tamoss-infra -f '{{ env.TASKV_DIRECTORY }}/native-secret-values.yaml' > '{{ env.TASKV_DIRECTORY }}/native-deliveries.yaml'",
   '''yq eval-all -e '[select(.kind == "PushSecret" or .kind == "Password")] | length == 0' {{ env.TASKV_DIRECTORY }}/native-deliveries.yaml''',
-  '''yq eval-all -e '[select(.kind == "ExternalSecret")] | length == 9' {{ env.TASKV_DIRECTORY }}/native-deliveries.yaml''',
+  '''yq eval-all -e '[select(.kind == "ExternalSecret")] | length == 10' {{ env.TASKV_DIRECTORY }}/native-deliveries.yaml''',
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
 
@@ -205,6 +205,7 @@ run = [
   "mise run test:setup:render",
   "mise run setup:publish-inputs",
   '''yq -n '{"deploymentUID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "oci":{"user":"ocid1.user.oc1.fixture", "tenancy":"ocid1.tenancy.oc1.fixture"}}' > '{{ env.DIRECTORY }}/identity.yaml'''',
+  "cp tests/assets/lock.yaml '{{ env.DIRECTORY }}/assets.lock.yaml'",
   "test ! -e '{{ env.DIRECTORY }}/management.kubeconfig'",
   "mise run bootstrap:render",
   "crossplane resource validate '.local/tmp/check/bootstrap/api.yaml' '{{ env.DIRECTORY }}/bootstrap.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='.local/tmp/check/crossplane' --error-on-missing-schemas",

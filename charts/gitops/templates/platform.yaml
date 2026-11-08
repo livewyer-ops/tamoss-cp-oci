@@ -40,13 +40,13 @@ spec:
 {{ end }}
   chart:
     spec:
-      chart: {{ .chart }}
+      chart: {{ if .source }}{{ .chart }}{{ else }}{{ printf "./%s%s%s" $.Values.assets.prefix (ternary "" "deploy/tamoss/instance/upstream/" (.product | default false)) (trimPrefix "./" .chart) | quote }}{{ end }}
 {{ if .source }}
       version: {{ .version | quote }}
       sourceRef: {kind: HelmRepository, name: {{ .source }}, namespace: flux-system}
 {{ else }}
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: {{ ternary "tamoss-product" "tamoss-upstream" (.product | default false) }}, namespace: flux-system}
+      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
 {{ end }}
 {{ if or .secret .connection }}
   valuesFrom:

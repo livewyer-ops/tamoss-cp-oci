@@ -35,18 +35,18 @@ spec:
         - command:
             entrypoint: yq
             env: *env
-            args: [eval-all, -e, '[select(.kind != null)] as $r | ($r[] | select(.kind == "HelmRelease")).spec.valuesFrom[0].name == ($r[] | select(.kind == "ConfigMap" and (.metadata.name | test("^tamoss-gitops-values-")))).metadata.name', '$DIRECTORY/before.yaml']
+            args: [eval-all, -e, '[select(.kind != null)] as $r | ($r[] | select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap")).spec.valuesFrom[0].name == ($r[] | select(.kind == "ConfigMap" and (.metadata.name | test("^tamoss-gitops-values-")))).metadata.name', '$DIRECTORY/before.yaml']
         - command:
             entrypoint: yq
             env: *env
-            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[0].name', '$DIRECTORY/before.yaml']
+            args: [-r, 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap").spec.valuesFrom[0].name', '$DIRECTORY/before.yaml']
             outputs:
               - name: beforeReference
                 value: ($stdout)
         - command:
             entrypoint: yq
             env: *env
-            args: [-e, '.tadoss.enabled == false and .tadoss.release.digest == load(strenv(DIRECTORY) + "/inputs/product.yaml").tadoss.bundle.digest', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
+            args: [-e, '.tadoss.enabled == false and .release == null', '$DIRECTORY/checkout/clusters/oci-dev/values.yaml']
         - command:
             entrypoint: yq
             env: *env
@@ -63,7 +63,7 @@ spec:
         - command:
             entrypoint: yq
             env: *env
-            args: [-r, 'select(.kind == "HelmRelease").spec.valuesFrom[0].name', '$DIRECTORY/after.yaml']
+            args: [-r, 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap").spec.valuesFrom[0].name', '$DIRECTORY/after.yaml']
             check:
               ($error == null): true
               ($stdout != $beforeReference): true
@@ -131,11 +131,11 @@ spec:
         - command:
             entrypoint: cp
             env: *env
-            args: ['$DIRECTORY/checkout/clusters/oci-dev/sources.yaml', '$DIRECTORY/inputs/expected-sources.yaml']
+            args: ['$DIRECTORY/checkout/clusters/oci-dev/assets.lock.yaml', '$DIRECTORY/inputs/expected-sources.yaml']
         - command:
             entrypoint: yq
             env: *env
-            args: [-i, 'with(select(.metadata.name == "tamoss-upstream"); .spec.ref.commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")', '$DIRECTORY/checkout/clusters/oci-dev/sources.yaml']
+            args: [-i, '.data."values.yaml" |= (from_yaml | .release.releaseSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" | to_yaml)', '$DIRECTORY/checkout/clusters/oci-dev/assets.lock.yaml']
         - command:
             entrypoint: env
             env: *env
@@ -154,7 +154,7 @@ spec:
         - command:
             entrypoint: cp
             env: *env
-            args: ['$DIRECTORY/inputs/expected-sources.yaml', '$DIRECTORY/checkout/clusters/oci-dev/sources.yaml']
+            args: ['$DIRECTORY/inputs/expected-sources.yaml', '$DIRECTORY/checkout/clusters/oci-dev/assets.lock.yaml']
         - command:
             entrypoint: env
             env: *env
@@ -207,9 +207,9 @@ spec:
             env: *env
             args: [-e, '.spec.adoption.creationCompositeUID == ("$" + "{CREATION_COMPOSITE_UID}") and (.spec.adoption.externalNames | length == 23)', '$DIRECTORY/checkout/clusters/oci-dev/infrastructure/environment.yaml']
         - command:
-            entrypoint: helm
+            entrypoint: env
             env: *env
-            args: [lint, $PROJECT_ROOT/charts/gitops-bootstrap, -f, '$DIRECTORY/checkout/clusters/oci-dev/values.yaml', --set, vaultId=ocid1.vault.oc1.fixture]
+            args: [mise, -C, '$PROJECT_ROOT', run, 'test:gitops:lint-bootstrap']
     - name: reject invalid desired settings before publishing or provisioning
       try:
         - command:

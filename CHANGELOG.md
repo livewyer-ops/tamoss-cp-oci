@@ -2,8 +2,21 @@
 
 ## Unreleased
 
-- Check anonymous product Git access before provisioning, so a workstation's
-  saved GitHub login cannot hide a private source that Flux cannot fetch.
+- Fetch the existing Crossplane and function versions directly from their official
+  GHCR origin, avoiding the unavailable registry proxy. Package digests are unchanged.
+
+- Build deployment snapshots from a clean committed checkout and verified,
+  unchanged TAMOSS/TADOSS release assets. Publish them to private client-owned
+  OCI Object Storage; Kind and OKE use native Flux Bucket sources.
+- Prepare restricted asset-reader IAM with the host OCI CLI, persist its key
+  through Vault and deliver it to OKE before applying the remote seed.
+- Export `assets.lock.yaml` separately from client values. Optional Git selects
+  a published snapshot; `assets:publish` does not activate candidates.
+- Retain the asset store on `down`; revoke its reader and support pre-provider
+  failure cleanup. `assets:retire` explicitly removes a retired store.
+- This is a new-deployment layout. Existing environments retain their original
+  tooling and state for teardown; no automatic state migration is provided.
+
 - The host establishes temporary OKE ServiceAccount access in Kind. Native Flux
   Kustomizations install and seed OKE; `up` retires their authority after successful
   deployment. Repeats renew active bootstrap credentials or finish interrupted

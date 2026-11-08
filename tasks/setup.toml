@@ -56,7 +56,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "(test -s {{ (vars.ENV_DIR) | quote }}/identity.yaml)"
 run = [
-  '''{% for item in ["environment.yaml", "foundation.yaml", "settings.yaml", "product.yaml"] %}
+  '''{% for item in ["environment.yaml", "foundation.yaml", "settings.yaml", "product.yaml", "asset-store.yaml"] %}
 install -m 600 '{{ vars.ENV_DIR }}/setup-render/setup/templates/{{ item }}' '{{ vars.ENV_DIR }}/{{ item }}'
 {% endfor %}''',
 ]
@@ -107,7 +107,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''yq -n '{"discovery": { "region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "identityDomains": load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "bundles": {"tamoss": load("{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'''',
+  '''yq -n '{"discovery": { "region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "tenancy": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").tenancy, "identityDomains": load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "bundles": {"tamoss": load("{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'''',
   '''helm template setup '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/discovery/values.yaml' --set-string product.commit="$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" --output-dir '{{ vars.ENV_DIR }}/setup-render'''',
   "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/environment/definition.yaml,{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' '{{ vars.ENV_DIR }}/setup-render/setup/templates/environment.yaml,{{ vars.ENV_DIR }}/setup-render/setup/templates/foundation.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
 ]
@@ -117,8 +117,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= timeout 60s git -C '{{ vars.ROOT_DIR }}' -c credential.helper= -c core.askPass= -c http.extraHeader= fetch --no-tags {{ env.TASKV_PRODUCT_URL | quote }} main || { printf '%s\n' "The product repository must allow anonymous Git reads for Kind and OKE Flux" >&2; exit 1; }''',
-  "git -C '{{ vars.ROOT_DIR }}' merge-base --is-ancestor HEAD FETCH_HEAD",
+  "mise run assets:checkout",
   "install -d -m 700 '{{ vars.ENV_DIR }}/registry' '{{ vars.ENV_DIR }}/discovery/tamoss-bundle' '{{ vars.ENV_DIR }}/discovery/tadoss-bundle'",
   "rm -f '{{ vars.ENV_DIR }}/registry/config.json'",
   '''{% for item in ["tamoss", "tadoss"] %}
@@ -128,4 +127,3 @@ DOCKER_CONFIG='{{ vars.ENV_DIR }}/registry' flux pull artifact "$(yq -r '.bundle
   '''echo "$(yq -r '.artifacts."release.json"' {{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml)  {{ vars.ENV_DIR }}/discovery/tadoss-bundle/release.json" | sha256sum --check --status''',
   '''timeout 60s docker --config '{{ vars.ENV_DIR }}/registry' manifest inspect "$(yq -r .bootstrapTools.image '{{ vars.ROOT_DIR }}/dependencies.yaml')" > '{{ vars.ENV_DIR }}/discovery/bootstrap-image.json'''',
 ]
-env.TASKV_PRODUCT_URL = '''{% if env.PRODUCT_URL is defined %}{{ env.PRODUCT_URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .product.url " ~ ((vars.ENV_DIR) | quote) ~ "/setup-render/setup/templates/product.yaml") }}{% endif %}'''

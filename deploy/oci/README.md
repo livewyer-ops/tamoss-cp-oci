@@ -28,7 +28,7 @@ Allow group id <provisioner-group-ocid> to manage cluster-family in compartment 
 
 Setup discovers the active Default identity domain. The provisioner needs domain
 discovery and permission to manage users/groups with the reserved
-`tamoss-storage-` name prefix. An account administrator grants these permissions
+`tamoss-storage-` and `tamoss-assets-` name prefixes. An account administrator grants these permissions
 once; deployment does not authorise itself:
 
 ```text
@@ -37,11 +37,13 @@ Allow group id <provisioner-group-ocid> to inspect users in tenancy where target
 Allow group id <provisioner-group-ocid> to inspect groups in tenancy
 Allow group id <provisioner-group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
 Allow group id <provisioner-group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
+Allow group id <provisioner-group-ocid> to manage users in tenancy where target.user.name = /tamoss-assets-*/
+Allow group id <provisioner-group-ocid> to manage groups in tenancy where target.group.name = /tamoss-assets-*/
 ```
 
 Inspection permits discovery and deletion audits; it does not permit changes to
 identities outside the reserved prefix. The management grants apply to matching
-names across the tenancy; reserve this prefix for provisioned storage identities.
+names across the tenancy; reserve these prefixes for deployment-owned identities.
 Identity names come from the deployment ID. Crossplane
 creates this policy using the generated group OCID:
 
@@ -63,6 +65,19 @@ the [pinned OCI CLI](../../docs/operations.md#native-oci-cli) and read-only
 compartment inventory before deployment; new IAM
 credentials and policies can take time to propagate.
 
+## Deployment asset access
+
+Before Kind starts, the native host OCI CLI creates a private asset bucket and
+a separate `tamoss-assets-<deployment-id>` reader. It grants only `read buckets`
+and `read objects`, restricted to that bucket. The publisher uses the provisioner's
+existing bucket/object permissions; its signing credential is never supplied to
+a Flux Bucket source. The reader enables Customer Secret Keys only and cannot
+write deployment assets or access application media.
+
+ESO persists the reader in Vault. A separate OKE workload identity retrieves
+only that deployment's reader secret before its Bucket source is applied.
+See [asset ownership and recovery](../assets/README.md).
+
 ## Retirement
 
 Retain provisioner access until `mise run down` has verified deletion. After
@@ -71,6 +86,8 @@ its absence. Crossplane then deletes the deployment's storage policy, membership
 user before Vault secrets are retired. Unrecorded keys block identity deletion.
 OCI requires the group to be empty; provider reconciliation retries group
 deletion until its membership is removed.
+The host also revokes the asset reader and deletes its dedicated IAM resources.
+The asset bucket remains until explicit `mise run assets:retire`.
 The original compartment and provisioner remain administrator-owned. Retire
 temporary account prerequisites through the administrator's credential workflow
 only after all deployment cleanup has completed.

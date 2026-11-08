@@ -1,4 +1,4 @@
-{{ range $name, $url := dict "crossplane" "https://charts.crossplane.io/stable" "external-secrets" "https://charts.external-secrets.io" }}
+{{ range $name, $url := dict "crossplane" "https://charts.crossplane.io/stable" }}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository

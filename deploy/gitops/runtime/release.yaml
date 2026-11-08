@@ -13,12 +13,13 @@ spec:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   chart:
     spec:
-      chart: ./charts/gitops
+      chart: ./${ASSET_PREFIX}charts/gitops
       reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-product, namespace: flux-system}
+      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
     - {kind: ConfigMap, name: '${VALUES_CONFIGMAP}', valuesKey: values.yaml}
+    - {kind: ConfigMap, name: tamoss-assets, valuesKey: values.yaml}
   values:
     vaultId: ${VAULT_ID}
     databaseId: ${DATABASE_ID}

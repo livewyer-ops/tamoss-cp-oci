@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: [namespaces.yaml, sources.yaml, releases.yaml]
+resources: [namespaces.yaml, sources.yaml, releases.yaml, assets.lock.yaml]
 configurations: [kustomizeconfig.yaml]
 configMapGenerator:
   - name: tamoss-gitops-values

@@ -1,0 +1,5 @@
+assets:
+  bucketName: fixture-assets
+  endpoint: fixture.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+  region: eu-frankfurt-1
+  prefix: ""

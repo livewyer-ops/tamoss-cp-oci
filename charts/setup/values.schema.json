@@ -40,6 +40,9 @@
     "storage": {"type": "object", "additionalProperties": false, "properties": {
       "bucket": {"type": "string"}
     }},
+    "assets": {"type": "object", "additionalProperties": false, "properties": {
+      "bucket": {"type": "string", "pattern": "^$|^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}$"}
+    }},
     "foundation": {"type": "object", "additionalProperties": false, "properties": {
       "name": {"type": "string"}, "adoption": {"type": "object"}
     }},
