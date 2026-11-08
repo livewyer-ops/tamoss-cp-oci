@@ -166,7 +166,7 @@ namespace and service account; the Kind API signing key is not copied to OKE.
 
 Prepare and verify the next upstream release in a committed product checkout.
 Run `mise run assets:publish` with the existing environment directory, then copy
-the resulting `assets-build/published.lock.yaml` to the client repository's
+the resulting `assets-state/candidate.lock.yaml` to the client repository's
 `assets.lock.yaml`. Review, commit and push that lock. Native Kustomize
 replacements update source paths and dependency pins; client `values.yaml`
 retains settings such as `tadoss.enabled`. Publication alone changes nothing

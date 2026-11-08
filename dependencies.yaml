@@ -81,3 +81,7 @@ artifacts:
 - path: schemas/identity.oci.m.upbound.io_usergroupmemberships.yaml
   url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/identity.oci.m.upbound.io_usergroupmemberships.yaml
   sha256: 210202ee78666b81d28a2078848ac9003329aca77bc49463378b8e298f7eda5a
+
+deploymentBundle:
+  url: oci://ghcr.io/dodwyer/tamoss-release-assets
+  digest: ""

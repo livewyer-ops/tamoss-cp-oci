@@ -1,0 +1,21 @@
+{{- with .Values.instance }}
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: bootstrap-ready, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 30m
+  prune: false
+  sourceRef: {kind: Bucket, name: {{ $.Values.sourceName }}}
+  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
+  healthChecks:
+    - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossBootstrap, name: {{ .metadata.name }}, namespace: tamoss-infra}
+  healthCheckExprs:
+    - apiVersion: tamoss.livewyer.io/v1alpha1
+      kind: TamossBootstrap
+      current: >-
+        has(status) && has(status.observedGeneration) &&
+        status.observedGeneration == metadata.generation &&
+        has(status.bootstrapReady) && status.bootstrapReady
+{{- end }}

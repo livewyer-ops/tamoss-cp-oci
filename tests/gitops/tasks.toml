@@ -122,9 +122,9 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   "cp '{{ vars.ROOT_DIR }}/environments/example/foundation.yaml' '{{ env.TASKV_DIRECTORY }}/inputs/'",
   "yq -i '.deploymentReady = true | .gitopsEstablished = true' {{ env.TASKV_DIRECTORY }}/inputs/identity.yaml",
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run bootstrap:provision''',
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run bootstrap:runtime''',
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run bootstrap:runtime''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run bootstrap:install''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run bootstrap:install''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/inputs") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run bootstrap:install''',
 ]
 env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''
 
@@ -151,6 +151,8 @@ run = [
   '''yq -n '{"url": "https://github.com/example/tamoss-environments", "branch": "main", "path": "clusters/oci-dev", "product": {"url": "https://github.com/example/tamoss-cp-oci", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "bundle": {"url": load("{{ vars.ROOT_DIR }}/tests/gitops/values.yaml").release.bundleURL, "digest": load("{{ vars.ROOT_DIR }}/tests/gitops/values.yaml").release.digest}, "tadoss": {"bundle": {"url": load("{{ vars.ROOT_DIR }}/tests/tadoss/values.yaml").tadoss.release.bundleURL, "digest": load("{{ vars.ROOT_DIR }}/tests/tadoss/values.yaml").tadoss.release.digest}}}' > '{{ env.TASKV_DIRECTORY }}/inputs/gitops.yaml'''',
   "cp '{{ env.TASKV_DIRECTORY }}/inputs/gitops.yaml' '{{ env.TASKV_DIRECTORY }}/inputs/product.yaml'",
   "cp '{{ vars.ROOT_DIR }}/tests/assets/lock.yaml' '{{ env.TASKV_DIRECTORY }}/inputs/assets.lock.yaml'",
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}/inputs/assets-verification/releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+  "cp -a charts deploy dependencies.yaml '{{ env.TASKV_DIRECTORY }}/inputs/assets-verification/releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/'",
   '''yq -i '.data."values.yaml" = ((load("{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml") | del(.tadoss.enabled)) * (.data."values.yaml" | from_yaml) | to_yaml) | .data.externalSecretsVersion = load("{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml").dependencies.externalSecrets.version | .data.externalSecretsValues = (load("{{ vars.ROOT_DIR }}/.local/tmp/check/gitops-pins.yaml").externalSecrets | to_yaml)' '{{ env.TASKV_DIRECTORY }}/inputs/assets.lock.yaml' ''',
   '''yq -n 'load("{{ vars.ROOT_DIR }}/.local/tmp/check/adoption.yaml").spec.adoption.externalNames | to_entries | map({"resourceName": .key, "externalName": .value})' > '{{ env.TASKV_DIRECTORY }}/inputs/resources-current.yaml'''',
   '''yq -i '.loadBalancerSubnetId = "ocid1.subnet.oc1.eu-frankfurt-1.example" | .databaseId = "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example"' '{{ env.TASKV_DIRECTORY }}/inputs/outputs.json'''',

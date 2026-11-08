@@ -118,7 +118,7 @@ spec:
         check:
           ($error != null): true
           (contains($stderr, 'assertion failed')): true
-  - name: mandatory privacy before optional cloud or management work
+  - name: repository privacy is checked during development checks and handover
     try:
     - command:
         entrypoint: mkdir
@@ -151,13 +151,6 @@ spec:
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
-    - command:
-        entrypoint: env
-        workDir: ../..
-        args: ["mise", "-C", ".", "run", "setup"]
-        check:
-          ($error != null): true
-          (contains($stderr, 'verify:privacy')): true
     finally:
     - command:
         entrypoint: rmdir
@@ -183,7 +176,7 @@ spec:
     - command:
         entrypoint: env
         workDir: ../..
-        args: ["ENV_DIR=environments/example", "mise", "-C", ".", "run", "lifecycle:preflight"]
+        args: ["helm", "template", "setup", "charts/setup", "-f", "environments/example/values.yaml"]
         check:
           ($error != null): true
-          (contains($stderr, 'Replace example configuration before provisioning')): true
+          (contains($stderr, 'compartmentId')): true

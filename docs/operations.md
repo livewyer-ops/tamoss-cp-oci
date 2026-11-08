@@ -63,7 +63,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 
 | Stage or symptom | Check |
 | --- | --- |
-| Preflight rejection | Placeholder settings, OCI discovery, published product/public package access, file permissions and recorded-input consistency |
+| Preparation failure | Placeholder settings, OCI discovery, deployment bundle access and recorded-input consistency |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
 | Bootstrap installation stalled | Kind `tamoss-infra` Bucket, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
@@ -94,7 +94,7 @@ Treat diagnostic output as private and redact it before sharing. Report location
 | --- | --- |
 | Local checks and browser build logs | `.local/reports/` |
 | Live ingest, placement, network, browser and availability reports | `.local/environment/reports/` |
-| Cloud baseline and subsequent inventory | `.local/environment/inventory-before/`, other `inventory-*` directories |
+| Final cloud inventory | `.local/environment/inventory-after/` |
 | Recorded resource ownership | `.local/environment/resources.yaml`, `owned-cloud.yaml` |
 
 ## Recover a policy binding
@@ -168,7 +168,7 @@ operation; the common chart does not choose retry policy or manage the workflow.
 | Operation | Interruption and retry behaviour |
 | --- | --- |
 | Kind `tamoss-infra/s3-credentials` | Repeat `mise run up` when the response is already staged or persisted. A claimed attempt is never automatically repeated. Use the S3 recovery procedure below for a confirmed incomplete key. |
-| Kind remote bootstrap | Repeat `mise run up` with the same inputs and original Kind. It can renew a token while bootstrap is active. Once either remote Kustomization is suspended for retirement, repeats finish cleanup without recreating access. Identity checks reject a different target. |
+| Kind remote bootstrap | Repeat `mise run up` with the same inputs and original Kind. It can renew a token while bootstrap is active. Once remote bootstrap is suspended for retirement, repeats finish cleanup without recreating access. |
 | OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
 | Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
 
@@ -221,17 +221,17 @@ ENV_DIR=.local/environment mise run up
 ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run handover
 ```
 
-Repeating `up` after deployment observes readiness once without changing ownership.
+Repeating completed `up` retrieves the access details without changing ownership.
 Repeating completed `handover` observes readiness once without restarting Kind or
 publishing another commit. `qualify` works in either state. `down` also supports
 cleanup before handover and after an interrupted transfer.
-Keep the host checkout at the product commit recorded in `product.yaml`, or
-selected by `assets.lock.yaml` in environment Git after handover;
-handover rejects a different revision before changing ownership.
+Retain the matching installer source with the private records. Handover renders
+from the verified customer release; its assets do not come from a later product
+checkout.
 
 | Stage after remote seeding | Native actions |
 | --- | --- |
-| Initial convergence (`up`) | Observe bootstrap readiness, record bindings and inventory, then check deployment/public TLS readiness and OKE managed resources |
+| Initial convergence (`up`) | Wait for Kind's bootstrap and remote deployment health checks, then retire the temporary OKE bootstrap access |
 | Attach Git | Create/connect a private repository, publish the shared configuration, run native Flux bootstrap and persist its deploy key through Vault/ESO |
 | Begin transfer | Verify the published deployment revision and health; an unpublished ownership-only change is allowed on retry |
 | Verify adoption | Read and compare both control planes' resource identities and configuration |
@@ -245,6 +245,24 @@ before stopping Kind. Readiness observations do not trigger Flux reconciliation.
 A failed promotion observation leaves handover incomplete and preserves the state for retry.
 Teardown retains its binding-delivery waits because the bootstrap is paused then.
 
+## Interrupted host preparation
+
+Before Kind receives the seed, OCI CLI prepares the client asset bucket and reader.
+This is a one-shot preparation step. If it fails before `assets.lock.yaml` is
+recorded, `up` refuses to repeat creation. Preserve `identity.yaml`, `asset-store.yaml`
+and the API responses in `assets-state/`.
+
+With no Kind seed accepted, use `mise run down` to remove any recorded reader and
+`mise run assets:retire` to remove its bucket. Both verify ownership. If a create
+response is empty or missing, use OCI Audit to establish the outcome before
+revoking that exact resource; never assume an empty response means creation failed.
+Keep records until cleanup is confirmed, then choose a fresh `ENV_DIR` and rerun
+`setup`. Preparation does not automatically adopt partially created resources.
+
+Once Kind has accepted the seed, retain that Kind and use the normal retry or
+teardown path. If Kind exists but the initial apply failed, preserve it and inspect
+the apply error before removing any identity or credential files.
+
 ## Retry a failed deployment
 
 Resolve the reported problem, preserve its evidence, then repeat with the original
@@ -254,22 +272,21 @@ inputs and state:
 ENV_DIR=.local/environment mise run up
 ```
 
-Run `mise run check` first if configuration or dependencies changed. `up` verifies and
-prepares its deployment assets independently; a previous check cache is not required.
-Unchanged repeats reuse identities and persisted credentials. After handover,
-`up` observes the current published Git selection and keeps Kind stopped. Resume
-an interrupted transfer with `mise run handover` using the same inputs. It accepts
-the published configuration or its pending ownership-policy change; `up` rejects
-unpublished changes and directs a pending transfer back to `handover`. Resolve input/ownership mismatches
-and missing established credentials before retrying. Once teardown starts, use
-`down` to finish it.
+Completed `up` repeats only retrieve access details; use `qualify` to test the
+running service. Resume an interrupted ownership transfer with `handover`.
+Keep the original inputs and private records. Once teardown starts, use `down`.
 
 During initial provisioning, Flux and Crossplane continue reconciling if mise
 exits. The host must run until it has submitted the temporary OKE credential to
-Kind. Kind then installs Flux and applies the remote seed. Resume an interrupted
-`up` with the same private environment directory. Repeating an incomplete seed
+Kind. Kind then installs Flux and applies the remote seed. Once Kind has accepted
+the seed, resume an interrupted `up` with the same private environment directory.
+Repeating an incomplete remote seed
 renews access while bootstrap remains active. Final readiness, credential
 retirement and access details still require `up`.
+
+If preparation failed before Kind accepted the seed, follow
+[preparation cleanup](#interrupted-host-preparation) before starting again.
+Do not delete a Kind cluster that has begun provisioning cloud resources.
 
 Preserve `bootstrap.yaml`, `management-values.yaml`, kubeconfigs and the environment
 identity through verified teardown. Run one lifecycle command per environment at
@@ -371,10 +388,9 @@ invoice or a live resource inventory.
 **Destruction deletes managed application data**, including media, the database
 and its backups. Keep the original environment directory and credentials.
 
-Run from the product commit recorded in `product.yaml`, or selected by
-`assets.lock.yaml` in the environment repository after handover. If the product checkout has moved, save local edits and check out
-that commit before running `down`. Ownership return rejects a different product
-commit before freezing Flux or deleting cloud resources.
+Use the retained installer and private environment records. For a Git-owned
+deployment, teardown verifies the selected client release before rendering
+ownership-return declarations.
 
 ```bash
 ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run down
@@ -389,7 +405,9 @@ and exact Vault bindings return to Kind before it receives deletion authority.
 TAMOSS finalises while its operator remains available. Teardown removes platform
 releases and the load balancer, empties the owned bucket (including versions and
 multipart uploads), and deletes infrastructure and database backups. Kind and
-provider credentials remain until direct OCI inventory matches the baseline.
+provider credentials remain until direct OCI inventory confirms that the dedicated
+compartment contains no workload resources. The retained asset bucket is checked
+against its recorded name and ownership tag.
 
 | Deleted | Retained |
 | --- | --- |
@@ -425,7 +443,7 @@ See [asset lifecycle](../deploy/assets/README.md).
 
 Resolve the failure and repeat `mise run down` with the same directory. Preserve
 `identity.yaml`, `tamoss-release.yaml`, `qualification.sha256`, `resources.yaml`,
-`owned-cloud.yaml`, `storage-inventory.yaml`, the baseline inventory and credentials until cleanup completes.
+`owned-cloud.yaml`, `storage-inventory.yaml`, the final inventory and credentials until cleanup completes.
 Do not edit records to bypass mismatches or remove finalisers to simulate deletion.
 
 Before any cloud providers or deployment composites were installed, `down` can
@@ -458,7 +476,7 @@ and inventory records with the native OCI CLI or Console:
 
 1. Confirm tenancy, region and compartment against `identity.yaml`. Discover
    resources by recorded deployment/composite UID tags and IDs; compare with the
-   baseline. Names alone do not establish ownership.
+   recorded deployment tags and provider bindings. Names alone do not establish ownership.
 2. Remove the owned load balancer, node pools and OKE cluster, then inspect
    retained boot/block volumes. Remove only identified environment resources.
 3. Delete the owned PostgreSQL system and backups associated with its recorded
@@ -468,7 +486,7 @@ and inventory records with the native OCI CLI or Console:
    security resources, gateways, then VCN. OCI must confirm each deletion.
 5. Repeat every category in [the OCI inventory](../deploy/oci/inventory.yaml),
    including boot volumes in each configured availability domain. Compare IDs
-   with the baseline before declaring cleanup complete or discarding credentials.
+   for remaining workload resources before declaring cleanup complete or discarding credentials.
 
 Keep the precreated compartment until its owner retires it. If ownership evidence
 is insufficient, establish ownership before deletion. For a GitOps deployment,

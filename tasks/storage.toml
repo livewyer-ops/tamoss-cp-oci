@@ -82,19 +82,14 @@ description = "Revoke a confirmed incomplete S3 key and retry its bounded creati
 run = [
   "mise run identity:management",
   "mise run storage:identity",
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap "$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')" -o json | yq -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID and .spec.released != true and .spec.credentialsEstablished != true and .spec.deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .spec.storageCredentials.domainId == load("{{ vars.ENV_DIR }}/storage-identity.json").data.DOMAIN_ID' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap "$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')" -o json | yq -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID and .spec.released != true and (.status.credentialsEstablished // .spec.credentialsEstablished) != true and .spec.deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .spec.storageCredentials.domainId == load("{{ vars.ENV_DIR }}/storage-identity.json").data.DOMAIN_ID' > /dev/null''',
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get job s3-credentials --ignore-not-found -o json > '{{ vars.ENV_DIR }}/s3-job.json'",
   "mise run storage:stop-job",
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret s3-input -o json | yq -e '.data.credentials == null' > /dev/null || { printf '%s\n' 'The S3 response is already staged. Resume up to persist it; do not replace it.' >&2; exit 1; }''',
   '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 vault secret list --compartment-id "$(yq -r .compartmentId '{{ vars.ENV_DIR }}/foundation-record.yaml')" --vault-id "$(yq -r .vaultId '{{ vars.ENV_DIR }}/foundation-record.yaml')" --all > '{{ vars.ENV_DIR }}/s3-vault-inventory.json' ''',
   '''yq -e '[.data[] | select(."secret-name" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID + "-s3")] | length == 0' '{{ vars.ENV_DIR }}/s3-vault-inventory.json' > /dev/null || { printf '%s\n' 'The S3 credential is already in Vault. Resume up to read it back.' >&2; exit 1; }''',
   "mise run storage:revoke",
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation -o json > '{{ vars.ENV_DIR }}/s3-retired.json' ''',
-  '''yq -e -o=json 'select(.data.retired == "true") |
-    [{"op":"test", "path":"/metadata/resourceVersion", "value":.metadata.resourceVersion},
-    {"op":"test", "path":"/data/retired", "value":"true"},
-    {"op":"add", "path":"/data", "value":{}}]' '{{ vars.ENV_DIR }}/s3-retired.json' > '{{ vars.ENV_DIR }}/s3-retry-patch.json' ''',
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch configmap s3-credential-operation --type=json --patch-file='{{ vars.ENV_DIR }}/s3-retry-patch.json' -o name''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete configmap s3-credential-operation",
   '''flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra reconcile helmrelease tamoss-secrets --force --timeout=5m''',
 ]
 
@@ -173,7 +168,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "test -s '{{ vars.ENV_DIR }}/s3-operation-before-retirement.json'"
 run = [
-  '''yq -e '.spec.credentialsEstablished != true' '{{ vars.ENV_DIR }}/storage-bootstrap.json' > /dev/null || { printf '%s\n' 'Established S3 credentials have lost their receipt; retain Kind and recover the ownership record.' >&2; exit 1; }''',
+  '''yq -e '(.status.credentialsEstablished // .spec.credentialsEstablished) != true' '{{ vars.ENV_DIR }}/storage-bootstrap.json' > /dev/null || { printf '%s\n' 'Established S3 credentials have lost their receipt; retain Kind and recover the ownership record.' >&2; exit 1; }''',
   "mise run storage:inspect-users",
   "mise run storage:verify-no-keys",
 ]

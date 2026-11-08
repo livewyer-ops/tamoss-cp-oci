@@ -35,12 +35,14 @@ run = [
   '''test -n {{ env.TASKV_GITOPS_VALUES | quote }} || { printf '%s\n' "Missing required input: GITOPS_VALUES" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_PRODUCT_COMMIT | quote }} || { printf '%s\n' "Missing required input: PRODUCT_COMMIT" >&2; exit 1; }''',
   '''yq 'del(.instance) | .sourceName = "tamoss-return-product" | .credentialsEstablished = true | .dependencies = load("{{ env.TASKV_GITOPS_VALUES }}").dependencies | .packages = load("{{ env.TASKV_GITOPS_VALUES }}").packages | .externalSecrets = load("{{ env.TASKV_GITOPS_VALUES }}").externalSecrets | .assets = load("{{ env.TASKV_GITOPS_VALUES }}").assets | .product.commit = "{{ env.TASKV_PRODUCT_COMMIT }}"' '{{ vars.ENV_DIR }}/management-values.yaml' > '{{ vars.ENV_DIR }}/management-current.yaml'''',
-  "helm template management '{{ vars.ROOT_DIR }}/charts/management' -f '{{ vars.ENV_DIR }}/management-current.yaml' --set-file environmentDefinition='{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT_DIR }}/deploy/secrets/bootstrap-values.yaml' > '{{ vars.ENV_DIR }}/management.yaml'",
+  "helm template management '{{ env.TASKV_SOURCE }}charts/management' -f '{{ vars.ENV_DIR }}/management-current.yaml' --set-file environmentDefinition='{{ env.TASKV_SOURCE }}charts/environment/definition.yaml' --set-file foundationDefinition='{{ env.TASKV_SOURCE }}charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ env.TASKV_SOURCE }}deploy/secrets/bootstrap-values.yaml' > '{{ vars.ENV_DIR }}/management.yaml'",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/management.yaml'",
-  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir '{{ vars.ROOT_DIR }}/deploy/management/readiness' --assert-timeout=1200s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name management-ready",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir '{{ env.TASKV_SOURCE }}deploy/management/readiness' --assert-timeout=1200s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name management-ready",
 ]
 env.TASKV_GITOPS_VALUES = '''{{ env.GITOPS_VALUES | default(value="") }}'''
 env.TASKV_PRODUCT_COMMIT = '''{{ env.PRODUCT_COMMIT | default(value="") }}'''
+
+env.TASKV_SOURCE = '''{{ vars.ENV_DIR }}/assets-verification/{{ read_yaml(path=env.TASKV_GITOPS_VALUES) | get(key="assets") | get(key="prefix") }}'''
 
 ["management:check:run"]
 hide = true

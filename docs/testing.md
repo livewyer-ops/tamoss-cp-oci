@@ -164,9 +164,14 @@ evidence and continue independent checks as appropriate. Follow
 
 ## Verified coverage and limits
 
+The reduced installer consumes a CI deployment bundle, uses Crossplane-owned
+credential completion and waits on Flux readiness. Its local render and contract
+coverage does not qualify the complete OCI lifecycle. The cloud results below
+predate this installer change and must not be treated as proof of it.
+
 Setup contracts exercise private initialisation, preserved edits, deterministic
 regional selections, unavailable/ambiguous images, invalid configuration and
-repeat preparation without discovery. An assisted OCI deployment consumed a
+refusal of interrupted host preparation. An assisted OCI deployment consumed a
 private client-owned snapshot built from a committed, unpushed product revision.
 Kind and OKE used that snapshot without product Git access. Native GitHub
 bootstrap and Vault-backed SSH handover passed, followed by Git-only TADOSS

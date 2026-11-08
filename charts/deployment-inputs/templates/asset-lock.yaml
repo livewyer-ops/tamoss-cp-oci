@@ -1,7 +1,10 @@
-{{- if .Values.files.assetBuild }}
-{{- $build := .Values.files.assetBuild | fromYaml -}}
+{{- if or .Values.files.assetBuild .Values.files.releaseMetadata }}
+{{- $build := (.Values.files.releaseMetadata | default .Values.files.assetBuild) | fromYaml -}}
 {{- $store := .Values.files.assetStore | fromYaml -}}
-{{- $prefix := printf "releases/%s/" (.Values.files.assetBuild | sha256sum) -}}
+{{- $prefix := printf "releases/%s/" (.Values.files.assetBuild | default "" | sha256sum) -}}
+{{- if .Values.files.releaseMetadata -}}
+{{- $prefix = printf "releases/%s/" (trimPrefix "sha256:" (required "releaseDigest is required" .Values.releaseDigest)) -}}
+{{- end -}}
 {{- $pins := .Values.files.pins | default "{}" | fromYaml -}}
 {{- with $pins.tadoss }}{{- $_ := unset . "enabled" }}{{- end }}
 apiVersion: v1
@@ -12,14 +15,18 @@ metadata:
   labels: {reconcile.fluxcd.io/watch: Enabled}
   annotations: {kustomize.toolkit.fluxcd.io/substitute: disabled}
 data:
-  schemaVersion: '1'
+  schemaVersion: {{ ternary "2" "1" (not (empty .Values.files.releaseMetadata)) | quote }}
+{{- if .Values.files.releaseMetadata }}
+  bundleURL: {{ required "releaseURL is required" .Values.releaseURL | quote }}
+  bundleDigest: {{ .Values.releaseDigest | quote }}
+{{- end }}
   bucketName: {{ $store.bucketName | quote }}
   endpoint: {{ $store.endpoint | quote }}
   region: {{ $store.region | quote }}
   prefix: {{ $prefix | quote }}
   root: {{ printf "./%s" (trimSuffix "/" $prefix) | quote }}
   storeId: {{ $store.storeId | quote }}
-  manifestSha256: {{ .Values.assetManifestSha256 | default "" | quote }}
+  manifestSha256: {{ .Values.assetManifestSha256 | default $build.manifestSha256 | default "" | quote }}
   productCommit: {{ $build.product.commit | quote }}
   externalSecretsVersion: {{ $pins.dependencies.externalSecrets.version | quote }}
   externalSecretsValues: |
@@ -32,5 +39,5 @@ data:
       region: {{ $store.region | quote }}
       prefix: {{ $prefix | quote }}
       storeId: {{ $store.storeId | quote }}
-      manifestSha256: {{ .Values.assetManifestSha256 | default "" | quote }}
+      manifestSha256: {{ .Values.assetManifestSha256 | default $build.manifestSha256 | default "" | quote }}
 {{- end }}

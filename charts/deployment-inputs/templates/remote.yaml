@@ -1,3 +1,7 @@
+{{- if and .Values.files.foundation .Values.files.environmentDefinition .Values.files.pins -}}
+{{- $_ := set .Values.files "seedValues" (include (print .Template.BasePath "/values.yaml") .) -}}
+{{- $_ := set .Values.files "seedEnvironment" (include (print .Template.BasePath "/environment.yaml") .) -}}
+{{- end -}}
 {{- if .Values.files.seedValues }}
 {{- $identity := .Values.files.identity | fromYaml -}}
 {{- $assets := include "deployment.assets" . | fromYaml -}}
@@ -7,6 +11,9 @@ kind: OCIRepository
 metadata:
   name: flux-distribution
   namespace: tamoss-infra
+  labels:
+    tamoss.livewyer.io/remote-bootstrap: 'true'
+    tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
 spec:
   interval: 1h
   url: oci://ghcr.io/fluxcd/flux-manifests
@@ -197,4 +204,35 @@ spec:
     - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: asset-reader, namespace: flux-system}
 {{ end }}
 {{ end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: oke-ready
+  namespace: tamoss-infra
+  labels:
+    tamoss.livewyer.io/remote-bootstrap: 'true'
+    tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 30m
+  prune: false
+  deletionPolicy: Orphan
+  sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
+  path: {{ printf "./%sdeploy/gitops/readiness" $assets.prefix | quote }}
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
+  dependsOn: [{name: oke-seed}]
+  healthChecks:
+    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: deployment-ready, namespace: flux-system}
+  healthCheckExprs:
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      current: >-
+        (!has(spec.suspend) || !spec.suspend) &&
+        has(status) && has(status.observedGeneration) &&
+        status.observedGeneration == metadata.generation &&
+        has(status.conditions) && status.conditions.exists(c,
+        c.type == 'Ready' && c.status == 'True')
 {{- end }}

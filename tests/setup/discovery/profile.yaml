@@ -1,2 +1,8 @@
 region: eu-frankfurt-1
 tenancy: ocid1.tenancy.oc1.fixture
+oci:
+  region: eu-frankfurt-1
+  tenancy: ocid1.tenancy.oc1.fixture
+  user: ocid1.user.oc1.fixture
+  fingerprint: fixture
+  privateKey: fixture

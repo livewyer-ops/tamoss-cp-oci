@@ -1,0 +1,4 @@
+{{- $requests := include "deployment.assetRequests" . | fromYaml -}}
+{{- with $requests.bucket }}
+{{ . | toJson }}
+{{- end }}

@@ -35,6 +35,26 @@
 {{- if and $matches $bound (eq .type "Ready") (eq .status "True") -}}{{- $credentialsReady = true -}}{{- end -}}
 {{- end -}}
 {{- end -}}
+{{- $delivered := dict -}}
+{{- $deliveries := $secretDefaults.deliveries | default list -}}
+{{- range (dig "credentialDeliveries" "items" (list) (.extraResources | default dict)) -}}
+{{- $secret := .resource -}}
+{{- range $deliveries -}}
+{{- if and (eq $secret.metadata.name .name) (eq (dig "spec" "target" "name" "" $secret) .name) (eq (dig "spec" "secretStoreRef" "name" "" $secret) "tamoss-vault") (eq (dig "spec" "secretStoreRef" "kind" "SecretStore" $secret) "SecretStore") -}}
+{{- $matches := eq (len (dig "spec" "data" (list) $secret)) (len .data) -}}
+{{- $fields := dict -}}
+{{- range (dig "spec" "data" (list) $secret) -}}{{- $_ := set $fields .secretKey . -}}{{- end -}}
+{{- range $field := .data -}}
+{{- $actual := get $fields $field.secretKey | default dict -}}
+{{- $matches = and $matches (eq ($actual.secretKey | default "") $field.secretKey) (eq (dig "remoteRef" "key" "" $actual) (printf "%s-%s" $p.deploymentId $field.remoteKey)) (eq (dig "remoteRef" "property" "" $actual) ($field.property | default "")) -}}
+{{- end -}}
+{{- range (dig "status" "conditions" (list) $secret) -}}
+{{- if and $matches (eq .type "Ready") (eq .status "True") -}}{{- $_ := set $delivered $secret.metadata.name true -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $credentialsEstablished := or ($p.credentialsEstablished | default false) (dig "status" "credentialsEstablished" false $xr) (and (gt (len $deliveries) 0) (eq (len $delivered) (len $deliveries))) -}}
 {{- $infrastructureReady := false -}}
 {{- range (dig "status" "conditions" (list) $environment) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
@@ -106,6 +126,12 @@ requirements:
     kind: ExternalSecret
     namespace: {{ $xr.metadata.namespace }}
     matchName: database-admin
+  credentialDeliveries:
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/credential: 'true'
 ---
 apiVersion: tamoss.livewyer.io/v1alpha1
 kind: SecretFoundation
@@ -161,7 +187,7 @@ spec:
   values:
 {{ $secretDefaults | toYaml | indent 4 }}
     deploymentId: {{ $p.deploymentId | quote }}
-    initialise: {{ and (not $p.released) (not ($p.credentialsEstablished | default false)) }}
+    initialise: {{ and (not $p.released) (not $credentialsEstablished) }}
 {{- with $p.storageCredentials }}
     s3:
       userId: {{ $storageUserId | quote }}
@@ -282,12 +308,13 @@ status:
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
   credentialsReady: {{ $credentialsReady }}
+  credentialsEstablished: {{ $credentialsEstablished }}
   storageIdentityReady: {{ $storageIdentityReady }}
   storageIdentity:
     userId: {{ $storageUserId | quote }}
     groupId: {{ $storageGroupId | quote }}
   infrastructureReady: {{ $infrastructureReady }}
-  bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady ($p.credentialsEstablished | default false) }}
+  bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady $credentialsEstablished $storageRetired }}
   bindingsReady: {{ $bindingsReady }}
   runtimeAccessReady: {{ $accessReady }}
   released: {{ and $p.released $storageRetired $storageQuiesced (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}

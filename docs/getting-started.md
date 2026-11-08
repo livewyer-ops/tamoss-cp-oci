@@ -23,7 +23,7 @@ mise run setup
 mise supplies the pinned tools, including an isolated native OCI CLI and Python.
 The committed lockfile includes its Python dependencies. No PATH export or shell
 activation is required for `mise run`. `setup` creates an owner-only input directory containing
-`values.yaml`, optional `gitops.yaml` and `secrets/`. Repeating setup preserves the file. It refuses to
+`values.yaml` and optional `gitops.yaml`. Repeating setup preserves the file. It refuses to
 initialise a directory containing an earlier deployment. Select a fresh directory
 with `ENV_DIR=.local/environments/my-environment mise run setup` when needed, then use
 that same `ENV_DIR` for every lifecycle command.
@@ -80,11 +80,11 @@ Database and application passwords are also generated and persisted in Vault.
 ## Quick deployment
 
 The quick deployment needs no GitHub login, environment repository or registry
-credentials. The host packages the committed checkout with verified public
-TAMOSS/TADOSS assets and uploads them to a private OCI bucket owned by the client.
-Flux in Kind and OKE reads this snapshot. The product checkout may be public or
-private and may contain unpushed commits; commit all changes before deployment.
-Neither cluster reads the product Git repository.
+credentials. The host fetches the CI deployment release pinned in
+`dependencies.yaml` and copies it to a private client-owned OCI bucket. Kind and
+OKE read that copy. Local source edits do not enter the release; contributors
+publish and pin a new bundle before deploying their changes. Use a dedicated
+compartment with no workload resources.
 
 Edit `.local/environment/values.yaml`:
 
@@ -108,20 +108,21 @@ administrator email use `contactEmail`. The Vault foundation defaults to
 mise run up
 ```
 
-`up` validates the committed checkout, inputs and upstream package access. Native
+`up` fetches the pinned deployment release and renders validated inputs. Native
 OCI queries resolve the storage namespace, service network, availability domains
 and pinned worker image. Default placement requires three availability domains;
 Frankfurt is the previously qualified region. Unavailable or ambiguous selections
 stop the build rather than silently choosing another image.
 
 Before Kind starts, the host creates the private asset bucket and a separate
-read-only identity, uploads the snapshot and verifies every uploaded file.
-The asset-reader key is seeded into Kind, persisted through ESO to Vault and
-removed from local staging after exact readback. Its permissions cover this
+read-only identity and uploads the release with OCI checksum verification.
+The asset-reader key is seeded into Kind and removed from local files after the
+seed is accepted. ESO persists it to Vault; Crossplane waits for all expected
+credential deliveries before retiring staging resources. Its permissions cover this
 asset bucket only; the application storage identity remains separate.
 
 Kind starts Flux, Crossplane and Vault credential persistence. Once OKE is ready,
-the host validates its identity and creates a temporary bootstrap ServiceAccount.
+the host records its identity and creates a temporary bootstrap ServiceAccount.
 It requests a one-hour token and submits a self-contained kubeconfig Secret to
 Kind. Keep `up` running until that submission; afterwards Kind's Flux installs
 and seeds OKE through declared dependencies: Flux, ESO, Vault-backed asset access,
@@ -220,7 +221,7 @@ the workflow never adopts an unrelated store. See [client assets](../deploy/asse
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Cloud outputs and adoption record | `outputs.json`, `adoption.yaml` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
-| Ownership and baseline records | `resources.yaml`, `owned-cloud.yaml`, `inventory-before/` |
+| Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `assets-state/`, `inventory-after/` |
 | Qualification reports | `reports/` |
 
 Follow [retry instructions](operations.md#retry-a-failed-deployment) using the

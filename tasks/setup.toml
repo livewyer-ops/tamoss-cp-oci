@@ -1,129 +1,47 @@
-
-["setup:initialise:apply"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-skip_if = "(test -s {{ (vars.ENV_DIR) | quote }}/values.yaml)"
-run = [
-  "install -d -m 700 '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}/secrets'",
-  "install -m 600 '{{ vars.ROOT_DIR }}/environments/example/values.yaml' '{{ vars.ENV_DIR }}/values.yaml'",
-  "install -m 600 '{{ vars.ROOT_DIR }}/environments/example/gitops.yaml' '{{ vars.ENV_DIR }}/gitops.yaml'",
-  "printf 'Edit %s/values.yaml and configure the OCI profile described in docs/getting-started.md, then run mise run up\\n' {{ (vars.ENV_DIR) | quote }}",
-]
-
 ["setup:initialise"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
+skip_if = "test -s '{{ vars.ENV_DIR }}/values.yaml'"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test -s '{{ vars.ENV_DIR }}/values.yaml' || (test ! -e '{{ vars.ENV_DIR }}/identity.yaml' && test ! -e '{{ vars.ENV_DIR }}/environment.yaml' && test ! -e '{{ vars.ENV_DIR }}/management.kubeconfig') || { printf '%s\n' "This directory contains an existing deployment; retain its recorded inputs and use a fresh ENV_DIR for setup" >&2; exit 1; }''',
-  "mise run setup:initialise:apply",
+  "test ! -e '{{ vars.ENV_DIR }}/identity.yaml' || { echo 'Retain the existing deployment directory; use a fresh ENV_DIR for setup.' >&2; exit 1; }",
+  "install -d -m 700 '{{ vars.ENV_DIR }}'",
+  "install -m 600 environments/example/values.yaml environments/example/gitops.yaml '{{ vars.ENV_DIR }}/'",
+  "echo 'Complete {{ vars.ENV_DIR }}/values.yaml and configure your OCI profile, then run mise run up.'",
 ]
 
 ["setup:resolve"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
+depends = ["assets:fetch"]
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test ! -e '{{ vars.ENV_DIR }}/setup-values.yaml' || cmp --silent '{{ vars.ENV_DIR }}/values.yaml' '{{ vars.ENV_DIR }}/setup-values.yaml' || { printf '%s\n' "Bootstrap settings are already recorded; keep these inputs and use handover for GitOps changes" >&2; exit 1; }''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run setup:inputs",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run setup:publish-inputs",
+  "install -d -m 700 '{{ vars.ENV_DIR }}/discovery' '{{ vars.ENV_DIR }}/assets-state' '{{ vars.ENV_DIR }}/reports' '{{ vars.ENV_DIR }}/access'",
+  '''umask 077
+OCI_PROFILE={{ env.TASKV_PROFILE | quote }} yq -p=ini '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region, "tenancy": .tenancy, "oci": {"region": .region, "tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "privateKey": load_str(.key_file), "privateKeyPassword": .pass_phrase}}' {{ env.TASKV_CONFIG | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
+  '''oci iam domain list --compartment-id "$(yq -r .tenancy '{{ vars.ENV_DIR }}/discovery/profile.yaml')" --all > '{{ vars.ENV_DIR }}/discovery/identity-domains.json'''',
+  "oci os ns get > '{{ vars.ENV_DIR }}/discovery/namespace.json'",
+  "oci network service list --all > '{{ vars.ENV_DIR }}/discovery/services.json'",
+  "oci iam availability-domain list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --all > '{{ vars.ENV_DIR }}/discovery/domains.json'",
+  "oci ce node-pool-options get --node-pool-option-id all --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --node-pool-k8s-version {{ env.TASKV_VERSION | quote }} --node-pool-os-arch X86_64 > '{{ vars.ENV_DIR }}/discovery/node-options.json'",
 ]
-
-["setup:inputs:apply"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-skip_if = "(test -s '{{ vars.ENV_DIR }}/identity.yaml' || test -s '{{ vars.ENV_DIR }}/setup-values.yaml')"
-run = [
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run setup:validate",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run setup:discover",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run setup:render",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run setup:access",
-  "install -m 600 '{{ vars.ENV_DIR }}/values.yaml' '{{ vars.ENV_DIR }}/setup-values.yaml'",
-]
-
-["setup:inputs"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test -s '{{ vars.ENV_DIR }}/identity.yaml' || test -s '{{ vars.ENV_DIR }}/values.yaml' || { printf '%s\n' "Run mise run setup and complete values.yaml before deploying" >&2; exit 1; }''',
-  '''test -s '{{ vars.ENV_DIR }}/identity.yaml' || test -s '{{ vars.ENV_DIR }}/setup-values.yaml' || test ! -e '{{ vars.ENV_DIR }}/environment.yaml' || { printf '%s\n' "Existing generated or legacy inputs need review; use their deployed product revision or a fresh ENV_DIR" >&2; exit 1; }''',
-  "mise run setup:inputs:apply",
-]
-
-["setup:publish-inputs:apply"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-skip_if = "(test -s {{ (vars.ENV_DIR) | quote }}/identity.yaml)"
-run = [
-  '''{% for item in ["environment.yaml", "foundation.yaml", "settings.yaml", "product.yaml", "asset-store.yaml"] %}
-install -m 600 '{{ vars.ENV_DIR }}/setup-render/setup/templates/{{ item }}' '{{ vars.ENV_DIR }}/{{ item }}'
-{% endfor %}''',
-]
-
-["setup:publish-inputs"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "mise run setup:publish-inputs:apply",
-]
-
-["setup:validate"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test "$(stat -c '%a:%u' '{{ vars.ENV_DIR }}')" = "700:$(id -u)" || { printf '%s\n' "The environment directory must be owned by the current user with mode 700" >&2; exit 1; }''',
-  '''yq -e '[.. | select(tag == "!!str") | select(test("REPLACE|example\\.invalid|203\\.0\\.113"))] | length == 0' {{ (vars.ENV_DIR) | quote }}/values.yaml || { printf '%s\n' "Replace example configuration before deploying" >&2; exit 1; }''',
-  '''test -s '{{ env.TASKV_OCI_CONFIG }}' || { printf '%s\n' "Configure the OCI provisioner profile before deploying" >&2; exit 1; }''',
-  "helm lint '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml'",
-  "install -d -m 700 '{{ vars.ENV_DIR }}/discovery'",
-  '''OCI_PROFILE={{ (env.TASKV_OCI_PROFILE) | quote }} yq -p=ini -o=yaml '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region, "tenancy": .tenancy}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
-  '''yq -e '.region | test("^[a-z]+-[a-z]+-[0-9]+$")' {{ vars.ENV_DIR }}/discovery/profile.yaml > /dev/null''',
-]
-env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
-env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
-
-["setup:discover"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''{{ env.TASKV_OCI }} iam domain list --compartment-id "$(yq -r .tenancy '{{ vars.ENV_DIR }}/discovery/profile.yaml')" --all > '{{ vars.ENV_DIR }}/discovery/identity-domains.json' ''',
-  "{{ env.TASKV_OCI }} os ns get > {{ (vars.ENV_DIR) | quote }}/discovery/namespace.json",
-  "{{ env.TASKV_OCI }} network service list --all > {{ (vars.ENV_DIR) | quote }}/discovery/services.json",
-  "{{ env.TASKV_OCI }} iam availability-domain list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ (vars.ENV_DIR) | quote }}/discovery/domains.json",
-  "{{ env.TASKV_OCI }} ce node-pool-options get --node-pool-option-id all --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --node-pool-k8s-version {{ (env.TASKV_VERSION) | quote }} --node-pool-os-arch X86_64 > {{ (vars.ENV_DIR) | quote }}/discovery/node-options.json",
-]
-env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .compartmentId " ~ ((vars.ENV_DIR) | quote) ~ "/values.yaml") }}{% endif %}'''
-env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
-env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
-env.TASKV_VERSION = '''{% if env.VERSION is defined %}{{ env.VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -n -r 'load(\"" ~ (vars.ENV_DIR) ~ "/values.yaml\").oke.version // load(\"" ~ (vars.ROOT_DIR) ~ "/charts/setup/values.yaml\").oke.version'") }}{% endif %}'''
-env.TASKV_OCI = "{% if env.OCI is defined %}{{ env.OCI }}{% else %}oci --config-file {{ (env.TASKV_OCI_CONFIG) | quote }} --profile {{ (env.TASKV_OCI_PROFILE) | quote }} --connection-timeout 10 --read-timeout 30 --max-retries 0{% endif %}"
+env.TASKV_CONFIG = '''{{ env.OCI_CONFIG | default(value=env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config")) }}'''
+env.TASKV_PROFILE = '''{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | default(value="DEFAULT")) }}'''
+env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_CONFIG }}"
+env.OCI_CLI_PROFILE = "{{ env.TASKV_PROFILE }}"
+env.TASKV_COMPARTMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/values.yaml") | get(key="compartmentId") }}'''
+env.TASKV_VERSION = '''{% set inputs = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}{{ (inputs | get(key="oke", default={})) | get(key="version", default=read_yaml(path=vars.RELEASE_DIR ~ "/charts/setup/values.yaml") | get(key="oke") | get(key="version")) }}'''
 
 ["setup:render"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''yq -n '{"discovery": { "region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "tenancy": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").tenancy, "identityDomains": load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "bundles": {"tamoss": load("{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'''',
-  '''helm template setup '{{ vars.ROOT_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/discovery/values.yaml' --set-string product.commit="$(git -C '{{ vars.ROOT_DIR }}' rev-parse HEAD)" --output-dir '{{ vars.ENV_DIR }}/setup-render'''',
-  "crossplane resource validate '{{ vars.ROOT_DIR }}/charts/environment/definition.yaml,{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' '{{ vars.ENV_DIR }}/setup-render/setup/templates/environment.yaml,{{ vars.ENV_DIR }}/setup-render/setup/templates/foundation.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
+  '''umask 077
+yq -n '{"oci": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").oci, "discovery": {"region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "tenancy": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").tenancy, "identityDomains": load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "product": load("{{ vars.RELEASE_DIR }}/build.yaml").product, "bundles": {"tamoss": load("{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.RELEASE_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'
+helm template setup '{{ vars.RELEASE_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/discovery/values.yaml' --output-dir '{{ vars.ENV_DIR }}/setup-render'''',
 ]
 
-["setup:access"]
+["bootstrap:configuration"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
+depends = ["setup:resolve"]
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "mise run assets:checkout",
-  "install -d -m 700 '{{ vars.ENV_DIR }}/registry' '{{ vars.ENV_DIR }}/discovery/tamoss-bundle' '{{ vars.ENV_DIR }}/discovery/tadoss-bundle'",
-  "rm -f '{{ vars.ENV_DIR }}/registry/config.json'",
-  '''{% for item in ["tamoss", "tadoss"] %}
-DOCKER_CONFIG='{{ vars.ENV_DIR }}/registry' flux pull artifact "$(yq -r '.bundle.url + "@" + .bundle.digest' '{{ vars.ROOT_DIR }}/deploy/{{ item }}/release.yaml')" --output '{{ vars.ENV_DIR }}/discovery/{{ item }}-bundle' --timeout=60s
-{% endfor %}''',
-  '''echo "$(yq -r .releaseSha256 {{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml)  {{ vars.ENV_DIR }}/discovery/tamoss-bundle/release.json" | sha256sum --check --status''',
-  '''echo "$(yq -r '.artifacts."release.json"' {{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml)  {{ vars.ENV_DIR }}/discovery/tadoss-bundle/release.json" | sha256sum --check --status''',
-  '''timeout 60s docker --config '{{ vars.ENV_DIR }}/registry' manifest inspect "$(yq -r .bootstrapTools.image '{{ vars.ROOT_DIR }}/dependencies.yaml')" > '{{ vars.ENV_DIR }}/discovery/bootstrap-image.json'''',
+  "mise run setup:render",
+  "cp '{{ vars.ENV_DIR }}/setup-render/setup/templates/'*.yaml '{{ vars.ENV_DIR }}/'",
+  "cp '{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
+  "install -m 600 '{{ vars.ENV_DIR }}/values.yaml' '{{ vars.ENV_DIR }}/setup-values.yaml'",
 ]

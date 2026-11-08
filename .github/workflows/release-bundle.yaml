@@ -1,4 +1,4 @@
-name: Publish application release assets
+name: Publish release assets
 on:
   workflow_dispatch:
     inputs:
@@ -7,7 +7,7 @@ on:
         type: choice
         required: true
         default: tamoss
-        options: [tamoss, tadoss]
+        options: [tamoss, tadoss, deployment]
 permissions:
   contents: read
   packages: write
@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 30
     env:
       APPLICATION: ${{ inputs.application }}
-      PACKAGE_NAME: ${{ inputs.application }}-release-assets
+      PACKAGE_NAME: ${{ inputs.application == 'deployment' && 'tamoss-release-assets' || format('{0}-release-assets', inputs.application) }}
       PACKAGE_OWNER: ${{ github.repository_owner }}
       PRODUCT_REPOSITORY: ${{ github.repository }}
     steps:
@@ -44,6 +44,9 @@ jobs:
           yq -e '(.status == "404") or ((.visibility == "public") and (.repository.full_name == strenv(PRODUCT_REPOSITORY)))' .local/tmp/check/package.json
       - name: Verify the release and prepare the allowlisted bundle
         run: mise run check
+      - name: Build the deployment release
+        if: inputs.application == 'deployment'
+        run: mise run release:build
       - name: Authenticate the publisher
         env:
           PUBLISHER: ${{ github.actor }}
@@ -54,8 +57,14 @@ jobs:
           PRODUCT_COMMIT: ${{ github.sha }}
           PRODUCT_BRANCH: ${{ github.ref_name }}
         run: |
-          bundle_tag="$(yq -r .tag "deploy/$APPLICATION/release.yaml")-$PRODUCT_COMMIT"
-          flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path ".local/tmp/$APPLICATION-bundle" --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
+          if [ "$APPLICATION" = deployment ]; then
+            bundle_tag="deployment-$PRODUCT_COMMIT"
+            bundle_path=.local/tmp/release/assets-build/tree
+          else
+            bundle_tag="$(yq -r .tag "deploy/$APPLICATION/release.yaml")-$PRODUCT_COMMIT"
+            bundle_path=".local/tmp/$APPLICATION-bundle"
+          fi
+          flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path "$bundle_path" --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
       - name: Verify the published package and record the digest
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,7 +77,11 @@ jobs:
         run: |
           mkdir -p .local/tmp/anonymous-registry .local/tmp/anonymous-bundle
           DOCKER_CONFIG="$PWD/.local/tmp/anonymous-registry" flux pull artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME@$(yq -r .digest .local/tmp/check/published-bundle.json)" --output .local/tmp/anonymous-bundle --timeout=60s
-          diff -r ".local/tmp/$APPLICATION-bundle" .local/tmp/anonymous-bundle
+          if [ "$APPLICATION" = deployment ]; then
+            diff -r .local/tmp/release/assets-build/tree .local/tmp/anonymous-bundle
+          else
+            diff -r ".local/tmp/$APPLICATION-bundle" .local/tmp/anonymous-bundle
+          fi
       - name: Remove publisher credentials
         if: always()
         run: docker logout ghcr.io

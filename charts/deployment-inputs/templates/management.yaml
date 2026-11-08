@@ -1,4 +1,4 @@
-{{- if .Values.files.bootstrap }}
+{{- if and (or .Values.files.bootstrap .Values.files.foundation) .Values.files.packages }}
 dependencies:
 {{ .Values.files.dependencies | fromYaml | toYaml | indent 2 }}
 packages:
@@ -11,5 +11,5 @@ assets:
 {{ include "deployment.assets" . | indent 2 }}
 credentialsEstablished: {{ (.Values.files.identity | fromYaml).credentialsEstablished | default false }}
 instance:
-{{ .Values.files.bootstrap | fromYaml | toYaml | indent 2 }}
+{{ (.Values.files.bootstrap | default (include (print .Template.BasePath "/bootstrap.yaml") .)) | fromYaml | toYaml | indent 2 }}
 {{- end }}

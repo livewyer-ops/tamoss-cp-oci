@@ -62,6 +62,7 @@ spec:
                     image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
                 credentialsEstablished:
                   type: boolean
+                  description: Legacy completion input; new installations use status.credentialsEstablished.
                   default: false
                   x-kubernetes-validations:
                     - rule: '!oldSelf || self'
@@ -105,6 +106,7 @@ spec:
                 observedGeneration: {type: integer, format: int64}
                 foundationReady: {type: boolean}
                 credentialsReady: {type: boolean}
+                credentialsEstablished: {type: boolean}
                 storageIdentityReady: {type: boolean}
                 storageIdentity:
                   type: object

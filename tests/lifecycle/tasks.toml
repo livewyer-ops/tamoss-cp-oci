@@ -74,9 +74,6 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
   "cmp '{{ vars.ENV_DIR }}/identity-valid.yaml' '{{ vars.ENV_DIR }}/identity.yaml'",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
-  "mkdir '{{ vars.ENV_DIR }}/inventory-before'",
-  "touch '{{ vars.ENV_DIR }}/inventory-before/.complete'",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:baseline",
   "yq -n '[]' > {{ vars.ENV_DIR }}/owned-current.yaml",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:remote",
 ]
@@ -86,16 +83,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
-]
-
-["test:lifecycle:invalid-storage"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "mkdir -p -m 700 '{{ vars.ENV_DIR }}/invalid-storage'",
-  "touch '{{ vars.ENV_DIR }}/invalid-storage/environment.yaml'",
-  '''yq -n '{"storageIdentity":{"domainId":"invalid"}}' > '{{ vars.ENV_DIR }}/invalid-storage/settings.yaml' ''',
-  "ENV_DIR='{{ vars.ENV_DIR }}/invalid-storage' mise run lifecycle:preflight",
 ]
 
 ["test:lifecycle:create-management"]
@@ -110,4 +97,15 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run application:remove-instance",
+]
+
+["test:lifecycle:absence"]
+hide = true
+run = [
+  "mkdir -p '{{ env.DIRECTORY }}/inventory-after'",
+  '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"audit": ."cloud:audit"}} | del(.tasks.audit.run[0])' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
+  '''yq -n '{"bucketName": "assets", "storeId": "fixture"}' > '{{ env.DIRECTORY }}/asset-store.yaml'''',
+  '''yq -n -o=json '{"data": [{"name": "assets", "freeform-tags": {"tamoss-asset-store-id": "fixture"}}]}' > '{{ env.DIRECTORY }}/inventory-after/buckets.json'''',
+  '''yq -n -o=json '{"data": [{"name": "old", "lifecycle-state": "TERMINATED"}]}' > '{{ env.DIRECTORY }}/inventory-after/volumes.json'''',
+  "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
 ]

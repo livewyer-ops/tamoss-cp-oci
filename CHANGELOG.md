@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Install a pinned CI deployment bundle and copy it to the customer's private
+  asset store. Normal installation no longer assembles a release from the checkout.
+- Seed the full Kind graph once and supply temporary OKE access. Crossplane
+  records credential completion; Flux aggregates bootstrap and application health.
+  Remove install-time inventories, repeated asset readback and intermediate host
+  readiness checks. Git export occurs only during `handover`.
+- Require a dedicated compartment without workload resources. Teardown audits
+  final absence instead of comparing a pre-installation inventory. Interrupted
+  host preparation requires explicit cleanup before a fresh attempt.
+- Use an atomic ConfigMap claim for the bounded S3 key Job. Key creation and
+  staging need three native commands; replay cannot issue a second key.
+
 - Retire asset-reader membership through the native Identity Domains group API,
   using the recorded user and group under the existing scoped permissions.
 - Create the readiness report directory on a fresh deployment. Let native Flux
@@ -12,9 +24,6 @@
 - Fetch the existing Crossplane and function versions directly from their official
   GHCR origin, avoiding the unavailable registry proxy. Package digests are unchanged.
 
-- Build deployment snapshots from a clean committed checkout and verified,
-  unchanged TAMOSS/TADOSS release assets. Publish them to private client-owned
-  OCI Object Storage; Kind and OKE use native Flux Bucket sources.
 - Prepare restricted asset-reader IAM with the host OCI CLI, persist its key
   through Vault and deliver it to OKE before applying the remote seed.
 - Export `assets.lock.yaml` separately from client values. Optional Git selects

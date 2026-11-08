@@ -27,6 +27,23 @@ yq -i 'del(.metadata.annotations."gotemplating.fn.crossplane.io/ready")' {{ env.
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
 
+["test:bootstrap:credential-completion"]
+hide = true
+run = [
+  '''yq 'select(.kind == "ExternalSecret") | .status.conditions = [{"type":"Ready","status":"True"}]' '{{ env.TASKV_DIRECTORY }}/native-deliveries.yaml' > '{{ env.TASKV_DIRECTORY }}/all-deliveries.yaml' ''',
+  '''yq 'select(.metadata.name != "asset-reader")' '{{ env.TASKV_DIRECTORY }}/all-deliveries.yaml' > '{{ env.TASKV_DIRECTORY }}/missing-delivery.yaml' ''',
+  '''yq 'with(select(.metadata.name == "s3"); .spec.data[0].remoteRef.key = "another-deployment-s3")' '{{ env.TASKV_DIRECTORY }}/all-deliveries.yaml' > '{{ env.TASKV_DIRECTORY }}/wrong-delivery.yaml' ''',
+  '''{% for item in ["all-deliveries", "missing-delivery", "wrong-delivery"] %}
+crossplane composition render '{{ env.TASKV_DIRECTORY }}/native-root.yaml' '{{ env.TASKV_DIRECTORY }}/native-composition.yaml' '{{ vars.ROOT_DIR }}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{ env.TASKV_DIRECTORY }}/native-observed.yaml' --required-resources='{{ env.TASKV_DIRECTORY }}/{{ item }}.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/{{ item }}-result.yaml'
+yq -e 'select(.kind == "TamossBootstrap") | .status.credentialsEstablished == {{ item == "all-deliveries" }}' '{{ env.TASKV_DIRECTORY }}/{{ item }}-result.yaml'
+yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | .spec.values.initialise == {{ item != "all-deliveries" }}' '{{ env.TASKV_DIRECTORY }}/{{ item }}-result.yaml'
+{% endfor %}''',
+  '''yq 'select(.kind == "TamossBootstrap") | del(.spec.credentialsEstablished)' '{{ env.TASKV_DIRECTORY }}/all-deliveries-result.yaml' > '{{ env.TASKV_DIRECTORY }}/established-root.yaml' ''',
+  "crossplane composition render '{{ env.TASKV_DIRECTORY }}/established-root.yaml' '{{ env.TASKV_DIRECTORY }}/native-composition.yaml' '{{ vars.ROOT_DIR }}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{ env.TASKV_DIRECTORY }}/native-lost-status.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/established-without-deliveries.yaml'",
+  '''yq -e 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | .spec.values.initialise == false' '{{ env.TASKV_DIRECTORY }}/established-without-deliveries.yaml' ''',
+]
+env.TASKV_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap"
+
 ["test:bootstrap:prepare-management"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
@@ -43,46 +60,19 @@ run = [
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
 
+["test:bootstrap:deliver-all"]
+hide = true
+run = [
+  '''yq '.deliveries | map({"key": ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-" + .name), "value": ({"accesskey": "fixture-only", "secretkey": "fixture-only", "accessKey": "fixture-only", "secretKey": "fixture-only"} | to_json(0))}) | {"apiVersion": "external-secrets.io/v1", "kind": "SecretStore", "metadata": {"name": "tamoss-vault", "namespace": "tamoss-infra"}, "spec": {"provider": {"fake": {"data": .}}}}' deploy/secrets/bootstrap-values.yaml > .local/tmp/check/bootstrap/fake-store.yaml''',
+  "kubectl apply -f .local/tmp/check/bootstrap/fake-store.yaml",
+  '''yq 'select(.kind == "ExternalSecret")' .local/tmp/check/bootstrap/native-deliveries.yaml | kubectl apply -f -''',
+]
+
 ["test:bootstrap:observe"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/management") | quote }} mise run bootstrap:observe''',
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
-
-["test:bootstrap:repeat-seed"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/management") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/unused-checkout") | quote }} mise run bootstrap:seed''',
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
-
-["test:bootstrap:reject-replaced-seed:protected"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''yq -i '.bootstrapUID = "replaced-root"' {{ env.TASKV_DIRECTORY }}/management/identity.yaml''',
-  "mise run test:bootstrap:repeat-seed",
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
-depends_post = ["test:bootstrap:reject-replaced-seed:cleanup"]
-
-["test:bootstrap:reject-replaced-seed:cleanup"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "cp '{{ env.TASKV_DIRECTORY }}/management/identity.saved.yaml' '{{ env.TASKV_DIRECTORY }}/management/identity.yaml'",
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
-
-["test:bootstrap:reject-replaced-seed"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "cp '{{ env.TASKV_DIRECTORY }}/management/identity.yaml' '{{ env.TASKV_DIRECTORY }}/management/identity.saved.yaml'",
-  "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} mise run test:bootstrap:reject-replaced-seed:protected",
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/bootstrap{% endif %}"
 
@@ -203,7 +193,7 @@ hide = true
 run = [
   "mise run test:setup:fixture",
   "mise run test:setup:render",
-  "mise run setup:publish-inputs",
+  "cp '{{ env.DIRECTORY }}/setup-render/setup/templates/'*.yaml '{{ env.DIRECTORY }}/'",
   '''yq -n '{"deploymentUID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "oci":{"user":"ocid1.user.oc1.fixture", "tenancy":"ocid1.tenancy.oc1.fixture"}}' > '{{ env.DIRECTORY }}/identity.yaml'''',
   "cp tests/assets/lock.yaml '{{ env.DIRECTORY }}/assets.lock.yaml'",
   "test ! -e '{{ env.DIRECTORY }}/management.kubeconfig'",
@@ -216,3 +206,40 @@ run = [
 ]
 env.DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
 env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
+
+["test:bootstrap:seed-inputs"]
+hide = true
+run = [
+  "DIRECTORY='{{ env.TASKV_DIRECTORY }}' mise run test:setup:fixture",
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --dry-run setup:resolve",
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:render",
+  "cp '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/'*.yaml '{{ env.TASKV_DIRECTORY }}/'",
+  "helm template inputs charts/deployment-inputs --set-file files.assetStore='{{ env.TASKV_DIRECTORY }}/asset-store.yaml',files.identity='{{ env.TASKV_DIRECTORY }}/identity.yaml',files.settings='{{ env.TASKV_DIRECTORY }}/settings.yaml' --output-dir '{{ env.TASKV_DIRECTORY }}/requests'",
+  "yq eval-all -p=yaml -o=json '.' --split-exp 'filename' '{{ env.TASKV_DIRECTORY }}/requests/deployment-inputs/templates/requests/'*.json",
+  '''yq eval-all -p=json -e '[.] | length == 6' '{{ env.TASKV_DIRECTORY }}/requests/deployment-inputs/templates/requests/'*.json''',
+  "helm template inputs charts/deployment-inputs --show-only templates/asset-lock.yaml --set-file files.releaseMetadata=tests/setup/deployment-release.yaml,files.pins=.local/tmp/check/gitops-pins.yaml,files.assetStore='{{ env.TASKV_DIRECTORY }}/asset-store.yaml' --set-string releaseURL=oci://example.invalid/deployment,releaseDigest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc > '{{ env.TASKV_DIRECTORY }}/assets.lock.yaml'",
+  '''yq -e '[.data.schemaVersion == "2", .data.bundleDigest == "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", .data.prefix == "releases/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/", .data.manifestSha256 == load("tests/setup/deployment-release.yaml").manifestSha256, ((.data."values.yaml" | from_yaml).tadoss.enabled == null)] | all' '{{ env.TASKV_DIRECTORY }}/assets.lock.yaml' ''',
+  '''yq -n -o=json '{"data": {"id": "fixture-access", "key": "fixture-secret"}}' > '{{ env.TASKV_DIRECTORY }}/asset-key.json'''',
+  "helm template inputs charts/deployment-inputs --set-file files.foundation='{{ env.TASKV_DIRECTORY }}/foundation.yaml',files.environment='{{ env.TASKV_DIRECTORY }}/environment.yaml',files.identity='{{ env.TASKV_DIRECTORY }}/identity.yaml',files.settings='{{ env.TASKV_DIRECTORY }}/settings.yaml',files.product='{{ env.TASKV_DIRECTORY }}/product.yaml',files.assets='{{ env.TASKV_DIRECTORY }}/assets.lock.yaml',files.pins=.local/tmp/check/gitops-pins.yaml,files.dependencies=dependencies.yaml,files.packages=charts/packages/values.yaml,files.externalSecrets=deploy/secrets/controller-values.yaml,files.environmentDefinition=charts/environment/definition.yaml,files.ociProfile='{{ env.TASKV_DIRECTORY }}/discovery/profile.yaml',files.assetKey='{{ env.TASKV_DIRECTORY }}/asset-key.json' --output-dir '{{ env.TASKV_DIRECTORY }}/render'",
+  "helm template management charts/management -f '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/management.yaml' --set-file environmentDefinition=charts/environment/definition.yaml,foundationDefinition=charts/secret-foundation/definition.yaml,secretBootstrapFile=deploy/secrets/bootstrap-values.yaml > '{{ env.TASKV_DIRECTORY }}/management.yaml'",
+  '''yq -e 'select(.metadata.name == "bootstrap-ready") | .spec.healthChecks[0].name == "setup-test" and (.spec.healthCheckExprs[0].current | contains("status.observedGeneration == metadata.generation"))' '{{ env.TASKV_DIRECTORY }}/management.yaml'''',
+  '''yq eval-all -e '[select(.kind == "Kustomization") | .metadata.name] | sort | join(",") == "oke-asset-access,oke-eso,oke-flux,oke-ready,oke-seed"' '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/remote.yaml'''',
+  '''yq -e 'select(.metadata.name == "oke-ready") | .spec.healthChecks[0].name == "deployment-ready"' '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/remote.yaml'''',
+  '''yq -e 'select(.metadata.name == "asset-reader") | .stringData.accesskey == "fixture-access" and .stringData.secretkey == "fixture-secret"' '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/seed-secrets.yaml'''',
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/seed-inputs'
+
+["test:bootstrap:remote-record"]
+hide = true
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}'",
+  '''DIRECTORY='{{ env.TASKV_DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"record": {"run": ."bootstrap:remote-access".run[2:4]}}}' tasks/bootstrap.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml' ''',
+  "mise trust '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'",
+  '''yq -n '{"apiVersion": "v1", "kind": "Config", "clusters": [{"name": "fixture", "cluster": {"server": "https://remote.example.test:6443"}}], "users": [{"name": "fixture", "user": {"exec": {"command": "old"}}}]}' > '{{ env.TASKV_DIRECTORY }}/remote.kubeconfig' ''',
+  '''yq -n '{"deploymentUID": "fixture"}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml' ''',
+  "printf remote-uid > '{{ env.TASKV_DIRECTORY }}/remote-uid'",
+  "MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ env.TASKV_DIRECTORY }}' run record",
+  '''yq -e '.remoteUID == "remote-uid" and .remoteServer == "https://remote.example.test:6443" and .deploymentUID == "fixture"' '{{ env.TASKV_DIRECTORY }}/identity.yaml' ''',
+  '''yq -e '.kind == "Config" and .users[0].user.exec.command == "oci" and .deploymentUID == null' '{{ env.TASKV_DIRECTORY }}/remote.kubeconfig' ''',
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/remote-record'

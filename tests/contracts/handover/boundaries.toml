@@ -27,29 +27,24 @@ run = [
   "true",
 ]
 
-["bootstrap:provision"]
+["bootstrap:finish"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
-skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
 run = [
-  "yq -i '.provisions += 1' {{ vars.ENV_DIR }}/identity.yaml",
+  "yq -e '.unhealthy != true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "yq -i '.provisions += 1 | .observations += 1 | .deploymentReady = true' '{{ vars.ENV_DIR }}/identity.yaml'",
 ]
 
-["bootstrap:runtime"]
+["assets:restore-runtime"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "true",
-]
+run = ["true"]
 
-["bootstrap:record-runtime"]
+["bootstrap:bindings"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
-skip_if = "(yq -e '.deploymentReady == true' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
-run = [
-  "yq -e '.observations > 0' {{ vars.ENV_DIR }}/identity.yaml",
-  "yq -i '.deploymentReady = true' {{ vars.ENV_DIR }}/identity.yaml",
-]
+run = ["yq -e '.stopped != true' '{{ vars.ENV_DIR }}/identity.yaml"]
+
+["gitops:render"]
+hide = true
+run = ["true"]
 
 ["bootstrap:access"]
 hide = true

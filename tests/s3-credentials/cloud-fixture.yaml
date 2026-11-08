@@ -1,5 +1,2 @@
-# Only OCI requests are substituted. Claim, validation, RBAC and persistence run unchanged.
-inspect: |
-  : > /work/keys.json
-create: |
-  yq -n -o=json '{"data":{"id":"fixture-key","key":"fixture-secret","user-id":strenv(STORAGE_USER),"display-name":"tamoss-" + strenv(DEPLOYMENT_ID) + "-" + strenv(ATTEMPT)}}' > /work/key.json
+create: >-
+  printf '%s\n' '{"stringData":{"credentials":"{\"accessKey\":\"fixture-key\",\"secretKey\":\"fixture-secret\"}"}}' > /work/key.json

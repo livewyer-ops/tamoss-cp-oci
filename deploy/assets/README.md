@@ -2,151 +2,99 @@
 
 [Getting started](../../docs/getting-started.md) | [GitOps](../gitops/README.md) | [Operations](../../docs/operations.md)
 
-A deployment publishes its definitions from the checked-out commit to a private
-client-owned OCI Object Storage bucket. Kind and OKE use native Flux Bucket
-sources. Product Git availability, visibility and later branch changes cannot
-change an existing deployment.
+CI assembles a deployment release from the [allowlisted paths](paths.txt), unchanged
+TAMOSS/TADOSS assets and pinned dependencies. It publishes an OCI artifact after
+local release checks. `dependencies.yaml` selects its digest.
 
-## Publication and ownership
+`mise run up` downloads that artifact once, creates a private client bucket and
+restricted reader, and uploads the release under `releases/<digest>/`. OCI verifies
+upload checksums. Kind and OKE read this customer-owned copy through Flux Bucket
+sources. They never read the product Git repository; later product releases do
+not change the selected deployment.
 
-`mise run up` builds the initial snapshot before starting Kind:
+## Release contents and ownership
 
-1. Require a clean committed checkout. Unpushed commits are supported.
-2. Verify the selected TAMOSS/TADOSS releases, source archive and bundle digests.
-3. Assemble the [allowlisted paths](paths.txt), unchanged upstream deployment
-   assets and pinned Calico manifest. Resolve upstream Kustomize includes locally.
-4. Record build inputs, the product commit, file checksums and matching operator
-   tooling. Create the private bucket and restricted reader with native OCI CLI.
-5. Upload under a build-specific `releases/<sha256>/` prefix without overwriting.
-   Download it again and verify the complete file set and checksums before
-   recording the publication and selecting it.
+Each release contains both applications' deployment assets, even when TADOSS is
+disabled, plus the matching TAMOSS source archive for qualification. `build.yaml`
+records provenance, `SHA256SUMS` covers the files, and `release.yaml` records the
+manifest hash. `operator-source.tar.gz` preserves this product's matching tooling.
+Private working files, credentials and kubeconfigs are excluded.
 
-An interrupted upload can resume when existing bytes match. A missing, altered
-or unexpected file fails verification. A changed checkout or build input selects
-a new prefix. Publication receipts are stored separately under `publications/`.
-The publisher must preserve release contents: Flux Bucket has no digest selector
-or server-side immutability guarantee. Its lock selects a fixed prefix, and only
-the provisioner can write the store.
+Upstream sources remain read-only. Integration overlays belong to this product.
+Container images, provider packages, the official Flux distribution and external
+Helm repositories retain their existing pins; the bundle is not an air-gapped mirror.
 
-Snapshots include both operators even when TADOSS is disabled. They include
-TAMOSS's matching source archive for qualification and an archive of this
-product's tracked operator tooling for recovery. Git history, private working
-files, credentials and kubeconfigs are excluded. Upstream assets remain unchanged;
-this product's integration overlays are separate.
-
-Application/container images, provider packages, the official Flux distribution
-and third-party Helm repositories remain external dependencies with their existing
-pins. This snapshot is not an air-gapped mirror.
-
-The client owns the bucket, published releases, reader lifecycle and optional
-environment Git repository. Normal `down` retires the reader and removes workload
-resources while retaining the store. Store retention incurs storage charges.
+The client owns the bucket, releases, reader and optional environment repository.
+Flux Bucket selects a fixed prefix rather than enforcing server-side immutability.
+Only the provisioner can write the bucket, and publication does not overwrite
+existing objects. Preserve those contents. Normal `down` removes workload resources
+and the reader while retaining the bucket, which continues to incur storage charges.
 
 ## Credentials
 
-The host provisioner prepares a separate `tamoss-assets-<deployment-id>` user,
-group, membership and policy in the Default identity domain. Only Customer
-Secret Keys are enabled. The policy permits reading this asset bucket and its
-objects; it permits neither publication nor media-bucket access.
+The host provisioner creates a separate `tamoss-assets-<deployment-id>` user,
+group, membership and policy in the Default identity domain. Only Customer Secret
+Keys are enabled. Its policy permits reading this asset bucket and its objects.
 
-The one-time key response is stored in owner-only local files and seeded into
-Kind. ESO persists it in Vault and verifies exact readback before local staging
-is removed. OKE receives it through workload identity and a separate
-`flux-system/asset-vault` SecretStore. Its grant names the exact OKE cluster,
-service account and deployment secret.
+The one-time key response is held in owner-only local files until it is applied
+to Kind. ESO persists it to Vault; Crossplane observes all expected ExternalSecrets
+before retiring staging resources. OKE obtains the reader through workload identity
+and its `flux-system/asset-vault` SecretStore. Credentials never appear in Git,
+the asset lock or Crossplane status.
 
-Kind Flux installs OKE Flux, then ESO, then the asset SecretStore/ExternalSecret,
-then the deployment. This dependency order avoids requiring private source access
-to install the controller that supplies that access. Reader credentials never
-appear in Git, the asset lock or Crossplane status.
-
-OCI identity changes can take time to propagate. Flux retries source access.
-Inspect Bucket conditions and retain the original reader when initial access
-fails; do not generate another key to bypass propagation.
-
-If creation was interrupted after a complete key response, retry reuses that
-response. If OCI contains a key but its one-time response was lost, stop and
-recover it from retained records or revoke that exact key through the account
-administrator before retrying. Never delete an established reader to force
-recreation. An empty pending response also stops retry: use OCI Audit to establish
-the outcome before removing that creation claim. An empty key list alone does
-not prove that an in-flight create failed. Missing established Vault values
-require credential recovery.
+OCI identity propagation may delay source access. Flux retries normally. Preserve
+the existing reader rather than generating another key. Interrupted host preparation
+requires [explicit cleanup](../../docs/operations.md#interrupted-host-preparation)
+before a fresh attempt. Once the seed has been accepted by Kind, repeat `up` with
+the original records to resume observation and temporary OKE access.
 
 ## Git selection and upgrades
 
-Initial selection is recorded privately in `assets.lock.yaml`. Handover exports
-that same ConfigMap to the client repository alongside `values.yaml`.
-The lock holds the source prefix, checksums and release/dependency pins.
-Client values hold operational choices such as `tadoss.enabled`. Native
-Kustomize replacements and Helm values references apply both.
+Initial selection is recorded in the private `assets.lock.yaml`. Handover exports
+that same ConfigMap beside `values.yaml` in the client's repository. The lock holds
+the source prefix, manifest hash and dependency pins; values hold operational
+choices such as `tadoss.enabled`.
 
-To prepare a candidate, use a clean committed product checkout with reviewed
-release locks and the original environment directory:
+To copy a newer, published deployment release into the client store, use the
+installer containing its reviewed `deploymentBundle` pin:
 
 ```bash
 ENV_DIR=.local/environment mise run assets:publish
 ```
 
-This uploads and verifies a candidate. It does not update the active lock,
-private deployment, client Git repository or running resources.
-
-After handover, select the candidate in the client repository:
+This writes `.local/environment/assets-state/candidate.lock.yaml`. It does not
+change the active lock or running deployment. After reviewing compatibility,
+select it in the configured environment Git path:
 
 ```bash
-cp .local/environment/assets-build/published.lock.yaml \
+cp .local/environment/assets-state/candidate.lock.yaml \
   .local/gitops/clusters/media-demo/assets.lock.yaml
 git -C .local/gitops add clusters/media-demo/assets.lock.yaml
 git -C .local/gitops commit -m "feat: select deployment asset release"
 git -C .local/gitops push origin main
 ```
 
-Use the configured checkout, branch and cluster path. Review the lock diff and
-release migration requirements before committing. Leave client values unchanged
-unless the intended operation requires a configuration change. Enabling TADOSS
-requires only its existing values setting; it needs no new publication.
-
-Verify reconciliation and existing media, then run qualification. Publishing a
-snapshot does not establish upgrade compatibility. A Git revert is safe only
-when the target release's database migrations support returning to the earlier
-release.
+Enabling TADOSS only changes its existing value; it requires no publication.
+Release upgrade compatibility remains unqualified. Check migrations and retained
+media before selecting a candidate; reverting Git cannot undo an incompatible
+schema migration.
 
 ## Recovery and retirement
 
-Flux recovers a lost source cache by downloading the selected prefix again.
-The host restores qualification assets from the client store and validates them
-against the selected release. Keep the bucket and original private deployment
-records available throughout operations and teardown.
+Flux restores a missing source cache from the selected customer prefix. Handover
+and qualification download that release and check its manifest before using it.
+Keep the bucket, original Kind and private deployment records through teardown.
 
-Each snapshot contains `operator-source.tar.gz` and `operator-commit.txt`.
-These preserve matching tooling without requiring the product Git server.
-Download and verify the selected snapshot using its lock and manifest first.
-To reconstruct that tooling in an empty directory, with `SNAPSHOT` set to the
-absolute verified snapshot directory:
+To recover matching tooling, download and verify the selected release, then extract
+`operator-source.tar.gz` into an empty directory. This restores source files only;
+it cannot restore a lost Kind cluster, deployment identity or credentials.
 
-```bash
-tar --extract --gzip --file "$SNAPSHOT/operator-source.tar.gz" --no-same-owner
-git init
-git add --all
-git write-tree
-RECOVERED_COMMIT="$(git hash-object -t commit -w "$SNAPSHOT/operator-commit.txt")"
-printf '%s\n' "$RECOVERED_COMMIT" > .git/shallow
-git update-ref HEAD "$RECOVERED_COMMIT"
-git diff --exit-code HEAD
-```
-
-Verify that `RECOVERED_COMMIT` matches the selected lock's `data.productCommit`
-and that the working tree is clean before using it. This restores tooling only.
-It does not restore a lost Kind cluster, deployment identity or credentials.
-Retain original Kind and its records; automatic state-loss recovery is unsupported.
-
-After verified `down`, explicitly delete an unwanted store:
+After verified `down`, explicitly remove an unwanted store:
 
 ```bash
 ENV_DIR=.local/environment mise run assets:retire
 ```
 
-Retirement verifies teardown, reader removal and bucket ownership. Another
-deployment's recorded reader policy or externally enabled bucket versioning
-blocks deletion for review. Deletion permanently removes releases and recovery
-tooling. Repeating retirement verifies absence.
+Retirement verifies teardown, reader removal and bucket ownership. Another reader
+policy or externally enabled versioning blocks deletion for review. Deletion
+permanently removes the releases and recovery tooling.

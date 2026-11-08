@@ -23,7 +23,7 @@ spec:
             entrypoint: env
             env: *paths
             args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:remote"]
-    - name: repeat bootstrap without replacing identity or baseline
+    - name: repeat bootstrap without replacing identity
       try:
         - command:
             entrypoint: env
@@ -167,15 +167,6 @@ spec:
     - name: allow local cleanup after the original composite has disappeared
       try:
         - command: *localOwner
-    - name: reject a malformed storage identity
-      try:
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:invalid-storage"]
-            check:
-              ($error != null): true
-              (contains($stderr, 'Default identity domain discovery is missing')): true
     - name: reject a missing identity record for existing state
       try:
         - command:

@@ -108,7 +108,7 @@ spec:
             args: [-n, flux-system, scale, deployment/kustomize-controller, --replicas=1]
         - command:
             entrypoint: kubectl
-            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-eso, oke-asset-access, oke-seed, --timeout=60s]
+            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-eso, oke-asset-access, oke-seed, oke-ready, --timeout=60s]
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml'}
     - name: Kind installs Flux and seeds OKE after the credential process exits
       try:
@@ -140,6 +140,15 @@ spec:
               spec: {postBuild: {substitute: {VAULT_ID: ocid1.vault.oc1.fixture}}}
         - error:
             resource: {apiVersion: batch/v1, kind: Job, metadata: {name: oke-bootstrap, namespace: tamoss-infra}}
+    - name: keep the remote readiness aggregate pending until the application exists
+      try:
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-ready, namespace: tamoss-infra}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
     - name: reject a changed remote identity
       try:
         - command:
@@ -208,6 +217,16 @@ spec:
               kind: ConfigMap
               metadata: {name: seed-proof, namespace: tamoss-infra}
               data: {reconciled: 'true'}
+    - name: observe application readiness through Kind without another host apply
+      try:
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: oke-ready, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: reject insecure TLS before remote writes
       try:
         - command:

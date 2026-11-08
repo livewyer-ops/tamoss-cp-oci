@@ -5,7 +5,7 @@ spec:
   bindings:
     - {name: directory, value: "(join('/', [$values.root, '.local/tmp/check/asset-credential-recovery']))"}
   steps:
-    - name: reuse the captured key response after interruption
+    - name: stop interrupted preparation and preserve the captured key
       try:
         - command:
             env: &paths
@@ -17,54 +17,37 @@ spec:
         - command:
             env: *paths
             entrypoint: cp
-            args: [key.json, "$DIRECTORY/assets-state/key.pending.json"]
+            args: [identity.json, "$DIRECTORY/identity.yaml"]
         - command:
             env: *paths
             entrypoint: cp
-            args: [keys.json, "$DIRECTORY/assets-state/keys.json"]
-        - command: &recover
+            args: [key.json, "$DIRECTORY/assets-state/key.json"]
+        - command: &retry
             env: *paths
             entrypoint: env
-            args: [mise, -C, "$PROJECT_ROOT", run, 'assets:reader:key:recover']
+            args: [mise, -C, "$PROJECT_ROOT", run, 'bootstrap:install']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Preparation was interrupted')): true
         - command:
             env: *paths
-            entrypoint: yq
-            args: [-p=json, -e, '.data.id == "fixture-key" and .data.key == "fixture-secret"', "$DIRECTORY/assets-state/key.json"]
-        - command:
-            env: *paths
-            entrypoint: test
-            args: ['!', -e, "$DIRECTORY/assets-state/key.pending.json"]
-        - command: *recover
-    - name: reject a response whose key is absent from OCI
-      try:
-        - command:
-            env: *paths
-            entrypoint: mv
-            args: ["$DIRECTORY/assets-state/key.json", "$DIRECTORY/assets-state/key.pending.json"]
-        - command:
-            env: *paths
-            entrypoint: cp
-            args: [empty-keys.json, "$DIRECTORY/assets-state/keys.json"]
-        - command:
-            <<: *recover
-            check: {($error != null): true}
-        - command:
-            env: *paths
-            entrypoint: test
-            args: ['!', -e, "$DIRECTORY/assets-state/key.json"]
-    - name: retain an ambiguous creation claim even when key listing is empty
+            entrypoint: cmp
+            args: [key.json, "$DIRECTORY/assets-state/key.json"]
+    - name: preserve an ambiguous creation response for explicit recovery
       try:
         - command:
             env: *paths
             entrypoint: truncate
-            args: [-s, '0', "$DIRECTORY/assets-state/key.pending.json"]
-        - command:
-            <<: *recover
-            check: {($error != null): true}
+            args: [-s, '0', "$DIRECTORY/assets-state/key.json"]
+        - command: *retry
         - command:
             env: *paths
             entrypoint: test
-            args: ['!', -e, "$DIRECTORY/assets-state/key.json"]
+            args: ['!', -s, "$DIRECTORY/assets-state/key.json"]
+        - command:
+            env: *paths
+            entrypoint: test
+            args: [-f, "$DIRECTORY/assets-state/key.json"]
     - name: require the foundation record after controllers may have started
       try:
         - command:

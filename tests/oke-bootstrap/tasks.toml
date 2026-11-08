@@ -48,7 +48,7 @@ run = [
   "kind delete cluster --name '{{ env.TARGET }}'",
   "kubectl -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
   "kubectl -n flux-system scale deployment/kustomize-controller --replicas=1",
-  "kubectl -n tamoss-infra delete kustomization oke-flux oke-eso oke-asset-access oke-seed --ignore-not-found --timeout=60s",
+  "kubectl -n tamoss-infra delete kustomization oke-flux oke-eso oke-asset-access oke-seed oke-ready --ignore-not-found --timeout=60s",
   "rm -f '{{ env.DIRECTORY }}/target.kubeconfig' '{{ env.DIRECTORY }}/management.kubeconfig' '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.pending.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig' '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' '{{ env.DIRECTORY }}/remote-token.json' '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
 ]
 
@@ -66,7 +66,9 @@ run = [
   '''yq -i '.clusters[0].cluster.server = ("https://" + (load_str("{{ env.DIRECTORY }}/target-address") | trim) + ":6443")' '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
   "ENV_DIR={{ env.DIRECTORY | quote }} CLUSTER_ID=ocid1.cluster.oc1.fixture mise run cloud:remote:record",
   "cp '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig'",
-  "mkdir -p '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote'",
+  "mkdir -p '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote' '{{ env.DIRECTORY }}/product/deploy/gitops' '{{ env.DIRECTORY }}/release/charts'",
+  "cp -a charts/deployment-inputs '{{ env.DIRECTORY }}/release/charts/'",
+  "cp -a deploy/gitops/readiness '{{ env.DIRECTORY }}/product/deploy/gitops/'",
   "cp deploy/bootstrap/remote/*.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/'",
   "cp -a deploy/bootstrap/eso deploy/bootstrap/asset-access '{{ env.DIRECTORY }}/product/deploy/bootstrap/'",
   '''yq 'select((.kind == "Namespace" and .metadata.name == "secret-backend") or .metadata.namespace == "secret-backend") | with(select(.kind == "RoleBinding"); .subjects = [{"kind": "ServiceAccount", "name": "asset-vault", "namespace": "flux-system"}])' tests/secret-persistence/backend.yaml > '{{ env.DIRECTORY }}/backend.yaml' ''',
@@ -77,7 +79,7 @@ run = [
   "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.environment='{{ env.DIRECTORY }}/environment.yaml',files.seedEnvironment='{{ env.DIRECTORY }}/environment.yaml',files.assets='{{ env.DIRECTORY }}/assets.lock.yaml',files.externalSecrets=deploy/secrets/controller-values.yaml,files.dependencies=dependencies.yaml > '{{ env.DIRECTORY }}/remote-bootstrap.yaml'",
   '''yq -i 'with(select(.kind == "Kustomization" and .metadata.name != "oke-flux"); .spec.sourceRef.name = "oke-bootstrap-fixture") | with(select(.metadata.name == "oke-seed"); .spec.patches += [{"target": {"kind": "HelmRelease|Kustomization", "name": "tamoss-gitops-bootstrap|platform-defaults|infrastructure|runtime|infrastructure-controllers"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}, {"target": {"kind": "Bucket"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml'''',
   "yq -i 'with(select(.metadata.name == \"oke-asset-access\"); .spec.patches += [{\"target\": {\"kind\": \"SecretStore\", \"name\": \"asset-vault\"}, \"patch\": ([{\"op\": \"replace\", \"path\": \"/spec/provider\", \"value\": (load(\"tests/secret-persistence/provider.yaml\") | .kubernetes.auth.serviceAccount.name = \"asset-vault\")} ] | to_yaml)}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml' ",
-  "tar -czf '{{ env.DIRECTORY }}/seed-proof.tar.gz' -C tests/oke-bootstrap chart handover",
+  "tar -czf '{{ env.DIRECTORY }}/seed-proof.tar.gz' -C tests/oke-bootstrap chart handover readiness",
   '''yq -n '{"vaultId": "ocid1.vault.oc1.fixture"}' > '{{ env.DIRECTORY }}/foundation-record.yaml'''',
 ]
 env.OCI_CLI_CONFIG_FILE = "{{ vars.ROOT_DIR }}/tests/lifecycle/oci-config"
@@ -101,6 +103,7 @@ hide = true
 run = [
   "mise run bootstrap:remote-guard",
   "mise run identity:remote",
+  "mise run bootstrap:remote-rbac",
   "mise run bootstrap:remote-access:issue",
 ]
 

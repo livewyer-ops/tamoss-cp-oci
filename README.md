@@ -18,7 +18,7 @@ for HA deployments and qualification environments.
 | PostgreSQL | Two OCI database nodes; separate TAMOSS and Authentik databases, with verified TLS |
 | Media storage | Private OCI Object Storage bucket through its S3-compatible endpoint |
 | Public access | OCI load balancer, replicated ingress and Authentik, trusted HTTPS |
-| Release assets | Committed product checkout and unchanged TAMOSS/TADOSS assets in a private client-owned OCI bucket |
+| Release assets | Pinned CI deployment release with unchanged TAMOSS/TADOSS assets in a private client-owned OCI bucket |
 
 The environment uses billable resources. Worker-drain checks have passed;
 managed-database failover and regional recovery are outside the verified
@@ -26,11 +26,12 @@ coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md
 
 [GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
 Flux, Crossplane and External Secrets on OKE. Deployment definitions are published
-from the checked-out commit to a [client-owned asset store](deploy/assets/README.md).
+as a tested OCI release and copied to a [client-owned asset store](deploy/assets/README.md).
 Flux reads that store; an optional client Git repository selects configuration
 and asset releases. Client snapshot deployment, SSH handover and Git-enabled
-TADOSS passed assisted OCI testing with Kind stopped during operations. Fresh
-unattended installation, release upgrades and credential rotation remain unqualified.
+TADOSS passed assisted OCI testing with Kind stopped during operations. The reduced
+installer has local coverage only; its fresh OCI lifecycle, release
+upgrades and credential rotation remain unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
 through the environment Git repository, using the same platform services. Live
@@ -53,7 +54,7 @@ mise run setup
 ```
 
 Complete [Getting started](docs/getting-started.md) with an authorised OCI profile,
-compartment, contact email and administrator CIDR. Then deploy:
+dedicated empty compartment, contact email and administrator CIDR. Then deploy:
 
 ```bash
 mise run up
@@ -83,7 +84,7 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 
 | Command | Purpose |
 | --- | --- |
-| `mise run setup` | Install the pinned OCI CLI and create private settings without overwriting existing deployment state. |
+| `mise run setup` | Create private settings without overwriting existing deployment state. |
 | `mise run check` | Validate releases, rendering, TLS and local contracts. |
 | `mise run check:management` | Also test controller reconciliation in disposable Kind clusters. |
 | `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |

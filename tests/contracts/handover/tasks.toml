@@ -10,7 +10,7 @@ select(fileIndex == 0) as $root | select(fileIndex == 1) as $bootstrap |
 select(fileIndex == 2) as $gitops | select(fileIndex == 3) as $boundaries |
 select(fileIndex == 0) |
 {"vars": $root.vars, "tools": $root.tools, "task_config": {"shell": $root.task_config.shell},
-"tasks": ($boundaries + ($bootstrap | with_entries(select(.key | test("^bootstrap:(up|handover|promote|ready|git-ready|local-ready|complete-handover)(:apply)?$")))) +
+"tasks": ($boundaries + ($bootstrap | with_entries(select(.key | test("^bootstrap:(install|handover|promote|ready|git-ready|local-ready|complete-handover)(:apply)?$")))) +
 ($gitops | with_entries(select(.key == "gitops:current-checkout" or .key == "gitops:promotion-checkout"))) +
 {"public-up": $root.tasks.up, "public-handover": $root.tasks.handover})} |
 .vars.ROOT_DIR = strenv(PROJECT_ROOT) | .vars.PROJECT_ROOT = strenv(PROJECT_ROOT) | .vars.ROOT = strenv(PROJECT_ROOT) |
@@ -22,6 +22,7 @@ select(fileIndex == 0) |
   '''yq -n '{"branch": "main", "path": "clusters/fixture"}' > {{ env.TASKV_DIRECTORY }}/gitops.yaml''',
   '''yq -n '{"spec": {"managementPolicies": ["Observe"]}}' > {{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/infrastructure/environment.yaml''',
   '''PRODUCT_COMMIT="$(git -C '{{ vars.PROJECT_ROOT }}' rev-parse HEAD)" yq -n '{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "tamoss-assets"}, "data": {"productCommit": strenv(PRODUCT_COMMIT)}}' > '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/assets.lock.yaml'''',
+  "cp '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/assets.lock.yaml' '{{ env.TASKV_DIRECTORY }}/assets.lock.yaml'",
   "touch '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/values.yaml' '{{ env.TASKV_DIRECTORY }}/checkout/clusters/fixture/runtime/release.yaml'",
   "git init --initial-branch=main '{{ env.TASKV_DIRECTORY }}/checkout'",
   "git init --bare --initial-branch=main '{{ env.TASKV_DIRECTORY }}/origin.git'",

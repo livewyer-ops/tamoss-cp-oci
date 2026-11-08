@@ -4,8 +4,9 @@
   "additionalProperties": false,
   "required": ["name", "compartmentId", "contactEmail", "adminCidrs"],
   "properties": {
+    "oci": {"type": "object"},
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,21}[a-z0-9]$"},
-    "compartmentId": {"type": "string", "pattern": "^ocid1\\.compartment\\."},
+    "compartmentId": {"type": "string", "pattern": "^ocid1\\.compartment\\.", "not": {"pattern": "REPLACE|example"}},
     "contactEmail": {"type": "string", "format": "email"},
     "owner": {"type": "string"},
     "acmeEmail": {"type": "string"},

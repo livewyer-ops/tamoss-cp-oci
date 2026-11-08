@@ -49,9 +49,8 @@ spec:
               kind: ConfigMap
               metadata: {name: s3-credential-operation, namespace: s3-check}
               data:
-                keyId: fixture-key
                 (length(attempt) > `0`): true
-                (length(keys(@))): 2
+                (length(keys(@))): 1
         - assert:
             resource:
               apiVersion: v1
@@ -124,7 +123,7 @@ spec:
             ref: {apiVersion: batch/v1, kind: Job, name: s3-replay, namespace: s3-check}
         - command:
             entrypoint: kubectl
-            args: [-n, s3-check, patch, configmap, s3-credential-operation, --type=json, '-p=[{"op":"remove","path":"/data"}]']
+            args: [-n, s3-check, delete, configmap, s3-credential-operation]
         - command:
             entrypoint: kubectl
             args: [-n, s3-check, patch, secret, s3-input, --type=json, '-p=[{"op":"remove","path":"/data"}]']

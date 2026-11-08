@@ -20,6 +20,12 @@ run = [
   "cmp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
   "install -d -m 700 '{{ env.TASKV_DIRECTORY }}/discovery'",
   "cp '{{ vars.ROOT }}/tests/setup/discovery/'* '{{ env.TASKV_DIRECTORY }}/discovery/'",
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}/release/charts' '{{ env.TASKV_DIRECTORY }}/release/deploy/tamoss' '{{ env.TASKV_DIRECTORY }}/release/deploy/tadoss'",
+  "cp -a '{{ vars.ROOT }}/charts/setup' '{{ env.TASKV_DIRECTORY }}/release/charts/'",
+  "cp '{{ vars.ROOT }}/deploy/tamoss/release.yaml' '{{ env.TASKV_DIRECTORY }}/release/deploy/tamoss/'",
+  "cp '{{ vars.ROOT }}/deploy/tadoss/release.yaml' '{{ env.TASKV_DIRECTORY }}/release/deploy/tadoss/'",
+  "cp '{{ vars.ROOT }}/tests/setup/deployment-release.yaml' '{{ env.TASKV_DIRECTORY }}/release/build.yaml'",
+
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
 
@@ -75,37 +81,13 @@ run = [
 env.TASKV_CHANGE = '''{{ env.CHANGE | default(value="") }}'''
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
 
-["test:setup:preserve"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "mise run test:setup:render",
-  "install -m 600 '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/setup-values.yaml'",
-  "mkdir -p '{{ env.TASKV_DIRECTORY }}/checkout/.git'",
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run setup:resolve''',
-  "test -s '{{ env.TASKV_DIRECTORY }}/environment.yaml'",
-  "rm '{{ env.TASKV_DIRECTORY }}/foundation.yaml'",
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run setup:resolve''',
-  "test -s '{{ env.TASKV_DIRECTORY }}/foundation.yaml'",
-  '''yq -i '.name = "changed"' {{ env.TASKV_DIRECTORY }}/values.yaml''',
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
-
-["test:setup:changed"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/checkout") | quote }} mise run setup:resolve''',
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
-
 ["test:setup:recorded"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p '{{ env.TASKV_DIRECTORY }}/recorded/checkout/.git'",
   '''yq -n '{"gitopsEstablished": true}' > {{ env.TASKV_DIRECTORY }}/recorded/identity.yaml''',
-  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/recorded") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/recorded/checkout") | quote }} mise run setup:resolve''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/recorded") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/recorded/checkout") | quote }} mise run setup:initialise''',
   "test ! -e '{{ env.TASKV_DIRECTORY }}/recorded/values.yaml'",
   "test ! -e '{{ env.TASKV_DIRECTORY }}/recorded/discovery'",
 ]
@@ -120,3 +102,12 @@ run = [
   '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/old") | quote }} mise run setup:initialise''',
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+
+["test:setup:interrupted"]
+hide = true
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}/interrupted'",
+  "cp tests/setup/deployment-release.yaml '{{ env.TASKV_DIRECTORY }}/interrupted/identity.yaml'",
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}/interrupted' mise run bootstrap:install",
+]
+env.TASKV_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/setup"

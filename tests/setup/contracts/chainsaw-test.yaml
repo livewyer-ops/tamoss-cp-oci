@@ -82,7 +82,7 @@ spec:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:validate"]
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
         - command:
             entrypoint: yq
             env: *paths
@@ -90,29 +90,28 @@ spec:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:validate"]
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
             check:
               ($error != null): true
-              (contains($stdout, 'userId')): true
-    - name: repeat preparation without discovery and reject changes to recorded bootstrap choices
+              (contains($stderr, 'userId')): true
+    - name: reject interrupted host preparation without starting another identity
       try:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture-preserve"]
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:changed"]
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:interrupted"]
             check:
               ($error != null): true
-              (contains($stderr, 'already recorded')): true
+              (contains($stderr, 'Preparation was interrupted')): true
     - name: retain existing deployment directories
       try:
         - command:
             entrypoint: env
             env: *paths
             args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:recorded"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'existing deployment')): true
         - command:
             entrypoint: env
             env: *paths

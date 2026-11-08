@@ -15,15 +15,21 @@ min_version = "2026.11.3"
 "uv" = "0.13.7"
 "pypi:oci-cli" = { "version" = "{{ vars.OCI_VERSION }}", "python" = "3.12" }
 
+[env]
+OCI_CLI_CONFIG_FILE = '{{ env.OCI_CONFIG | default(value=env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config")) }}'
+OCI_CLI_PROFILE = '{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | default(value="DEFAULT")) }}'
+
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/seed.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/release.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/seed.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
+RELEASE_BUILD_DIR = "{{config_root}}/.local/tmp/release"
 PROJECT_ROOT = "{{config_root}}"
 ROOT = "{{config_root}}"
-ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
+ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR | absolute }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
+RELEASE_DIR = '{{ vars.ENV_DIR }}/release'
 CHECKOUT = '''{% if env.CHECKOUT | default(value="") %}{{ env.CHECKOUT }}{% else %}{{ config_root }}/.local/gitops{% endif %}'''
 STORAGE_DIR = '''{% if env.STORAGE_DIR | default(value="") %}{{ env.STORAGE_DIR }}{% else %}{{ config_root }}/.local/tmp/storage-check{% endif %}'''
 ENV_PATH = "{{vars.ENV_DIR | absolute}}"
@@ -35,12 +41,8 @@ OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependen
 [tasks."setup"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Install pinned tooling and prepare private deployment settings"
-run = [
-  "mise run verify:tools",
-  "mise run verify:privacy",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run setup:initialise",
-]
+description = "Prepare private deployment settings"
+depends = ["setup:initialise"]
 
 [tasks."check"]
 hide = false
@@ -100,12 +102,9 @@ run = [
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
 description = "Deploy OCI and TAMOSS with Kind retaining infrastructure ownership"
-run = [
-  "mise run verify:tools",
-  "mise run verify:privacy",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run setup:resolve",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} CHECKOUT={{ ((vars.CHECKOUT_PATH)) | quote }} mise run bootstrap:up",
-]
+depends = ["bootstrap:install"]
+run = ["mise run bootstrap:access"]
+
 
 [tasks."handover"]
 hide = false

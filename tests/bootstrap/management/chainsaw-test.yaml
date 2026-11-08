@@ -39,16 +39,10 @@ spec:
               - {name: ROOT, value: ($values.root)}
             args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:observe"]
         - command:
-            entrypoint: env
+            entrypoint: kubectl
             env:
               - {name: ROOT, value: ($values.root)}
-            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:repeat-seed"]
-        - command:
-            entrypoint: env
-            env:
-              - {name: ROOT, value: ($values.root)}
-            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:reject-replaced-seed"]
-            check: {($error != null): true}
+            args: [apply, --server-side, -f, $ROOT/.local/tmp/check/bootstrap/root.yaml]
         - command:
             entrypoint: env
             env:
@@ -118,6 +112,27 @@ spec:
                 credentialsReady: true
                 infrastructureReady: true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: latch all credential deliveries without a host status patch
+      try:
+        - command:
+            entrypoint: mise
+            env:
+              - {name: ROOT, value: ($values.root)}
+            args: [-C, "$ROOT", run, 'test:bootstrap:deliver-all']
+        - assert: &credentialsEstablished
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: bootstrap-check, namespace: tamoss-infra}
+              status: {credentialsEstablished: true}
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, delete, externalsecret, asset-reader]
+        - assert: *credentialsEstablished
+      finally:
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, delete, externalsecrets, -l, 'tamoss.livewyer.io/credential=true', '--field-selector=metadata.name!=database-admin']
     - name: preserve children and readiness across a Crossplane restart
       bindings:
         - name: environmentUID

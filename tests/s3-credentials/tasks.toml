@@ -5,9 +5,9 @@ run = [
   "mkdir -p .local/tmp/check/s3-credentials",
   "helm dependency build --skip-refresh charts/secrets",
   '''helm template tamoss-secrets charts/secrets -n s3-check -f tests/s3-credentials/values.yaml --set s3.image="$(yq -r .bootstrapTools.image dependencies.yaml)" > .local/tmp/check/s3-credentials/rendered.yaml''',
-  '''yq 'select(.kind != "SecretStore" and .kind != "ExternalSecret" and .kind != "PushSecret") | with(select(.kind == "Job"); .spec.template.spec.initContainers[] |= with(select(.name == "inspect" or .name == "create"); .name as $container | .args[0] |= sub("oci [^\n]+", load("tests/s3-credentials/cloud-fixture.yaml")[$container])))' .local/tmp/check/s3-credentials/rendered.yaml > .local/tmp/check/s3-credentials/fixture.yaml''',
+  '''yq 'select(.kind != "SecretStore" and .kind != "ExternalSecret" and .kind != "PushSecret") | with(select(.kind == "Job"); .spec.template.spec.containers[0].args[0] |= sub("oci [^\n]+", load("tests/s3-credentials/cloud-fixture.yaml").create))' .local/tmp/check/s3-credentials/rendered.yaml > .local/tmp/check/s3-credentials/fixture.yaml''',
   '''yq 'select(.kind == "Job") | .metadata.name = "s3-replay"' .local/tmp/check/s3-credentials/fixture.yaml > .local/tmp/check/s3-credentials/replay.yaml''',
-  '''yq 'select(.kind == "Job") | .metadata.name = "s3-interrupted" | .spec.template.spec.initContainers[3].command = ["false"] | .spec.template.spec.initContainers[3].args = []' .local/tmp/check/s3-credentials/fixture.yaml > .local/tmp/check/s3-credentials/interrupted.yaml''',
+  '''yq 'select(.kind == "Job") | .metadata.name = "s3-interrupted" | .spec.template.spec.containers[0].args[0] |= sub("kubectl -n \"\$NAMESPACE\" patch secret[^\n]+", "false")' .local/tmp/check/s3-credentials/fixture.yaml > .local/tmp/check/s3-credentials/interrupted.yaml''',
   '''yq 'select(.kind == "SecretStore" or .kind == "PushSecret" or .kind == "ExternalSecret") |
     with(select(.kind == "SecretStore"); .spec.provider = load("tests/secret-persistence/provider.yaml") | .spec.provider.kubernetes.remoteNamespace = "s3-backend") |
     with(select(.kind == "PushSecret"); .spec.refreshInterval = "1s" | .spec.data[0].match.remoteRef.property = "credentials") |

@@ -24,7 +24,7 @@ their values from observed Vault/key and OKE IDs. Flux owns their Helm operation
 
 Once the OKE API and initial worker, runtime IAM and persisted credentials are
 ready, the host retrieves the OKE kubeconfig with the pinned OCI CLI and checks
-the recorded identity and TLS. It creates a dedicated bootstrap ServiceAccount,
+TLS before issuing remote access. It creates a dedicated bootstrap ServiceAccount,
 requests a one-hour token and submits a self-contained kubeconfig Secret to Kind.
 Kind's `oke-flux` Kustomization installs the pinned official Flux OCI manifests.
 `oke-eso` installs ESO from its public Helm repository; `oke-asset-access` uses
@@ -40,8 +40,10 @@ interruption and Kind restart. They use non-pruning, orphan deletion semantics.
 OKE keeps its controllers and applications; Kind's Crossplane retains OCI
 infrastructure ownership until the separate Git handover.
 
-The host supplies initial credential imports, verifies persistence and retires
-staging credentials. Git publication and deploy-key establishment occur only
+The host supplies initial credential imports. Crossplane observes the expected
+ExternalSecret bindings and Ready conditions, latches completion in root status,
+and retires staging credentials. Missing established values require recovery;
+they do not trigger regeneration. Git publication and deploy-key establishment occur only
 during optional handover. Helm renders local inputs and the initial Git files.
 The shared Kustomize base supplies initial deployment and Git export; Flux
 substitutes observed Vault information during remote reconciliation.
@@ -65,7 +67,7 @@ flowchart LR
     Git[Optional environment Git configuration]
     Kind --> Bindings[Immutable adoption bindings in Vault]
     Git --> Flux[Flux on OKE]
-    Checkout[Committed local checkout and verified releases] --> Store[Private client asset bucket]
+    Checkout[Pinned CI deployment release] --> Store[Private client asset bucket]
     Store --> Kind
     Store --> Flux
     Git -->|Select asset lock| Store
@@ -114,12 +116,11 @@ separate from the temporary ServiceAccount token used by Kind Flux. Completed
 deployment, suspended remote Kustomizations and released or retiring
 bootstrap state prevent the original seed being replayed after ownership changes.
 
-Deployment completion observes the selected infrastructure and runtime Git revision, current product chart
-and HelmRelease generation, then the `deployment-ready` Flux health check.
+Kind's `oke-ready` Kustomization waits for OKE's `deployment-ready` Flux health check.
 That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS,
 plus their public certificates and Authentik's certificate at the current generation.
-Routine `up` and `qualify` readiness checks do not force application reconciliation;
-ownership promotion also observes normal Flux reconciliation at the published revision.
+Readiness checks do not force application reconciliation. Handover additionally
+checks the published Git revision, selected product chart and HelmRelease generation.
 `up` finishes with Kind owning infrastructure and OKE observing it. The separate
 `handover` command checks the published deployment before transfer and the
 promoted revision before Kind stops. Handover completion is recorded only after
@@ -184,7 +185,8 @@ See [recovery procedures](operations.md#operation-recovery).
 
 Once all cloud resources are ready, Kind's Crossplane creates an immutable snapshot
 of the deployment identity, creation UID and all 23 provider bindings. ESO persists
-it with `IfNotExists`; bootstrap compares the readback with the original snapshot.
+it with `IfNotExists`; handover checks the delivered bindings against the original
+deployment identity before transferring ownership.
 OKE's ESO delivers that record to the infrastructure Kustomization. Missing or
 changed bindings block adoption instead of creating replacement infrastructure.
 
@@ -253,7 +255,7 @@ removes staging inputs. The bootstrap instance records `credentialsEstablished`
 irreversibly; its secret HelmRelease then removes credential generators and PushSecrets.
 The separate adoption-binding PushSecret remains until infrastructure deletion
 and the direct cloud audit finish.
-The host reads public upstream packages while building a snapshot. Cluster
+CI reads and verifies upstream packages while building a deployment release. Cluster
 product sources use a bucket-scoped reader, delivered through Vault. During handover, a
 separate credential-establishment step persists the generated SSH deploy key
 without restarting application password generators. A missing established value must fail secret delivery
