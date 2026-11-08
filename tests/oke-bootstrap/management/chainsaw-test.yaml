@@ -5,6 +5,8 @@ spec:
   steps:
     - name: establish the observed management prerequisites
       try:
+        - apply: {cluster: remote, file: '../../../.local/tmp/check/oke-bootstrap/backend.yaml'}
+        - apply: {cluster: remote, file: '../../assets/reader-backend.yaml'}
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/bootstrap.yaml'}
         - apply: {file: credentials.yaml}
         - apply: {file: source.yaml}
