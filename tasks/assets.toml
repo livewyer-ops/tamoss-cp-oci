@@ -2,6 +2,7 @@
 hide = true
 run = [
   "rm -rf '{{ vars.RELEASE_DIR }}'",
+  "install -d -m 700 '{{ vars.RELEASE_DIR }}'",
   '''flux pull artifact '{{ env.TASKV_URL }}@{{ env.TASKV_DIGEST }}' --output '{{ vars.RELEASE_DIR }}' --timeout=120s''',
 ]
 env.TASKV_URL = '''{{ read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") | get(key="deploymentBundle") | get(key="url") }}'''
@@ -53,10 +54,7 @@ env.TASKV_PREFIX = '''releases/{{ env.TASKV_DIGEST | trim_start_matches(pat="sha
 
 ["assets:publish"]
 description = "Copy the selected deployment release to the client asset store"
-run = ["mise run assets:store:verify", "rm -rf '{{ vars.RELEASE_DIR }}'", "flux pull artifact '{{ env.TASKV_URL }}@{{ env.TASKV_DIGEST }}' --output '{{ vars.RELEASE_DIR }}' --timeout=120s", "mise run assets:upload", "echo 'Candidate lock: {{ vars.ENV_DIR }}/assets-state/candidate.lock.yaml'"]
-
-env.TASKV_URL = '''{{ read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") | get(key="deploymentBundle") | get(key="url") }}'''
-env.TASKV_DIGEST = '''{{ read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") | get(key="deploymentBundle") | get(key="digest") }}'''
+run = ["mise run assets:store:verify", "mise run assets:fetch", "mise run assets:upload", "echo 'Candidate lock: {{ vars.ENV_DIR }}/assets-state/candidate.lock.yaml'"]
 
 ["assets:store:verify"]
 hide = true

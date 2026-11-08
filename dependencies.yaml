@@ -84,4 +84,4 @@ artifacts:
 
 deploymentBundle:
   url: oci://ghcr.io/dodwyer/tamoss-release-assets
-  digest: ""
+  digest: sha256:e263cbf1e518e397191d9f48fe06cc473bca4a7266346f76da3fc3de703e6db8
