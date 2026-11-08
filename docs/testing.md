@@ -179,9 +179,11 @@ unresolved. It also exposed a missing report directory, a duplicate Flux namespa
 and a field-ownership conflict when returning deletion authority; these product
 defects are corrected and covered by local checks. Asset-reader retirement needed
 an empty-list handling correction and administrator removal of a membership that
-the scoped provisioner could list but could not delete. A narrow additional IAM
-grant did not resolve that refusal. An uninterrupted lifecycle from the corrected
-product remains unqualified.
+the scoped provisioner could list but could not delete through the legacy IAM API.
+A separate live test reproduced that refusal and removed the exact member through
+the native Identity Domains group API using the existing scoped permissions.
+The corrected reader retirement and its repeat passed without administrator
+intervention. An uninterrupted full lifecycle remains unqualified.
 
 Public TLS passed for Authentik, TAMOSS and TADOSS in this run. Native readiness
 checks also reject missing, false, unknown and stale certificate observations.

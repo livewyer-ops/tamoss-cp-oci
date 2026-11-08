@@ -393,10 +393,18 @@ env.TASKV_USER = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.ya
 ["assets:reader:delete-membership"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -p=json -e '.data | length == 0' '{{ vars.ENV_DIR }}/assets-state/retire-memberships.json' > /dev/null"
 run = [
-  "{% for group in read_json(path=vars.ENV_DIR ~ \"/assets-state/retire-memberships.json\") | get(key=\"data\") %}\noci iam group remove-user --user-id {{ env.TASKV_USER | quote }} --group-id {{ group.id | quote }} --force\n{% endfor %}",
+  """oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains groups list --filter 'ocid eq "{{ env.TASKV_GROUP }}"' --all > '{{ vars.ENV_DIR }}/assets-state/retire-domain-groups.json'""",
+  """yq -p=json -e '(.data.resources | length == 1) and .data.resources[0].ocid == "{{ env.TASKV_GROUP }}" and .data.resources[0]."domain-ocid" == load("{{ vars.ENV_DIR }}/settings.yaml").storageIdentity.domainId' '{{ vars.ENV_DIR }}/assets-state/retire-domain-groups.json' > /dev/null""",
+  """yq -n -o=json '{"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], "operations": [{"op": "remove", "path": ("members[value eq \\"" + load("{{ vars.ENV_DIR }}/assets-state/retirement.yaml").userScimId + "\\"]")}]}' > '{{ vars.ENV_DIR }}/assets-state/remove-member.json'""",
+  """oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains group patch --group-id "$(yq -r .data.resources[0].id '{{ vars.ENV_DIR }}/assets-state/retire-domain-groups.json')" --from-json 'file://{{ vars.ENV_DIR }}/assets-state/remove-member.json' > '{{ vars.ENV_DIR }}/assets-state/membership-deleted.json'""",
+  "oci iam user list-groups --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/memberships-after.json'",
+  """yq -n -e '(load("{{ vars.ENV_DIR }}/assets-state/memberships-after.json").data // []) | length == 0' > /dev/null""",
 ]
 env.TASKV_USER = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"userId\") }}"
+env.TASKV_GROUP = "{{ read_yaml(path=vars.ENV_DIR ~ \"/assets-state/retirement.yaml\") | get(key=\"groupId\") }}"
+env.TASKV_ENDPOINT = "{{ read_yaml(path=vars.ENV_DIR ~ \"/settings.yaml\") | get(key=\"storageIdentity\") | get(key=\"idcsEndpoint\") }}"
 
 ["assets:reader:retire-policy"]
 hide = true

@@ -72,7 +72,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | IAM `PolicyAlreadyExists` with no external-name | Preserve the original managed resource and inspect OCI Audit; verify the cloud policy's exact ownership before restoring its binding |
-| Asset-reader membership deletion returns `NotAuthorizedOrNotFound` | Retain Kind and the environment records. Have the account administrator verify the exact owned user/group and review IAM access; the scoped provisioner may list the membership while deletion is denied. Resume `down` after ownership-verified recovery |
+| Asset-reader membership retirement fails | Retain the environment records. Retirement removes the recorded member through the Identity Domains group API and verifies that no memberships remain. Check the recorded domain, exact user/group binding and scoped permissions before retrying `down`; unrelated memberships must be resolved by their owner |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
 | Pending certificate | Certificate events, public DNS and ports 80/443 |

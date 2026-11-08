@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retire asset-reader membership through the native Identity Domains group API,
+  using the recorded user and group under the existing scoped permissions.
 - Create the readiness report directory on a fresh deployment. Let native Flux
   own its namespace when attaching Git, and use a consistent policy patch when
   returning deletion authority to Kind.
