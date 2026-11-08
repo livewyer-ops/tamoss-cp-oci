@@ -10,7 +10,7 @@ spec:
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/bootstrap.yaml'}
         - apply: {file: credentials.yaml}
         - apply: {file: source.yaml}
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml'}
+        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml', template: false}
         - patch:
             subresource: status
             resource:
@@ -81,6 +81,17 @@ spec:
         - error:
             cluster: remote
             resource: {apiVersion: apps/v1, kind: Deployment, metadata: {name: source-controller, namespace: flux-system}}
+    - name: observe bootstrap readiness through the management aggregate
+      try:
+        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/bootstrap-ready.yaml', template: false}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: bootstrap-ready, namespace: tamoss-infra}
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: retire a partial installation before remote workloads exist
       try:
         - command:
@@ -109,7 +120,7 @@ spec:
         - command:
             entrypoint: kubectl
             args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-eso, oke-asset-access, oke-seed, oke-ready, --timeout=60s]
-        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml'}
+        - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml', template: false}
     - name: Kind installs Flux and seeds OKE after the credential process exits
       try:
         - command:

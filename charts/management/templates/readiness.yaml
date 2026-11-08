@@ -15,7 +15,7 @@ spec:
     - apiVersion: tamoss.livewyer.io/v1alpha1
       kind: TamossBootstrap
       current: >-
-        has(status) && has(status.observedGeneration) &&
+        has(status.observedGeneration) &&
         status.observedGeneration == metadata.generation &&
         has(status.bootstrapReady) && status.bootstrapReady
 {{- end }}

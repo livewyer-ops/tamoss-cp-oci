@@ -231,7 +231,7 @@ spec:
       kind: Kustomization
       current: >-
         (!has(spec.suspend) || !spec.suspend) &&
-        has(status) && has(status.observedGeneration) &&
+        has(status.observedGeneration) &&
         status.observedGeneration == metadata.generation &&
         has(status.conditions) && status.conditions.exists(c,
         c.type == 'Ready' && c.status == 'True')
