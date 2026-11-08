@@ -60,11 +60,12 @@ appropriate `tads-api/read`, `tads-api/write` or `tads-api/delete` scopes.
 The client secret remains in Vault and the `auth/tadoss-oauth` Secret; never put
 it in Git. Bearer requests use the resulting signed JWT.
 
-Enter `mise exec -- bash`, then inspect native controller status:
+Enter `mise exec -- bash`, then inspect native controller status. These examples
+use `.local/environment`; substitute your deployment directory if different.
 
 ```bash
-kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n auth get kustomizations
-kubectl --kubeconfig "$ENV_DIR/remote.kubeconfig" -n tads get tadoss,pods,ingress,certificate
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n auth get kustomizations
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tads get tadoss,pods,ingress,certificate
 ```
 
 When TADOSS is enabled, Authentik's Helm release waits for its server and workers
