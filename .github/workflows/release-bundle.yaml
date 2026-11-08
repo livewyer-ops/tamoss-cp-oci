@@ -64,7 +64,7 @@ jobs:
             bundle_tag="$(yq -r .tag "deploy/$APPLICATION/release.yaml")-$PRODUCT_COMMIT"
             bundle_path=".local/tmp/$APPLICATION-bundle"
           fi
-          flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path "$bundle_path" --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
+          flux push artifact "oci://ghcr.io/$PACKAGE_OWNER/$PACKAGE_NAME:$bundle_tag" --path "$bundle_path" --ignore-paths=.git/,.local/,AGENTS.md,CLAUDE.md --reproducible --source "https://github.com/$PRODUCT_REPOSITORY" --revision "$PRODUCT_BRANCH@sha1:$PRODUCT_COMMIT" --output json > .local/tmp/check/published-bundle.json
       - name: Verify the published package and record the digest
         env:
           GH_TOKEN: ${{ github.token }}
