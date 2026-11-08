@@ -305,7 +305,7 @@ spec:
                 chart:
                   spec:
                     chart: ./tests/lifecycle/platform-release
-                    sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+                    sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
         - command:
             entrypoint: env
             env: *paths
