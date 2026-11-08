@@ -542,6 +542,7 @@ run = [
   '''test -n {{ env.TASKV_DEPLOYMENT_DIR | quote }} || { printf '%s\n' "Missing required input: DEPLOYMENT_DIR" >&2; exit 1; }''',
   '''kubectl kustomize '{{ env.TASKV_DEPLOYMENT_DIR }}' | yq -e 'select(.kind == "Kustomization" and .metadata.name == "runtime") | .spec.postBuild.substitute.VALUES_CONFIGMAP | test("^tamoss-gitops-values-[a-z0-9]+$")' > /dev/null || { printf '%s\n' "Update the environment starter to use content-hashed values references before checking this product revision" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "install -d -m 700 '{{ vars.ENV_DIR }}/reports'",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} REVISION={{ ((env.TASKV_REVISION)) | quote }} mise run bootstrap:observe-git",
   '''KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace flux-system --test-dir deploy/gitops/readiness-check --assert-timeout 1800s --set-string assetPrefix="$(yq -r .data.prefix '{{ env.TASKV_DEPLOYMENT_DIR }}/assets.lock.yaml')" --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss/tamoss -o json | yq -p=json -e '.spec.version == (load("{{ env.TASKV_DEPLOYMENT_DIR }}/assets.lock.yaml").data."values.yaml" | from_yaml).release.tag' > /dev/null''',

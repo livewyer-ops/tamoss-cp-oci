@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Create the readiness report directory on a fresh deployment. Let native Flux
+  own its namespace when attaching Git, and use a consistent policy patch when
+  returning deletion authority to Kind.
+- Resume asset-reader retirement when OCI returns an empty body for a successful
+  key or membership list. Ownership checks still reject unrelated keys and groups.
 - Fetch the existing Crossplane and function versions directly from their official
   GHCR origin, avoiding the unavailable registry proxy. Package digests are unchanged.
 

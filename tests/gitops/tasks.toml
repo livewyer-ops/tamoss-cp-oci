@@ -65,10 +65,11 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system'",
+  '''flux install --export --version="$(yq -p=toml -r '.tools."aqua:fluxcd/flux2"' '{{ vars.ROOT_DIR }}/mise.toml')" > '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system/gotk-components.yaml' ''',
   "flux create source git flux-system --url=ssh://git@github.com/example/tamoss-environments --branch=main --secret-ref=flux-system --export > '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system/gotk-sync.yaml'",
   "echo '---' >> '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system/gotk-sync.yaml'",
   "flux create kustomization flux-system --source=GitRepository/flux-system --path=./clusters/oci-dev --prune=true --export >> '{{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system/gotk-sync.yaml'",
-  '''yq -n '{"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": ["gotk-sync.yaml"]}' > {{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system/kustomization.yaml''',
+  '''yq -n '{"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": ["gotk-components.yaml", "gotk-sync.yaml"]}' > {{ env.TASKV_DIRECTORY }}/checkout/clusters/oci-dev/flux-system/kustomization.yaml''',
   "git -C '{{ env.TASKV_DIRECTORY }}/checkout' add clusters/oci-dev/flux-system",
   "git -C '{{ env.TASKV_DIRECTORY }}/checkout' commit --only -m 'feat: bootstrap Flux fixture' -- clusters/oci-dev/flux-system",
   "git -C '{{ env.TASKV_DIRECTORY }}/checkout' push origin HEAD:main",

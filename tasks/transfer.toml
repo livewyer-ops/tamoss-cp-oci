@@ -202,7 +202,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:inspect",
   '''FILE={{ ((vars.ENV_DIR) ~ "/remote-resources.json") | quote }} mise run transfer:assert-quiesced''',
   '''yq -i '.spec.managementPolicies = ["Observe", "Delete"]' {{ vars.ENV_DIR }}/environment.yaml''',
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/environment.yaml'",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch tamossenvironment/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"managementPolicies":["Observe","Delete"]}}' ''',
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for='jsonpath={.spec.managementPolicies[-1]}=Delete' --timeout=300s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait managed -l 'tamoss.livewyer.io/environment={{ env.TASKV_NAME }}' --for=condition=Synced --timeout=300s",
 ]

@@ -365,11 +365,14 @@ dir = "{{ vars.ROOT_DIR }}"
 skip_if = "yq -e '.userId == \"\"' '{{ vars.ENV_DIR }}/assets-state/retirement.yaml' > /dev/null"
 run = [
   "oci iam customer-secret-key list --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/retire-keys.json' ",
+  "yq -p=json -o=json -i '. // {\"data\": []}' '{{ vars.ENV_DIR }}/assets-state/retire-keys.json'",
   "yq -p=json -e '.data | all_c(.\"display-name\" == \"tamoss-assets-{{ env.TASKV_DEPLOYMENT }}\")' '{{ vars.ENV_DIR }}/assets-state/retire-keys.json' > /dev/null || { printf '%s\n' \"Unrecognised reader key; preserve access for review\" >&2; exit 1; }",
   "mise run assets:reader:delete-keys",
   "oci iam customer-secret-key list --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/keys-after.json' ",
+  "yq -p=json -o=json -i '. // {\"data\": []}' '{{ vars.ENV_DIR }}/assets-state/keys-after.json'",
   "yq -p=json -e '.data | length == 0' '{{ vars.ENV_DIR }}/assets-state/keys-after.json' > /dev/null",
   "oci iam user list-groups --user-id {{ env.TASKV_USER | quote }} --all > '{{ vars.ENV_DIR }}/assets-state/retire-memberships.json' ",
+  "yq -p=json -o=json -i '. // {\"data\": []}' '{{ vars.ENV_DIR }}/assets-state/retire-memberships.json'",
   "yq -p=json -e '.data | all_c(.id == load(\"{{ vars.ENV_DIR }}/assets-state/retirement.yaml\").groupId)' '{{ vars.ENV_DIR }}/assets-state/retire-memberships.json' > /dev/null",
   "mise run assets:reader:delete-membership",
   "oci --endpoint {{ env.TASKV_ENDPOINT | quote }} identity-domains user delete --user-id {{ env.TASKV_SCIM_USER | quote }} --force > '{{ vars.ENV_DIR }}/assets-state/user-deleted.json' ",
