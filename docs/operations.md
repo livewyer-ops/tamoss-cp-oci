@@ -71,7 +71,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
-| IAM `PolicyAlreadyExists` with no external-name | Preserve the original managed resource and inspect OCI Audit; verify the cloud policy's exact ownership before restoring its binding |
+| IAM `PolicyAlreadyExists` with no external-name | Follow [policy binding recovery](#recover-a-policy-binding) using the original managed resource and a verified OCI policy |
 | Asset-reader membership retirement fails | Retain the environment records. Retirement removes the recorded member through the Identity Domains group API and verifies that no memberships remain. Check the recorded domain, exact user/group binding and scoped permissions before retrying `down`; unrelated memberships must be resolved by their owner |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
@@ -96,6 +96,53 @@ Treat diagnostic output as private and redact it before sharing. Report location
 | Live ingest, placement, network, browser and availability reports | `.local/environment/reports/` |
 | Cloud baseline and subsequent inventory | `.local/environment/inventory-before/`, other `inventory-*` directories |
 | Recorded resource ownership | `.local/environment/resources.yaml`, `owned-cloud.yaml` |
+
+## Recover a policy binding
+
+An OCI policy can exist even when its managed resource has no
+`crossplane.io/external-name`. Repeated creation then fails with
+`PolicyAlreadyExists`. Inspect `Ready` and `LastAsyncOperation` as well as
+`Synced`; `Synced=True` alone does not establish successful creation.
+
+Use the original Kind and environment records. Pause only the affected policy:
+
+```bash
+export KUBECONFIG=.local/environment/management.kubeconfig
+POLICY="<policy-name>"
+kubectl -n tamoss-infra describe policy.identity.oci.m.upbound.io "$POLICY"
+kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" crossplane.io/paused=true
+kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" \
+  --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s
+kubectl -n tamoss-infra get policy.identity.oci.m.upbound.io "$POLICY" -o yaml
+```
+
+Let any in-flight operation finish. Record the original UID and resource version.
+Use `oci iam policy list`, `oci iam policy get` and OCI Audit to verify exactly
+one cloud policy matches the expected name, compartment, deployment tag,
+statements and creation time. Keep this evidence private. Stop if the match is
+missing or ambiguous, or if the managed resource already has a different binding.
+
+Restore the verified policy OCID on that same managed resource:
+
+```bash
+OCI_POLICY_ID="<verified-policy-OCID>"
+RESOURCE_VERSION="<inspected-resource-version>"
+kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" \
+  crossplane.io/external-name="$OCI_POLICY_ID" --resource-version="$RESOURCE_VERSION"
+kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" crossplane.io/paused-
+kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" --for=condition=Ready --timeout=180s
+kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" --for=condition=Synced --timeout=180s
+```
+
+The resource-version precondition rejects a concurrent change. Reinspect the
+original resource before retrying a rejected annotation. Verify its observed
+policy ID matches the restored binding, then resume the normal workflow.
+
+This uses Crossplane's [external-resource binding](https://docs.crossplane.io/latest/guides/import-existing-resources/)
+and Kubernetes' [conditional annotation update](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_annotate/).
+Preserve the policy, managed resource and finalisers throughout recovery. This is
+an operator recovery procedure for the [reported upstream defect](https://github.com/crossplane/upjet/issues/632),
+not an automatic build step or proof that unattended installation is reliable.
 
 ## Operation recovery
 
