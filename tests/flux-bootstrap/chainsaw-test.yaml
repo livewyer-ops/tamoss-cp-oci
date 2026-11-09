@@ -36,8 +36,7 @@ spec:
               kind: HelmRelease
               metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
               spec:
-                chart:
-                  spec: {chart: ./charts/bootstrap-instance}
+                chartRef: {kind: OCIRepository, name: tamoss-chart-bootstrap-instance}
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1

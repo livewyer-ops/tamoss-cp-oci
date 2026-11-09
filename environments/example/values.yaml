@@ -1,3 +1,17 @@
 compartmentId: ocid1.compartment.oc1..REPLACE
 contactEmail: operator@example.invalid
 adminCidrs: [203.0.113.10/32]
+storageIdentity:
+  domainId: ocid1.domain.oc1..REPLACE
+  idcsEndpoint: https://REPLACE.identity.oraclecloud.com
+storage:
+  namespace: REPLACE
+network:
+  ociServiceId: ocid1.service.oc1.REPLACE
+  ociServiceCidr: all-REPLACE-services-in-oracle-services-network
+oke:
+  imageId: ocid1.image.oc1.REPLACE
+  placements:
+    - {availabilityDomain: 'REPLACE:AD-1', faultDomain: FAULT-DOMAIN-1}
+    - {availabilityDomain: 'REPLACE:AD-2', faultDomain: FAULT-DOMAIN-1}
+    - {availabilityDomain: 'REPLACE:AD-3', faultDomain: FAULT-DOMAIN-1}

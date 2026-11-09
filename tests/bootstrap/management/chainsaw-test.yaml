@@ -127,7 +127,7 @@ spec:
               status: {credentialsEstablished: true}
         - command:
             entrypoint: kubectl
-            args: [-n, tamoss-infra, delete, externalsecret, asset-reader]
+            args: [-n, tamoss-infra, delete, externalsecret, tams-database]
         - assert: *credentialsEstablished
       finally:
         - command:

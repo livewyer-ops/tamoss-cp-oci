@@ -15,7 +15,7 @@ spec:
             entrypoint: chainsaw
             env:
               - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [test, --namespace, flux-system, --skip-delete, --test-dir, "$PROJECT_ROOT/deploy/gitops/readiness-check,$PROJECT_ROOT/deploy/gitops/sync-check", --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, --set-string, assetPrefix=releases/fixture/]
+            args: [test, --namespace, flux-system, --skip-delete, --test-dir, "$PROJECT_ROOT/deploy/gitops/readiness-check,$PROJECT_ROOT/deploy/gitops/sync-check", --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
     - name: wait for the first source and applied revisions
       try:
         - patch:
@@ -48,7 +48,7 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: Bucket
+              kind: OCIRepository
               metadata: {name: tamoss-product, namespace: flux-system}
               status: {artifact: null}
         - command: *waiting
@@ -154,10 +154,10 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
+              kind: OCIRepository
+              metadata: {name: tamoss-chart-gitops, namespace: flux-system}
               status:
-                observedSourceArtifactRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                artifact: {revision: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
         - command:
             <<: *check
             check: {($error != null): true}
@@ -165,10 +165,10 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
+              kind: OCIRepository
+              metadata: {name: tamoss-chart-gitops, namespace: flux-system}
               status:
-                observedSourceArtifactRevision: 'main@sha1:cccccccccccccccccccccccccccccccccccccccc'
+                artifact: {revision: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
         - command: *check
     - name: reject failed source access despite an existing artifact
       try:

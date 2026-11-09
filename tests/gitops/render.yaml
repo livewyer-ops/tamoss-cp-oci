@@ -17,7 +17,7 @@ kind: Render
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 0
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 16
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls]
-(resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.sourceRef.kind): Bucket
-(resources[?kind == 'Kustomization' && metadata.name == 'tamoss-operator'] | [0].spec.sourceRef.kind): Bucket
-(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'Bucket'].name): [tamoss-product]
-(length(resources[?kind == 'GitRepository' || kind == 'OCIRepository'])): 0
+(resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.sourceRef.kind): OCIRepository
+(resources[?kind == 'Kustomization' && metadata.name == 'tamoss-operator'] | [0].spec.sourceRef.kind): OCIRepository
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'OCIRepository'].name): [tamoss-product]
+(length(resources[?kind == 'GitRepository'])): 0

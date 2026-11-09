@@ -14,12 +14,13 @@ run = [
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
   '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}')" = 700''',
   '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/values.yaml')" = 600''',
-  '''yq -i '.name = "setup-test" | .compartmentId = "ocid1.compartment.oc1.fixture" | .contactEmail = "operator@example.test" | .adminCidrs = ["192.0.2.10/32"]' '{{ env.TASKV_DIRECTORY }}/values.yaml'''',
+  "cp tests/setup/values.yaml '{{ env.TASKV_DIRECTORY }}/values.yaml'",
   "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
   "cmp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
-  "install -d -m 700 '{{ env.TASKV_DIRECTORY }}/discovery'",
-  "cp '{{ vars.ROOT }}/tests/setup/discovery/'* '{{ env.TASKV_DIRECTORY }}/discovery/'",
+  "OCI_CONFIG='{{ vars.ROOT }}/tests/setup/oci-config' OCI_PROFILE=demo ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --skip-deps setup:resolve",
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/discovery/profile.yaml')" = 600''',
+  '''yq -e '.oci.user == "ocid1.user.oc1.fixture" and .oci.tenancy == "ocid1.tenancy.oc1.fixture" and .oci.privateKey == load_str("tests/setup/signing-key") and .oci.privateKeyPassword == "fixture-passphrase"' '{{ env.TASKV_DIRECTORY }}/discovery/profile.yaml'''',
   "mkdir -p '{{ env.TASKV_DIRECTORY }}/release/charts' '{{ env.TASKV_DIRECTORY }}/release/deploy/tamoss' '{{ env.TASKV_DIRECTORY }}/release/deploy/tadoss'",
   "cp -a '{{ vars.ROOT }}/charts/setup' '{{ env.TASKV_DIRECTORY }}/release/charts/'",
   "cp '{{ vars.ROOT }}/deploy/tamoss/release.yaml' '{{ env.TASKV_DIRECTORY }}/release/deploy/tamoss/'",
@@ -42,32 +43,23 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mise run test:setup:render",
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/discovery/values.yaml')" = 600''',
+  '''yq -e '[.oci.privateKey == null, .oci.privateKeyPassword == null, .oci.region == "eu-frankfurt-1", .oci.tenancy == "ocid1.tenancy.oc1.fixture", .oci.user == "ocid1.user.oc1.fixture", .oci.fingerprint == "fixture"] | all' '{{ env.TASKV_DIRECTORY }}/discovery/values.yaml'''',
   '''yq -e '.storageUserId == null and .storageIdentity.domainId == "ocid1.domain.oc1.fixture" and .storageIdentity.idcsEndpoint == "https://identity.example.test:443" and .storageIdentity.email == "operator@example.test"' '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/settings.yaml' ''',
   '''yq -e '[.metadata.name == "setup-test", .spec.region == "eu-frankfurt-1", .spec.owner == "operator@example.test", .spec.expiresAt == null, .spec.budget == null, .spec.oke.imageId == "ocid1.image.oc1.fixture", (.spec.oke.placements | length == 3), .spec.oke.placements[0].availabilityDomain == "fixture:AD-1", .spec.oke.ocpus == 4, .spec.database.ocpus == 2, .spec.storage.bucket == "tamoss-setup-test-media"] | all' '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/environment.yaml'''',
   "yq -e '.product.commit != null and .tadoss.bundle.digest != null and .url == null' {{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/product.yaml",
   '''yq -e '.spec.region == "eu-frankfurt-1" and .spec.owner == "operator@example.test"' {{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/foundation.yaml''',
-  "cp '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/environment.yaml' '{{ env.TASKV_DIRECTORY }}/before-reorder.yaml'",
-  "yq -i '.data |= reverse' {{ env.TASKV_DIRECTORY }}/discovery/domains.json",
-  "mise run test:setup:render",
-  "cmp '{{ env.TASKV_DIRECTORY }}/before-reorder.yaml' '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/environment.yaml'",
+  '''yq -e '.spec as $s | load("{{ env.TASKV_DIRECTORY }}/values.yaml") as $v | ($s.oke.placements | sort_keys(..) | to_json(0)) == ($v.oke.placements | sort_keys(..) | to_json(0)) and $s.oke.imageId == $v.oke.imageId and $s.network.ociServiceId == $v.network.ociServiceId and $s.network.ociServiceCidr == $v.network.ociServiceCidr and $s.storage.namespace == $v.storage.namespace' '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/environment.yaml'''',
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
 
-["test:setup:ambiguous"]
+["test:setup:explicit"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "yq -i '.data.sources += .data.sources' {{ env.TASKV_DIRECTORY }}/discovery/node-options.json",
+  '''yq -i '.oke.imageId = "ocid1.image.oc1.custom-fixture" | .oke.placements |= reverse' '{{ env.TASKV_DIRECTORY }}/values.yaml'''',
   "mise run test:setup:render",
-]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
-
-["test:setup:unavailable"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "yq -i '.data.sources = []' {{ env.TASKV_DIRECTORY }}/discovery/node-options.json",
-  "mise run test:setup:render",
+  '''yq -e '.spec.oke.imageId == "ocid1.image.oc1.custom-fixture" and (.spec.oke.placements | sort_keys(..) | to_json(0)) == (load("{{ env.TASKV_DIRECTORY }}/values.yaml").oke.placements | sort_keys(..) | to_json(0)) and .spec.oke.placements[0].availabilityDomain == "fixture:AD-3"' '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/environment.yaml'''',
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
 

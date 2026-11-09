@@ -1,4 +1,4 @@
-{{- if .Values.discovery }}
+{{- if .Values.oci }}
 apiVersion: tamoss.livewyer.io/v1alpha1
 kind: SecretFoundation
 metadata:
@@ -6,7 +6,7 @@ metadata:
   namespace: tamoss-infra
 spec:
   owner: {{ .Values.owner | default .Values.contactEmail | quote }}
-  region: {{ .Values.discovery.region | quote }}
+  region: {{ .Values.oci.region | quote }}
   compartmentId: {{ .Values.compartmentId | quote }}
   providerConfigName: oci
 {{- with .Values.foundation.adoption }}

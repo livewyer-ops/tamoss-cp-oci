@@ -1,4 +1,0 @@
-{{- $requests := include "deployment.assetRequests" . | fromYaml -}}
-{{- with $requests.user }}
-{{ . | toJson }}
-{{- end }}

@@ -6,18 +6,60 @@ metadata:
   labels: {reconcile.fluxcd.io/watch: Enabled}
   annotations: {kustomize.toolkit.fluxcd.io/substitute: disabled}
 data:
-  schemaVersion: '1'
-  bucketName: fixture-assets
-  endpoint: storage.example.invalid
-  region: eu-frankfurt-1
-  prefix: releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/
-  root: ./releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  storeId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  schemaVersion: "3"
+  bundleURL: oci://example.invalid/deployment
+  bundleDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  bootstrapChartURL: oci://example.invalid/charts/gitops-bootstrap
+  bootstrapChartDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   manifestSha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   productCommit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   values.yaml: |
     assets:
-      bucketName: fixture-assets
-      endpoint: storage.example.invalid
-      region: eu-frankfurt-1
-      prefix: releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/
+      url: oci://example.invalid/deployment
+      digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      charts:
+        packages:
+          url: oci://example.invalid/charts/packages
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        environment:
+          url: oci://example.invalid/charts/environment
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        secret-foundation:
+          url: oci://example.invalid/charts/secret-foundation
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        bootstrap:
+          url: oci://example.invalid/charts/bootstrap
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        bootstrap-instance:
+          url: oci://example.invalid/charts/bootstrap-instance
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        secrets:
+          url: oci://example.invalid/charts/secrets
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        runtime-access:
+          url: oci://example.invalid/charts/runtime-access
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        gitops-auth:
+          url: oci://example.invalid/charts/gitops-auth
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        gitops-bootstrap:
+          url: oci://example.invalid/charts/gitops-bootstrap
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        gitops:
+          url: oci://example.invalid/charts/gitops
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        database-connection:
+          url: oci://example.invalid/charts/database-connection
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        tamoss-database-init:
+          url: oci://example.invalid/charts/tamoss-database-init
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        authentik-bootstrap:
+          url: oci://example.invalid/charts/authentik-bootstrap
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        tamoss-platform-config:
+          url: oci://example.invalid/charts/tamoss-platform-config
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        tadoss-config:
+          url: oci://example.invalid/charts/tadoss-config
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

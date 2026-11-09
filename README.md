@@ -18,7 +18,7 @@ for HA deployments and qualification environments.
 | PostgreSQL | Two OCI database nodes; separate TAMOSS and Authentik databases, with verified TLS |
 | Media storage | Private OCI Object Storage bucket through its S3-compatible endpoint |
 | Public access | OCI load balancer, replicated ingress and Authentik, trusted HTTPS |
-| Release assets | Pinned CI deployment release with unchanged TAMOSS/TADOSS assets in a private client-owned OCI bucket |
+| Release assets | Public OCI manifest bundle and Helm charts, pinned by digest |
 
 The environment uses billable resources. Worker-drain checks have passed;
 managed-database failover and regional recovery are outside the verified
@@ -26,9 +26,9 @@ coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md
 
 [GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
 Flux, Crossplane and External Secrets on OKE. Deployment definitions are published
-as a tested OCI release and copied to a [client-owned asset store](deploy/assets/README.md).
-Flux reads that store; an optional client Git repository selects configuration
-and asset releases. Client snapshot deployment, SSH handover and Git-enabled
+as [OCI release artifacts](deploy/assets/README.md) consumed directly by Flux.
+Flux reads those artifacts; an optional client Git repository selects configuration
+and asset releases. The earlier bucket-based deployment, SSH handover and Git-enabled
 TADOSS passed assisted OCI testing with Kind stopped during operations. The reduced
 installer has local coverage only; its fresh OCI lifecycle, release
 upgrades and credential rotation remain unqualified.
@@ -54,16 +54,21 @@ mise run setup
 ```
 
 Complete [Getting started](docs/getting-started.md) with an authorised OCI profile,
-dedicated empty compartment, contact email and administrator CIDR. Then deploy:
+dedicated empty compartment and prepared tenancy/region settings in `values.yaml`.
+Then deploy:
 
 ```bash
 mise run up
 ```
 
 The quick deployment requires no GitHub account or environment repository. Flux
-reconciles a verified client snapshot with the supplied configuration. Kind
+reconciles the pinned OCI release with the supplied configuration. Kind
 retains infrastructure ownership; TAMOSS runs on OKE. `up` prints the URLs and
 location of protected initial login details.
+
+Each `up` requires a fresh deployment directory. After an interrupted installation,
+follow [failed-deployment cleanup](docs/operations.md#clean-up-a-failed-deployment)
+before starting again.
 
 To demonstrate GitOps, configure the optional GitHub owner in `gitops.yaml`:
 
@@ -89,12 +94,10 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 | `mise run check:management` | Also test controller reconciliation in disposable Kind clusters. |
 | `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |
 | `mise run check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
-| `mise run up` | Provision OCI and install TAMOSS with public TLS ready; Kind retains infrastructure ownership. |
+| `mise run up` | Create a fresh deployment with public TLS ready; Kind retains infrastructure ownership. |
 | `mise run handover` | Attach GitOps, transfer infrastructure ownership to OKE and stop original Kind. |
 | `mise run qualify` | Test ingest, access, network isolation and a worker drain. |
-| `mise run down` | Return ownership if needed, delete hardware and retire readers/secrets; retain client assets. |
-| `mise run assets:publish` | Publish a candidate snapshot without changing the running deployment. |
-| `mise run assets:retire` | Delete the retained asset store after verified teardown. |
+| `mise run down` | Return ownership if needed, delete hardware and retire deployment credentials. |
 
 `ENV_DIR` selects the private deployment directory; `CHECKOUT` selects its environment
 Git checkout (default `.local/gitops`). Storage checks have separate

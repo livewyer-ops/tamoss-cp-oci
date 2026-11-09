@@ -30,6 +30,8 @@ run = [
 ["bootstrap:finish"]
 hide = true
 run = [
+  "cp '{{ vars.ENV_DIR }}/fresh-identity.yaml' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "POINT=during-install mise run test:handover:checkpoint",
   "yq -e '.unhealthy != true' '{{ vars.ENV_DIR }}/identity.yaml'",
   "yq -i '.provisions += 1 | .observations += 1 | .deploymentReady = true' '{{ vars.ENV_DIR }}/identity.yaml'",
 ]
@@ -50,7 +52,7 @@ run = ["true"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "true",
+  "yq -i '.accessReads += 1' '{{ vars.ENV_DIR }}/identity.yaml'",
 ]
 
 ["gitops:attach"]

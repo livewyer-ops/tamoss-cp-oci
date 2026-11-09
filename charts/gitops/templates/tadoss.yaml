@@ -20,11 +20,7 @@ spec:
   dependsOn:
     - {name: tamoss-secrets, namespace: auth}
     - {name: tamoss-database-init, namespace: auth}
-  chart:
-    spec:
-      chart: {{ printf "./%sdeploy/tadoss/config" $.Values.assets.prefix | quote }}
-      reconcileStrategy: Revision
-      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-tadoss-config, namespace: flux-system}
   valuesFrom:
     - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_HOST, targetPath: host}
     - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_CA_BASE64, targetPath: caBase64}
@@ -41,12 +37,11 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: database-connection}]
-  path: {{ printf "./%sdeploy/tadoss/credentials" $.Values.assets.prefix | quote }}
-  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  path: ./deploy/tadoss/credentials
+  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: database-connection}]
     substitute:
-      ASSET_PREFIX: {{ .Values.assets.prefix | quote }}
       DEPLOYMENT_ID: {{ .Values.deploymentId | quote }}
       OCI_REGION: {{ .Values.region }}
       VAULT_ID: {{ .Values.vaultId }}
@@ -74,8 +69,8 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: platform}]
-  path: {{ printf "./%supstream/tadoss" .Values.assets.prefix | quote }}
-  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  path: ./upstream/tadoss
+  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
   healthChecks:
     - {apiVersion: apps/v1, kind: Deployment, name: tadoss-operator, namespace: tadoss-system}
   images:
@@ -112,14 +107,13 @@ spec:
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: tadoss-operator}, {name: tadoss-credentials}, {name: platform}, {name: calico}]
-  path: {{ printf "./%sdeploy/tadoss/instance" $.Values.assets.prefix | quote }}
-  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  path: ./deploy/tadoss/instance
+  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
   postBuild:
     substitute:
       TADOSS_VERSION: {{ .Values.tadoss.release.version | quote }}
       TADOSS_IMAGE: {{ .Values.tadoss.release.runtimeImage | quote }}
       DOMAIN: {{ $domain }}
-      ASSET_PREFIX: {{ .Values.assets.prefix | quote }}
       DEPLOYMENT_ID: {{ .Values.deploymentId | quote }}
   healthChecks:
     - {apiVersion: tadoss.livewyer.io/v1alpha1, kind: Tadoss, name: tadoss, namespace: tads}

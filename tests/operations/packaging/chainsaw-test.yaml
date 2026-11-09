@@ -3,62 +3,24 @@ kind: Test
 metadata: {name: operational-chart-dependencies}
 spec:
   steps:
-    - name: build local library dependencies from the product source
+    - name: fetch packaged operation charts by digest
       try:
-        - apply:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: operation-connection-check, namespace: tamoss-infra}
-              spec:
-                interval: 1m
-                chart: ./charts/database-connection
-                reconcileStrategy: Revision
-                sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
-        - apply:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: operation-retirement-check, namespace: tamoss-infra}
-              spec:
-                interval: 1m
-                chart: ./charts/secret-retirement
-                reconcileStrategy: Revision
-                sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
+        - apply: {file: ../../../.local/tmp/check/oci/operations.yaml}
         - assert:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: operation-connection-check, namespace: tamoss-infra}
+              kind: OCIRepository
+              metadata: {name: tamoss-chart-database-connection, namespace: tamoss-infra}
               (status.observedGeneration == metadata.generation): true
-              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
+              (status.artifact.revision == spec.ref.digest): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: operation-retirement-check, namespace: tamoss-infra}
+              kind: OCIRepository
+              metadata: {name: tamoss-chart-secrets, namespace: tamoss-infra}
               (status.observedGeneration == metadata.generation): true
-              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
-              status:
-                (conditions[?type == 'Ready'] | [0].status): 'True'
-        - apply:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: operation-s3-check, namespace: tamoss-infra}
-              spec:
-                interval: 1m
-                chart: ./charts/secrets
-                reconcileStrategy: Revision
-                sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
-        - assert:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: operation-s3-check, namespace: tamoss-infra}
-              (status.observedGeneration == metadata.generation): true
-              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
+              (status.artifact.revision == spec.ref.digest): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'

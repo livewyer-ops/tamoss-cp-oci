@@ -65,9 +65,9 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | --- | --- |
 | Preparation failure | Placeholder settings, OCI discovery, deployment bundle access and recorded-input consistency |
 | Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
-| Bootstrap installation stalled | Kind `tamoss-infra` Bucket, HelmChart and HelmRelease conditions; Flux source/Helm controller logs |
+| Bootstrap installation stalled | Kind `tamoss-infra` OCIRepository and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
-| OKE Flux seed failed | Kind `tamoss-infra` Kustomizations `oke-flux`, `oke-eso`, `oke-asset-access` and `oke-seed`; inspect source and ExternalSecret readiness, then repeat `mise run up` to renew expired bootstrap access |
+| OKE Flux seed failed | Kind `tamoss-infra` Kustomizations `oke-flux`, `oke-eso` and `oke-seed`; inspect source and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
 | Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
 | Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
@@ -167,8 +167,8 @@ operation; the common chart does not choose retry policy or manage the workflow.
 
 | Operation | Interruption and retry behaviour |
 | --- | --- |
-| Kind `tamoss-infra/s3-credentials` | Repeat `mise run up` when the response is already staged or persisted. A claimed attempt is never automatically repeated. Use the S3 recovery procedure below for a confirmed incomplete key. |
-| Kind remote bootstrap | Repeat `mise run up` with the same inputs and original Kind. It can renew a token while bootstrap is active. Once remote bootstrap is suspended for retirement, repeats finish cleanup without recreating access. |
+| Kind `tamoss-infra/s3-credentials` | Native reconciliation consumes a staged or persisted response. A claimed attempt is never automatically repeated. Preserve the receipt and use [failed-deployment cleanup](#clean-up-a-failed-deployment) if installation fails. |
+| Kind remote bootstrap | An interrupted installation requires teardown. Retain the original Kind and records; `down` stops remote bootstrap and revokes its access. |
 | OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
 | Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
 
@@ -221,7 +221,7 @@ ENV_DIR=.local/environment mise run up
 ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run handover
 ```
 
-Repeating completed `up` retrieves the access details without changing ownership.
+`up` rejects an existing deployment; use the access instructions to inspect it.
 Repeating completed `handover` observes readiness once without restarting Kind or
 publishing another commit. `qualify` works in either state. `down` also supports
 cleanup before handover and after an interrupted transfer.
@@ -247,42 +247,34 @@ Teardown retains its binding-delivery waits because the bootstrap is paused then
 
 ## Interrupted host preparation
 
-Before Kind receives the seed, OCI CLI prepares the client asset bucket and reader.
-This is a one-shot preparation step. If it fails before `assets.lock.yaml` is
-recorded, `up` refuses to repeat creation. Preserve `identity.yaml`, `asset-store.yaml`
-and the API responses in `assets-state/`.
+The host records the selected release and prepares the Kind seed. Once
+`identity.yaml` exists, `up` refuses another installation attempt. Preserve the
+environment directory and inspect the failure before cleanup. Use `down` to
+verify the dedicated compartment and remove any owned Kind, then choose a fresh
+`ENV_DIR` and rerun `setup`.
 
-With no Kind seed accepted, use `mise run down` to remove any recorded reader and
-`mise run assets:retire` to remove its bucket. Both verify ownership. If a create
-response is empty or missing, use OCI Audit to establish the outcome before
-revoking that exact resource; never assume an empty response means creation failed.
-Keep records until cleanup is confirmed, then choose a fresh `ENV_DIR` and rerun
-`setup`. Preparation does not automatically adopt partially created resources.
-
-Once Kind has accepted the seed, retain that Kind and use the normal retry or
+Once Kind has accepted the seed, retain that Kind and use the normal
 teardown path. If Kind exists but the initial apply failed, preserve it and inspect
 the apply error before removing any identity or credential files.
 
-## Retry a failed deployment
+## Clean up a failed deployment
 
-Resolve the reported problem, preserve its evidence, then repeat with the original
-inputs and state:
+`up` supports one installation attempt per deployment. If it fails, preserve the
+original Kind and environment records, inspect the failure, then run teardown:
 
 ```bash
-ENV_DIR=.local/environment mise run up
+ENV_DIR=.local/environment mise run down
 ```
 
-Completed `up` repeats only retrieve access details; use `qualify` to test the
-running service. Resume an interrupted ownership transfer with `handover`.
-Keep the original inputs and private records. Once teardown starts, use `down`.
+Confirm cleanup after teardown before choosing a fresh `ENV_DIR` and running `setup` for another attempt.
+Keep the original inputs and private records until cleanup is verified.
+Use the [access instructions](getting-started.md#access) to inspect a running
+deployment and `qualify` to test it. Ownership transfer still resumes through
+`handover`; interrupted teardown still resumes through `down`.
 
-During initial provisioning, Flux and Crossplane continue reconciling if mise
-exits. The host must run until it has submitted the temporary OKE credential to
-Kind. Kind then installs Flux and applies the remote seed. Once Kind has accepted
-the seed, resume an interrupted `up` with the same private environment directory.
-Repeating an incomplete remote seed
-renews access while bootstrap remains active. Final readiness, credential
-retirement and access details still require `up`.
+Flux and Crossplane continue reconciling if mise exits. Keep `up` running through
+readiness and credential retirement. An expired bootstrap token or interrupted
+installation requires cleanup; rerunning `up` cannot renew access or finish it.
 
 If preparation failed before Kind accepted the seed, follow
 [preparation cleanup](#interrupted-host-preparation) before starting again.
@@ -315,8 +307,7 @@ environment explicitly with `down` when it is no longer needed.
 
 ## Release selection
 
-Initial deployment publishes the repository's verified release selection to the
-client asset store. After handover, Git owns selection through `assets.lock.yaml`. `qualify` verifies and records the current selection
+Initial deployment records the pinned public bundle and chart digests. After handover, Git owns selection through `assets.lock.yaml`. `qualify` verifies and records the current selection
 while preserving the initial release record. `down` returns current Git/live
 configuration to Kind for deletion.
 
@@ -406,38 +397,27 @@ TAMOSS finalises while its operator remains available. Teardown removes platform
 releases and the load balancer, empties the owned bucket (including versions and
 multipart uploads), and deletes infrastructure and database backups. Kind and
 provider credentials remain until direct OCI inventory confirms that the dedicated
-compartment contains no workload resources. The retained asset bucket is checked
-against its recorded name and ownership tag.
+compartment contains no workload resources.
 
 | Deleted | Retained |
 | --- | --- |
-| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, client asset bucket/snapshots, private environment Git configuration and local records |
+| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
 
 After the cloud audit, teardown revokes the deployment's S3 key, verifies its
 absence, deletes the generated storage policy, membership, group and user through Crossplane,
 and verifies their absence through OCI. Unrelated keys block user deletion.
-The host also revokes the restricted asset reader and removes its dedicated IAM.
-It retires the binding PushSecret and schedules
-environment secrets for deletion. A bounded Kubernetes Job waits
-for OCI to report `PENDING_DELETION` or `DELETED`; a timeout retains Kind and the
-Job for diagnosis. `retained-foundation.yaml` records the owner, Vault/key and
-scheduled deletion times. The compartment still contains that foundation.
+It retires the binding PushSecret and schedules environment secrets for deletion.
+A bounded Kubernetes Job waits for OCI to report `PENDING_DELETION` or `DELETED`;
+a timeout retains Kind and the Job for diagnosis. `retained-foundation.yaml`
+records the owner, Vault/key and scheduled deletion times. The compartment still
+contains that foundation.
 
 After the audit succeeds, the account administrator can retire run-owned keys and
 temporary IAM prerequisites using [account retirement](../deploy/oci/README.md#retirement).
 Keep access until deletion is confirmed. Retain the foundation's compartment and
 owner access; local exported credentials remain your responsibility.
 
-The asset bucket is retained for audit and tooling recovery. Delete it only when
-no consumers or recovery needs remain:
-
-```bash
-ENV_DIR=.local/environment mise run assets:retire
-```
-
-This requires completed teardown, verifies ownership and rejects an asset store
-with another recorded reader policy. It deletes the stored releases permanently.
-See [asset lifecycle](../deploy/assets/README.md).
+Published release artifacts remain in the registry for recovery.
 
 ### Interrupted teardown
 
@@ -447,7 +427,7 @@ Resolve the failure and repeat `mise run down` with the same directory. Preserve
 Do not edit records to bypass mismatches or remove finalisers to simulate deletion.
 
 Before any cloud providers or deployment composites were installed, `down` can
-audit OCI and retire the asset reader without a foundation record. If provider
+audit OCI without a foundation record. If provider
 CRDs or deployment identities exist, it requires the original foundation record;
 it does not infer that a partially started environment is empty.
 

@@ -1,0 +1,10 @@
+[DEFAULT]
+region=eu-frankfurt-1
+tenancy=ocid1.tenancy.oc1.fixture
+user=ocid1.user.oc1.default-fixture
+fingerprint=fixture
+key_file=tests/setup/signing-key
+pass_phrase=fixture-passphrase
+
+[demo]
+user=ocid1.user.oc1.fixture

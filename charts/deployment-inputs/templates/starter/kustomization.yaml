@@ -25,24 +25,16 @@ replacements:
     targets:
       - select: {kind: ConfigMap, name: external-secrets-values}
         fieldPaths: [data.values\.yaml]
-{{- range $field := list "bucketName" "endpoint" "region" "prefix" }}
-  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: 'data.{{ $field }}'}
+{{- range $source := list (dict "name" "tamoss-product" "url" "bundleURL" "digest" "bundleDigest") (dict "name" "tamoss-chart-gitops-bootstrap" "url" "bootstrapChartURL" "digest" "bootstrapChartDigest") }}
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.{{ $source.url }}}
     targets:
-      - select: {kind: Bucket, name: tamoss-product}
-        fieldPaths: ['spec.{{ $field }}']
+      - select: {kind: OCIRepository, name: {{ $source.name }}}
+        fieldPaths: [spec.url]
+  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.{{ $source.digest }}}
+    targets:
+      - select: {kind: OCIRepository, name: {{ $source.name }}}
+        fieldPaths: [spec.ref.digest]
 {{- end }}
-  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.root}
-    targets:
-      - select: {kind: Kustomization, name: 'platform-defaults|infrastructure|runtime|infrastructure-controllers'}
-        fieldPaths: [spec.path]
-        options: {delimiter: '/', index: 0}
-      - select: {kind: HelmRelease, name: tamoss-gitops-bootstrap}
-        fieldPaths: [spec.chart.spec.chart]
-        options: {delimiter: '/', index: 0}
-  - source: {kind: ConfigMap, name: tamoss-assets, fieldPath: data.prefix}
-    targets:
-      - select: {kind: Kustomization, name: runtime}
-        fieldPaths: [spec.postBuild.substitute.ASSET_PREFIX]
   - source:
       kind: ConfigMap
       name: infrastructure-intent

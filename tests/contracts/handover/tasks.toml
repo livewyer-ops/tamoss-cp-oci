@@ -47,7 +47,7 @@ env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% el
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "ENV_DIR={{ env.TASKV_DIRECTORY }} CHECKOUT={{ env.TASKV_DIRECTORY }}/checkout STOP_AT=none MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C {{ env.TASKV_DIRECTORY }} run public-up",
+  "ENV_DIR={{ env.TASKV_DIRECTORY }} CHECKOUT={{ env.TASKV_DIRECTORY }}/checkout STOP_AT={{ env.STOP_AT | default(value=\"none\") }} MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C {{ env.TASKV_DIRECTORY }} run public-up",
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/handover-flow{% endif %}"
 

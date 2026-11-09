@@ -1,6 +1,5 @@
 {{- $xr := .observed.composite.resource -}}
 {{- $p := $xr.spec -}}
-{{- $assets := $p.assets | default (dict "prefix" "") -}}
 {{- if and (hasKey $p "storageCredentials") (not (hasKey $p "vaultAuth")) -}}
 {{- fail "Automatic storage identity requires the Kind provisioner" -}}
 {{- end -}}
@@ -179,11 +178,7 @@ spec:
   upgrade:
     disableWaitForJobs: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chart:
-    spec:
-      chart: {{ printf "./%scharts/secrets" ($assets.prefix | default "") | quote }}
-      reconcileStrategy: Revision
-      sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-secrets}
   values:
 {{ $secretDefaults | toYaml | indent 4 }}
     deploymentId: {{ $p.deploymentId | quote }}
@@ -225,11 +220,7 @@ spec:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   upgrade:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chart:
-    spec:
-      chart: {{ printf "./%scharts/runtime-access" ($assets.prefix | default "") | quote }}
-      reconcileStrategy: Revision
-      sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-runtime-access}
   values:
     deploymentId: {{ $p.deploymentId | quote }}
     compartmentId: {{ $p.environment.compartmentId | quote }}

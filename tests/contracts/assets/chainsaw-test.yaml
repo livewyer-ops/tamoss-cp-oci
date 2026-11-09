@@ -1,11 +1,11 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
-metadata: {name: asset-credential-recovery}
+metadata: {name: bootstrap-interruption}
 spec:
   bindings:
-    - {name: directory, value: "(join('/', [$values.root, '.local/tmp/check/asset-credential-recovery']))"}
+    - {name: directory, value: "(join('/', [$values.root, '.local/tmp/check/bootstrap-interruption']))"}
   steps:
-    - name: stop interrupted preparation and preserve the captured key
+    - name: preserve the original deployment identity
       try:
         - command:
             env: &paths
@@ -13,41 +13,22 @@ spec:
               - {name: DIRECTORY, value: ($directory)}
               - {name: ENV_DIR, value: ($directory)}
             entrypoint: mkdir
-            args: [-p, "$DIRECTORY/assets-state"]
+            args: [-p, "$DIRECTORY"]
         - command:
             env: *paths
             entrypoint: cp
             args: [identity.json, "$DIRECTORY/identity.yaml"]
         - command:
             env: *paths
-            entrypoint: cp
-            args: [key.json, "$DIRECTORY/assets-state/key.json"]
-        - command: &retry
-            env: *paths
             entrypoint: env
             args: [mise, -C, "$PROJECT_ROOT", run, 'bootstrap:install']
             check:
               ($error != null): true
-              (contains($stderr, 'Preparation was interrupted')): true
+              (contains($stderr, 'up requires a fresh deployment')): true
         - command:
             env: *paths
             entrypoint: cmp
-            args: [key.json, "$DIRECTORY/assets-state/key.json"]
-    - name: preserve an ambiguous creation response for explicit recovery
-      try:
-        - command:
-            env: *paths
-            entrypoint: truncate
-            args: [-s, '0', "$DIRECTORY/assets-state/key.json"]
-        - command: *retry
-        - command:
-            env: *paths
-            entrypoint: test
-            args: ['!', -s, "$DIRECTORY/assets-state/key.json"]
-        - command:
-            env: *paths
-            entrypoint: test
-            args: [-f, "$DIRECTORY/assets-state/key.json"]
+            args: [identity.json, "$DIRECTORY/identity.yaml"]
     - name: require the foundation record after controllers may have started
       try:
         - command:
@@ -61,3 +42,45 @@ spec:
             check:
               ($error != null): true
               (contains($stderr, 'Restore the retained foundation record')): true
+    - name: clean temporary access files when credential issuance fails
+      try:
+        - script:
+            env: *paths
+            content: |
+              set -eu
+              yq eval-all -p=toml -o=toml '
+                select(fileIndex == 0) as $bootstrap | select(fileIndex == 1) as $seed |
+                select(fileIndex == 0) |
+                {"vars": {"ENV_DIR": strenv(DIRECTORY)},
+                 "task_config": {"shell": "bash -euo pipefail -c"},
+                 "tasks": {
+                   "issue": {"run": [$bootstrap."bootstrap:remote-access".run[-1], "touch continued"]},
+                   "bootstrap:remote-access:issue": $seed."bootstrap:remote-access:issue",
+                   "bootstrap:remote-access:cleanup": $seed."bootstrap:remote-access:cleanup"}} |
+                .tasks."bootstrap:remote-access:issue".run = ["touch remote-token.json remote-access.yaml remote-access-observed.json; echo fixture-issuance-failure >&2; exit 23"] |
+                .tasks[].dir = strenv(DIRECTORY)
+              ' "$PROJECT_ROOT/tasks/bootstrap.toml" "$PROJECT_ROOT/tasks/seed.toml" > "$DIRECTORY/dispatch.mise.toml"
+              mise trust "$DIRECTORY/dispatch.mise.toml"
+        - command:
+            env: *paths
+            entrypoint: env
+            args: [MISE_OVERRIDE_CONFIG_FILENAMES=dispatch.mise.toml, mise, -C, "$DIRECTORY", run, issue]
+            check:
+              ($error != null): true
+              (contains($stderr, 'fixture-issuance-failure')): true
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/remote-token.json"]
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/remote-access.yaml"]
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/remote-access-observed.json"]
+        - command:
+            env: *paths
+            entrypoint: test
+            args: ['!', -e, "$DIRECTORY/continued"]

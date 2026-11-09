@@ -192,7 +192,7 @@ yq 'select(.kind == "Vault" or .kind == "Key") | del(.status)' {{ env.TASKV_CACH
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f deploy/secrets/bootstrap-values.yaml --set initialise=true > '{{ env.TASKV_CACHE }}/secrets-bootstrap.yaml'",
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f deploy/secrets/bootstrap-values.yaml --set initialise=false > '{{ env.TASKV_CACHE }}/secrets-established.yaml'",
   '''yq eval-all -e '[select(.kind == "PushSecret" or .kind == "Password")] | length == 0' {{ env.TASKV_CACHE }}/secrets-established.yaml''',
-  '''yq eval-all -e '[select(.kind == "ExternalSecret")] | length == 10' {{ env.TASKV_CACHE }}/secrets-established.yaml''',
+  '''yq eval-all -e '[select(.kind == "ExternalSecret")] | length == 9' {{ env.TASKV_CACHE }}/secrets-established.yaml''',
   '''yq '.metadata.namespace = "secret-check" | with(select(.kind == "SecretStore"); .spec.provider = load("tests/secret-persistence/provider.yaml")) | with(select(.kind == "PushSecret" and .metadata.name == "database-admin"); .spec.data[0].match.remoteRef.property = "password") | with(select(.kind == "ExternalSecret" and .metadata.name == "database-admin"); .spec.data[0].remoteRef.property = "password")' '{{ env.TASKV_CACHE }}/secrets.yaml' > '{{ env.TASKV_CACHE }}/secrets-persistence.yaml'''',
   '''{% for item in ["secrets", "secrets-runtime", "secrets-bootstrap", "secrets-established", "foundation-initial", "foundation-ready", "foundation-recovering"] %}
 crossplane resource validate '{{ env.TASKV_CACHE }}/schemas,charts/secret-foundation/definition.yaml' '{{ env.TASKV_CACHE }}/{{ item }}.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results
@@ -278,9 +278,9 @@ run = [
   '''RELEASE_LOCK={{ ((vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") | quote }} OUTPUT={{ ((env.TASKV_CACHE) ~ "/gitops-pins.yaml") | quote }} mise run gitops:pins''',
   "helm lint '{{ env.TASKV_CHART }}' -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml'",
   "helm template tamoss-gitops '{{ env.TASKV_CHART }}' -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' > '{{ env.TASKV_CACHE }}/gitops-render.yaml'",
-  "helm lint charts/gitops-bootstrap -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' >> '{{ env.TASKV_CACHE }}/gitops-render.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' --set gitops.enabled=true > '{{ env.TASKV_CACHE }}/gitops-auth-render.yaml'",
+  "helm lint charts/gitops-bootstrap -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml'",
+  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' >> '{{ env.TASKV_CACHE }}/gitops-render.yaml'",
+  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' --set gitops.enabled=true > '{{ env.TASKV_CACHE }}/gitops-auth-render.yaml'",
   '''yq 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values' {{ env.TASKV_CACHE }}/gitops-auth-render.yaml > {{ env.TASKV_CACHE }}/runtime-secrets-flux-system.yaml''',
   "helm template tamoss-secrets charts/secrets -n flux-system -f '{{ env.TASKV_CACHE }}/runtime-secrets-flux-system.yaml' > '{{ env.TASKV_CACHE }}/runtime-seed.yaml'",
   '''yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/runtime-seed.yaml > {{ env.TASKV_CACHE }}/runtime-seed-list.yaml''',
@@ -330,9 +330,9 @@ run = [
   "hurlfmt --check tests/http/tadoss.hurl tests/http/tadoss-persistence.hurl",
   '''RELEASE_LOCK={{ ((vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") | quote }} OUTPUT={{ ((env.TASKV_CACHE) ~ "/gitops-pins.yaml") | quote }} mise run gitops:pins''',
   "helm template tamoss-gitops charts/gitops -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml > '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml >> '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml'",
+  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml >> '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml'",
   "helm template tamoss-gitops charts/gitops -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml --set tadoss.enabled=false > '{{ env.TASKV_CACHE }}/tadoss-disabled.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' --set tadoss.enabled=false >> '{{ env.TASKV_CACHE }}/tadoss-disabled.yaml'",
+  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' --set tadoss.enabled=false >> '{{ env.TASKV_CACHE }}/tadoss-disabled.yaml'",
   '''yq 'select(.kind == "CustomResourceDefinition")' {{ env.TASKV_CACHE }}/tadoss-operator.yaml > {{ env.TASKV_CACHE }}/schemas/tadoss.yaml''',
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
   '''{% for item in ["operator", "credentials", "instance"] %}

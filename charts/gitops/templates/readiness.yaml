@@ -6,15 +6,14 @@ spec:
   retryInterval: 30s
   timeout: 15m
   prune: false
-  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
-  sourceRef: {kind: Bucket, name: tamoss-product}
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: OCIRepository, name: tamoss-product}
   # Recheck health after a values change even when the resource names are unchanged.
   commonMetadata:
     annotations:
       tamoss.livewyer.io/configuration-sha256: {{ .Values | toJson | sha256sum | quote }}
   healthChecks:
-    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: Bucket, name: tamoss-product, namespace: flux-system}
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: asset-reader, namespace: flux-system}
+    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: OCIRepository, name: tamoss-product, namespace: flux-system}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: infrastructure, namespace: tamoss-infra}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: adoption-bindings, namespace: tamoss-infra}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: runtime, namespace: tamoss-infra}
@@ -47,7 +46,7 @@ spec:
         has(status.conditions) && status.conditions.exists(c,
         c.type == 'Ready' && c.status == 'True' &&
         has(c.observedGeneration) && c.observedGeneration == metadata.generation)
-{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "Bucket") }}
+{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "OCIRepository") }}
     - apiVersion: {{ .api }}
       kind: {{ .kind }}
       current: >-

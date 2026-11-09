@@ -19,17 +19,18 @@
         "commit": {"type": "string", "pattern": "^$|^[a-f0-9]{40}$"}
       }
     },
-    "network": {"type": "object", "additionalProperties": false, "properties": {
+    "network": {"type": "object", "additionalProperties": false, "required": ["ociServiceId", "ociServiceCidr"], "properties": {
+      "ociServiceId": {"type": "string", "minLength": 1}, "ociServiceCidr": {"type": "string", "minLength": 1},
       "vcn": {"type": "string"}, "api": {"type": "string"}, "workers": {"type": "string"},
       "pods": {"type": "string"}, "database": {"type": "string"}, "loadBalancer": {"type": "string"}, "services": {"type": "string"}
     }},
-    "oke": {"type": "object", "additionalProperties": false, "properties": {
+    "oke": {"type": "object", "additionalProperties": false, "required": ["imageId", "placements"], "properties": {
       "version": {"type": "string", "pattern": "^v1\\.36\\.[0-9]+$"},
-      "imageName": {"type": "string"}, "imageId": {"type": "string"}, "shape": {"type": "string"},
+      "imageId": {"type": "string", "minLength": 1}, "shape": {"type": "string"},
       "ocpus": {"type": "integer", "minimum": 2}, "memoryGiB": {"type": "integer", "minimum": 16},
-      "placements": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": false,
+      "placements": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "object", "additionalProperties": false,
         "required": ["availabilityDomain", "faultDomain"], "properties": {
-          "availabilityDomain": {"type": "string"}, "faultDomain": {"enum": ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]}
+          "availabilityDomain": {"type": "string", "minLength": 1}, "faultDomain": {"enum": ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]}
         }}}
     }},
     "database": {"type": "object", "additionalProperties": false, "properties": {
@@ -38,16 +39,15 @@
       "regionalStorage": {"type": "boolean"}, "availabilityDomain": {"type": "string"},
       "backupRetentionDays": {"type": "integer", "minimum": 1, "maximum": 35}
     }},
-    "storage": {"type": "object", "additionalProperties": false, "properties": {
-      "bucket": {"type": "string"}
+    "storage": {"type": "object", "additionalProperties": false, "required": ["namespace"], "properties": {
+      "namespace": {"type": "string", "minLength": 1}, "bucket": {"type": "string"}
     }},
-    "assets": {"type": "object", "additionalProperties": false, "properties": {
-      "bucket": {"type": "string", "pattern": "^$|^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}$"}
+    "storageIdentity": {"type": "object", "additionalProperties": false, "required": ["domainId", "idcsEndpoint"], "properties": {
+      "domainId": {"type": "string", "minLength": 1}, "idcsEndpoint": {"type": "string", "pattern": "^https://[^/]+/?$"}
     }},
     "foundation": {"type": "object", "additionalProperties": false, "properties": {
       "name": {"type": "string"}, "adoption": {"type": "object"}
     }},
-    "bundles": {"type": "object"},
-    "discovery": {"type": "object"}
+    "bundles": {"type": "object"}
   }
 }

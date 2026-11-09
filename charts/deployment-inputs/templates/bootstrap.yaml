@@ -16,8 +16,6 @@ spec:
   storageCredentials:
 {{ required "storage identity discovery is required" $settings.storageIdentity | toYaml | indent 4 }}
     image: {{ $dependencies.bootstrapTools.image | quote }}
-  assets:
-{{ include "deployment.assets" . | indent 4 }}
   vaultAuth:
     user: {{ $id.oci.user | quote }}
     tenancy: {{ $id.oci.tenancy | quote }}

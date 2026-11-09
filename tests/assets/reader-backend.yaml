@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-asset-reader
-  namespace: secret-backend
-stringData: {accesskey: fixture, secretkey: fixture}

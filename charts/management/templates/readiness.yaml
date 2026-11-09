@@ -7,8 +7,8 @@ spec:
   retryInterval: 30s
   timeout: 30m
   prune: false
-  sourceRef: {kind: Bucket, name: {{ $.Values.sourceName }}}
-  path: {{ printf "./%sdeploy/gitops/readiness" $.Values.assets.prefix | quote }}
+  sourceRef: {kind: OCIRepository, name: {{ $.Values.sourceName }}}
+  path: ./deploy/gitops/readiness
   healthChecks:
     - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossBootstrap, name: {{ .metadata.name }}, namespace: tamoss-infra}
   healthCheckExprs:

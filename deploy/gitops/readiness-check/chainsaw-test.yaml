@@ -13,7 +13,7 @@ spec:
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               status:
-                (lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'flux-system', 'tamoss-product').status.artifact.revision): true
+                (lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
             resource:
@@ -23,17 +23,16 @@ spec:
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               status:
-                (lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'flux-system', 'tamoss-product').status.artifact.revision): true
+                (lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
                 (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: observe the selected product and its chart
       try:
         - assert:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: Bucket
+              kind: OCIRepository
               metadata: {name: tamoss-product, namespace: flux-system}
-              spec:
-                prefix: ($values.assetPrefix)
+              (status.artifact.revision == spec.ref.digest): true
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               (length(status.artifact.revision || '') > `0`): true
@@ -42,11 +41,11 @@ spec:
         - assert:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: HelmChart
-              metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
+              kind: OCIRepository
+              metadata: {name: tamoss-chart-gitops, namespace: flux-system}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'flux-system', 'tamoss-product').status.artifact.revision): true
+              (status.artifact.revision == spec.ref.digest): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
     - name: observe the current values and rendered workload health
@@ -58,7 +57,7 @@ spec:
               metadata: {name: tamoss-gitops, namespace: tamoss-infra}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'flux-system', 'tamoss-infra-tamoss-gitops').status.artifact.revision): true
+              (status.lastAttemptedRevisionDigest == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-chart-gitops').spec.ref.digest): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
@@ -68,6 +67,6 @@ spec:
               metadata: {name: deployment-ready, namespace: flux-system}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (status.lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'flux-system', 'tamoss-product').status.artifact.revision): true
+              (status.lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'

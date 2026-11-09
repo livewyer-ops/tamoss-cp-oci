@@ -1,12 +1,10 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: Bucket
+kind: OCIRepository
 metadata: {name: oke-bootstrap-fixture, namespace: tamoss-infra}
 spec:
   interval: 1m
   suspend: true
-  provider: generic
-  bucketName: fixture
-  endpoint: storage.example.invalid
+  url: oci://example.invalid/fixture
 ---
 apiVersion: v1
 kind: ConfigMap

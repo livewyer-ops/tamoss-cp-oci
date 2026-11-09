@@ -104,8 +104,7 @@ hide = true
 run = [
   "mkdir -p '{{ env.DIRECTORY }}/inventory-after'",
   '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"audit": ."cloud:audit"}} | del(.tasks.audit.run[0])' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
-  '''yq -n '{"bucketName": "assets", "storeId": "fixture"}' > '{{ env.DIRECTORY }}/asset-store.yaml'''',
-  '''yq -n -o=json '{"data": [{"name": "assets", "freeform-tags": {"tamoss-asset-store-id": "fixture"}}]}' > '{{ env.DIRECTORY }}/inventory-after/buckets.json'''',
+  '''yq -n -o=json '{"data": []}' > '{{ env.DIRECTORY }}/inventory-after/buckets.json'''',
   '''yq -n -o=json '{"data": [{"name": "old", "lifecycle-state": "TERMINATED"}]}' > '{{ env.DIRECTORY }}/inventory-after/volumes.json'''',
   "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
 ]

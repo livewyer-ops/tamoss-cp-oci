@@ -1,57 +1,24 @@
-{{- if .Values.discovery }}
+{{- if .Values.oci }}
 {{- $v := .Values -}}
-{{- $d := $v.discovery -}}
-{{- $services := list -}}
-{{- range $d.services -}}
-{{- if regexMatch "^all-.*-services-in-oracle-services-network$" (index . "cidr-block") -}}
-{{- $services = append $services . -}}
-{{- end -}}
-{{- end -}}
-{{- if ne (len $services) 1 -}}{{ fail "Expected exactly one OCI all-services network in the selected region" }}{{- end -}}
-{{- $images := list -}}
-{{- range $d.nodeOptions.sources -}}
-{{- if or (and $v.oke.imageId (eq (index . "image-id") $v.oke.imageId)) (and (not $v.oke.imageId) (eq (index . "source-name") $v.oke.imageName)) -}}
-{{- $images = append $images . -}}
-{{- end -}}
-{{- end -}}
-{{- if ne (len $images) 1 -}}{{ fail "The pinned OKE image is unavailable or ambiguous; select a compatible oke.imageId or oke.imageName" }}{{- end -}}
-{{- if not (has $v.oke.version (index $d.nodeOptions "kubernetes-versions")) -}}{{ fail "Selected OKE version is unavailable in this region" }}{{- end -}}
-{{- if not (has $v.oke.shape $d.nodeOptions.shapes) -}}{{ fail "Selected worker shape is unavailable in this region" }}{{- end -}}
-{{- $domains := list -}}
-{{- range $d.domains -}}{{- $domains = append $domains .name -}}{{- end -}}
-{{- $domains = sortAlpha $domains -}}
-{{- $placements := $v.oke.placements -}}
-{{- if not $placements -}}
-{{- if ne (len $domains) 3 -}}{{ fail "Default HA placement requires three availability domains; supply oke.placements for another supported topology" }}{{- end -}}
-{{- range $domains -}}{{- $placements = append $placements (dict "availabilityDomain" . "faultDomain" "FAULT-DOMAIN-1") -}}{{- end -}}
-{{- end -}}
-{{- range $placements -}}
-{{- if not (has .availabilityDomain $domains) -}}{{ fail "Worker placement references an unavailable availability domain" }}{{- end -}}
-{{- end }}
 apiVersion: tamoss.livewyer.io/v1alpha1
 kind: TamossEnvironment
 metadata:
   name: {{ $v.name }}
   namespace: tamoss-infra
 spec:
-  region: {{ required "OCI profile region is required" $d.region | quote }}
+  region: {{ required "OCI profile region is required" $v.oci.region | quote }}
   compartmentId: {{ $v.compartmentId | quote }}
   providerConfigName: oci
   owner: {{ $v.owner | default $v.contactEmail | quote }}
   network:
 {{ $v.network | toYaml | indent 4 }}
     adminCidrs: {{ $v.adminCidrs | toJson }}
-    ociServiceId: {{ (first $services).id | quote }}
-    ociServiceCidr: {{ index (first $services) "cidr-block" | quote }}
   oke:
-{{ omit $v.oke "imageName" "imageId" "placements" | toYaml | indent 4 }}
-    imageId: {{ index (first $images) "image-id" | quote }}
-    placements:
-{{ $placements | toYaml | indent 6 }}
+{{ $v.oke | toYaml | indent 4 }}
   database:
 {{ $v.database | toYaml | indent 4 }}
     credentialsSecret: database-admin
   storage:
-    namespace: {{ required "Object Storage namespace is required" $d.namespace | quote }}
+    namespace: {{ $v.storage.namespace | quote }}
     bucket: {{ $v.storage.bucket | default (printf "tamoss-%s-media" $v.name) | quote }}
 {{- end }}

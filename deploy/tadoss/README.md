@@ -18,8 +18,8 @@ The workflow verifies anonymous consumption; OKE needs no registry credential.
 
 Downloads have size/time limits and must match the committed checksums. The
 public `tadoss-release-assets` bundle contains only unchanged published assets
-and a static Kustomize entrypoint. The host copies its digest-pinned contents into
-the client snapshot, which Flux consumes. No local
+and a static Kustomize entrypoint. CI copies its digest-pinned contents into
+the deployment bundle, which Flux consumes. No local
 credentials, source checkout or private notes are included.
 Select `tadoss` in the release publishing workflow's application input to publish
 that bundle; the existing TAMOSS bundle can retain its verified digest.
@@ -29,7 +29,7 @@ that bundle; the existing TAMOSS bundle can retain its verified digest.
 Use the [GitOps workflow](../gitops/README.md). The product's
 [release lock](release.yaml) selects the published public TADOSS bundle.
 Publication includes it alongside TAMOSS, even while TADOSS is disabled. Both
-upstream bundles are public; cluster access uses the client asset reader.
+upstream bundles are public; Flux reads deployment artifacts anonymously.
 
 Bootstrap prepares persisted TADOSS database and OAuth credentials in Vault and
 restricts their readers to this environment's cluster and service accounts.

@@ -26,19 +26,16 @@ Allow group id <provisioner-group-ocid> to manage cluster-family in compartment 
 
 ## Storage IAM permissions
 
-Setup discovers the active Default identity domain. The provisioner needs domain
-discovery and permission to manage users/groups with the reserved
-`tamoss-storage-` and `tamoss-assets-` name prefixes. An account administrator grants these permissions
+Supply the active Default identity domain's OCID and endpoint in `values.yaml`.
+The provisioner needs permission to manage users/groups with the reserved
+the `tamoss-storage-` name prefix. An account administrator grants these permissions
 once; deployment does not authorise itself:
 
 ```text
-Allow group id <provisioner-group-ocid> to read domains in tenancy
 Allow group id <provisioner-group-ocid> to inspect users in tenancy where target.resource.domain.name = 'Default'
 Allow group id <provisioner-group-ocid> to inspect groups in tenancy
 Allow group id <provisioner-group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
 Allow group id <provisioner-group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
-Allow group id <provisioner-group-ocid> to manage users in tenancy where target.user.name = /tamoss-assets-*/
-Allow group id <provisioner-group-ocid> to manage groups in tenancy where target.group.name = /tamoss-assets-*/
 ```
 
 Inspection permits discovery and deletion audits; it does not permit changes to
@@ -67,16 +64,8 @@ credentials and policies can take time to propagate.
 
 ## Deployment asset access
 
-Before Kind starts, the native host OCI CLI creates a private asset bucket and
-a separate `tamoss-assets-<deployment-id>` reader. It grants only `read buckets`
-and `read objects`, restricted to that bucket. The publisher uses the provisioner's
-existing bucket/object permissions; its signing credential is never supplied to
-a Flux Bucket source. The reader enables Customer Secret Keys only and cannot
-write deployment assets or access application media.
-
-ESO persists the reader in Vault. A separate OKE workload identity retrieves
-only that deployment's reader secret before its Bucket source is applied.
-See [asset ownership and recovery](../assets/README.md).
+Flux reads deployment artifacts anonymously from their pinned public OCI locations.
+No asset-reader IAM identity or Vault delivery is created.
 
 ## Retirement
 
@@ -86,8 +75,6 @@ its absence. Crossplane then deletes the deployment's storage policy, membership
 user before Vault secrets are retired. Unrecorded keys block identity deletion.
 OCI requires the group to be empty; provider reconciliation retries group
 deletion until its membership is removed.
-The host also revokes the asset reader and deletes its dedicated IAM resources.
-The asset bucket remains until explicit `mise run assets:retire`.
 The original compartment and provisioner remain administrator-owned. Retire
 temporary account prerequisites through the administrator's credential workflow
 only after all deployment cleanup has completed.

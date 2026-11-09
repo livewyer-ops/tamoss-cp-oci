@@ -4,8 +4,5 @@ metadata: {name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
 spec:
   interval: 1m
   suspend: true
-  chart:
-    spec:
-      chart: ./charts/gitops-bootstrap
-      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-gitops-bootstrap, namespace: flux-system}
   values: {vaultId: ocid1.vault.oc1.changed-after-retirement}

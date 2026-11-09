@@ -6,8 +6,8 @@ spec:
   timeout: 5m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
-  path: {{ printf "./%supstream/calico" .Values.assets.prefix | quote }}
+  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
+  path: ./upstream/calico
   healthChecks:
     - {apiVersion: apps/v1, kind: DaemonSet, name: calico-node, namespace: kube-system}
   patches:

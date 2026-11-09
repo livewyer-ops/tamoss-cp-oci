@@ -160,7 +160,7 @@ afterwards. The container receives neither OCI credentials nor the Docker socket
 
 A failed qualification leaves the deployment running for investigation. Preserve
 evidence and continue independent checks as appropriate. Follow
-[operations](operations.md#retry-a-failed-deployment).
+[operations](operations.md).
 
 ## Verified coverage and limits
 
@@ -169,9 +169,11 @@ credential completion and waits on Flux readiness. Its local render and contract
 coverage does not qualify the complete OCI lifecycle. The cloud results below
 predate this installer change and must not be treated as proof of it.
 
-Setup contracts exercise private initialisation, preserved edits, deterministic
-regional selections, unavailable/ambiguous images, invalid configuration and
-refusal of interrupted host preparation. An assisted OCI deployment consumed a
+Setup contracts exercise private initialisation, profile inheritance, explicit
+OCI settings, credential exclusion from render inputs, invalid configuration and
+refusal to overwrite an existing deployment identity. Installation contracts
+cover fresh deployment, rejection of repeated installation and preservation of
+records after failure. An assisted OCI deployment consumed a
 private client-owned snapshot built from a committed, unpushed product revision.
 Kind and OKE used that snapshot without product Git access. Native GitHub
 bootstrap and Vault-backed SSH handover passed, followed by Git-only TADOSS
@@ -197,7 +199,7 @@ or that earlier intermittent ACME connection timeouts are resolved.
 
 | Behaviour | Observed status |
 | --- | --- |
-| Client-owned assets | Private upload/readback, exact object-set verification, repeated publication and denied reader writes passed. Kind and OKE consumed the same snapshot while its product commit remained unpushed. OKE source-controller replacement recovered the identical artifact digest with Kind stopped |
+| Historical bucket-based release assets | Private upload/readback, exact object-set verification, repeated publication and denied reader writes passed. Kind and OKE consumed the same snapshot while its product commit remained unpushed. OKE source-controller replacement recovered the identical artifact digest with Kind stopped |
 | Automatic storage identity and credentials | Crossplane IAM creation, generated key, exact Vault readback, application storage and native storage IAM retirement passed during the full deployment. Separate isolated checks cover restricted capabilities, denial for another bucket and preservation across provider restarts |
 | TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
 | Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
@@ -212,3 +214,7 @@ or that earlier intermittent ACME connection timeouts are resolved.
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
+
+The direct OCI chart contract requires fresh qualification. Historical bucket-based
+deployment results do not qualify it. Local management checks publish the current
+charts to a disposable registry and exercise Flux digest consumption in Kind.

@@ -2,11 +2,11 @@
 {{- $releases := list
   (dict "name" "crossplane" "repository" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" (dict "image" (dict "repository" .Values.dependencies.crossplane.imageRepository)) "needs" list)
   (dict "name" "external-secrets" "repository" "external-secrets" "chart" "external-secrets" "version" .Values.dependencies.externalSecrets.version "values" .Values.externalSecrets "needs" list)
-  (dict "name" "oci-family" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "crossplane"))
-  (dict "name" "oci-services" "chart" "./charts/packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true "foundation" true)) "needs" (list "oci-family"))
-  (dict "name" "tamoss-environment-api" "chart" "./charts/environment" "values" dict "needs" (list "crossplane"))
-  (dict "name" "tamoss-secret-foundation-api" "chart" "./charts/secret-foundation" "values" dict "needs" (list "crossplane"))
-  (dict "name" "tamoss-bootstrap-api" "chart" "./charts/bootstrap" "values" (dict "environmentDefinition" .Values.environmentDefinition "foundationDefinition" .Values.foundationDefinition "secretBootstrapFile" .Values.secretBootstrapFile) "needs" (list "crossplane")) -}}
+  (dict "name" "oci-family" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "crossplane"))
+  (dict "name" "oci-services" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true "foundation" true)) "needs" (list "oci-family"))
+  (dict "name" "tamoss-environment-api" "chart" "environment" "values" dict "needs" (list "crossplane"))
+  (dict "name" "tamoss-secret-foundation-api" "chart" "secret-foundation" "values" dict "needs" (list "crossplane"))
+  (dict "name" "tamoss-bootstrap-api" "chart" "bootstrap" "values" (dict "environmentDefinition" .Values.environmentDefinition "foundationDefinition" .Values.foundationDefinition "secretBootstrapFile" .Values.secretBootstrapFile) "needs" (list "crossplane")) -}}
 {{- range $releases }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -32,15 +32,14 @@ spec:
     - name: {{ . }}
 {{ end }}
 {{ end }}
+{{ if .repository }}
   chart:
     spec:
-      chart: {{ if .repository }}{{ .chart }}{{ else }}{{ printf "./%s%s" $.Values.assets.prefix (trimPrefix "./" .chart) | quote }}{{ end }}
-{{ if .repository }}
+      chart: {{ .chart }}
       version: {{ .version | quote }}
-      sourceRef: {kind: HelmRepository, name: {{ .repository }}}
+      sourceRef: {kind: HelmRepository, name: {{ .repository }}, namespace: tamoss-infra}
 {{ else }}
-      reconcileStrategy: Revision
-      sourceRef: {kind: Bucket, name: {{ $.Values.sourceName }}}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-{{ .chart }}, namespace: tamoss-infra}
 {{ end }}
   values:
 {{ .values | toYaml | indent 4 }}

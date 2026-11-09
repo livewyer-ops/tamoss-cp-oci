@@ -3,52 +3,33 @@ kind: Test
 metadata: {name: setup-contracts}
 spec:
   steps:
-    - name: initialise privately and render deterministic HA defaults without lifetime inputs
+    - name: initialise privately and render explicit OCI inputs with HA capacity defaults
       try:
         - command:
             entrypoint: env
             env: &paths [{name: PROJECT_ROOT, value: ($values.root)}]
             args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture-defaults"]
-    - name: reject missing or ambiguous Default identity domains
-      try:
-        - command:
-            entrypoint: yq
-            env: &domainpaths [{name: ROOT, value: ($values.root)}]
-            args: [-i, '.data = []', $ROOT/.local/tmp/check/setup/discovery/identity-domains.json]
-        - command: &domainrender
-            entrypoint: mise
-            env: *domainpaths
-            args: [-C, $ROOT, run, 'test:setup:render']
-            check:
-              ($error != null): true
-              (contains($stderr, 'exactly one active Default identity domain')): true
-        - command:
-            entrypoint: yq
-            env: *domainpaths
-            args: [-i, '.data = load(strenv(ROOT) + "/tests/setup/discovery/identity-domains.json").data | .data += .data', $ROOT/.local/tmp/check/setup/discovery/identity-domains.json]
-        - command: *domainrender
-        - command:
-            entrypoint: mise
-            env: *domainpaths
-            args: [-C, $ROOT, run, 'test:setup:fixture']
-    - name: reject ambiguous images
+    - name: preserve the supplied image and placement order without discovery
       try:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:ambiguous"]
-            check:
-              ($error != null): true
-              (contains($stderr, 'unavailable or ambiguous')): true
-    - name: reject unavailable images
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:explicit"]
+    - name: require the prepared OCI settings
       try:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:unavailable"]
+            args: ["ROOT=$PROJECT_ROOT", "CHANGE=.storageIdentity.domainId = \"\" | .storageIdentity.idcsEndpoint = \"\" | .storage.namespace = \"\" | .network.ociServiceId = \"\" | .network.ociServiceCidr = \"\" | .oke.imageId = \"\" | .oke.placements = []", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:bad-input"]
             check:
               ($error != null): true
-              (contains($stderr, 'unavailable or ambiguous')): true
+              (contains($stderr, 'storageIdentity.domainId')): true
+              (contains($stderr, 'storageIdentity.idcsEndpoint')): true
+              (contains($stderr, 'storage.namespace')): true
+              (contains($stderr, 'network.ociServiceId')): true
+              (contains($stderr, 'network.ociServiceCidr')): true
+              (contains($stderr, 'oke.imageId')): true
+              (contains($stderr, 'oke.placements')): true
     - name: reject unrestricted API access and development configuration
       try:
         - command:
@@ -102,7 +83,7 @@ spec:
             args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:interrupted"]
             check:
               ($error != null): true
-              (contains($stderr, 'Preparation was interrupted')): true
+              (contains($stderr, 'up requires a fresh deployment')): true
     - name: retain existing deployment directories
       try:
         - command:

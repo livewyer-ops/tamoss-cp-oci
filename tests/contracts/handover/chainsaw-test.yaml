@@ -89,13 +89,17 @@ spec:
         - command: *complete
         - command: *unhealthy
         - command: *failed
-    - name: deployment completes once without handing over and repeats retain access
+    - name: fresh deployment completes without handing over and refuses another installation
       try:
         - command: *prepare
-        - command:
+        - command: &fresh
             entrypoint: yq
             env: *paths
             args: [-i, '.deploymentReady = false | .gitopsEstablished = false', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: &remove-identity
+            entrypoint: mv
+            env: *paths
+            args: ['$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml', '$PROJECT_ROOT/.local/tmp/check/handover-flow/fresh-identity.yaml']
         - command: &up
             entrypoint: env
             env: *paths
@@ -107,21 +111,48 @@ spec:
         - command:
             entrypoint: yq
             env: *paths
-            args: [-e, '.observations == 1 and .provisions == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
-        - command: *up
-        - command: *deployed
-        - command:
-            entrypoint: yq
+            args: [-e, '.observations == 1 and .provisions == 1 and .accessReads == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: &before-rejected
+            entrypoint: cp
             env: *paths
-            args: [-e, '.observations == 1 and .provisions == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+            args: ['$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml', '$PROJECT_ROOT/.local/tmp/check/handover-flow/before-rejected.yaml']
+        - command: &rejected-up
+            <<: *up
+            check:
+              ($error != null): true
+              (contains($stderr, 'up requires a fresh deployment')): true
+        - command: &unchanged
+            entrypoint: cmp
+            env: *paths
+            args: ['$PROJECT_ROOT/.local/tmp/check/handover-flow/before-rejected.yaml', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: *deployed
         - command: *resume
         - command: *complete
-        - command: *up
+        - command: *before-rejected
+        - command: *rejected-up
+        - command: *unchanged
         - command: *complete
         - command:
             entrypoint: yq
             env: *paths
             args: [-e, '.observations == 3 and .provisions == 1 and .starts == 1 and .publications == 1', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+    - name: installation failure stops later stages and preserves records without resuming
+      try:
+        - command: *prepare
+        - command: *fresh
+        - command: *remove-identity
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ['STOP_AT=during-install', mise, -C, '$PROJECT_ROOT', run, 'test:handover:up']
+            check: *interruption
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-e, '.deploymentUID == "original" and .deploymentReady == false and .provisions == 0 and .observations == 0 and .accessReads == null', '$PROJECT_ROOT/.local/tmp/check/handover-flow/identity.yaml']
+        - command: *before-rejected
+        - command: *rejected-up
+        - command: *unchanged
     - name: failed Git attachment leaves the quick deployment available
       try:
         - command: *prepare
@@ -134,7 +165,9 @@ spec:
             env: *paths
             args: ["STOP_AT=before-git", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
-        - command: *up
+        - command: *before-rejected
+        - command: *rejected-up
+        - command: *unchanged
         - command: *deployed
         - command:
             entrypoint: yq
@@ -148,11 +181,9 @@ spec:
             env: *paths
             args: ["STOP_AT=after-iam", "mise", "-C", "$PROJECT_ROOT", "run", "test:handover:run"]
             check: *interruption
-        - command:
-            <<: *up
-            check:
-              ($error != null): true
-              (contains($stderr, 'resume mise run handover')): true
+        - command: *before-rejected
+        - command: *rejected-up
+        - command: *unchanged
         - command: *resume
         - command: *complete
     - name: failed promoted readiness cannot stop Kind
@@ -211,11 +242,9 @@ spec:
             check:
               ($error != null): true
               (contains($stderr, 'Teardown has started')): true
-        - command:
-            <<: *up
-            check:
-              ($error != null): true
-              (contains($stderr, 'Teardown has started')): true
+        - command: *before-rejected
+        - command: *rejected-up
+        - command: *unchanged
         - command:
             entrypoint: yq
             env: *paths

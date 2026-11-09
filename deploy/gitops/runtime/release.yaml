@@ -11,11 +11,7 @@ spec:
   upgrade:
     disableWait: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chart:
-    spec:
-      chart: ./${ASSET_PREFIX}charts/gitops
-      reconcileStrategy: Revision
-      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-gitops, namespace: flux-system}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
     - {kind: ConfigMap, name: '${VALUES_CONFIGMAP}', valuesKey: values.yaml}

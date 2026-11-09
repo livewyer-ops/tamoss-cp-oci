@@ -219,7 +219,7 @@ env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
 hide = true
 run = [
   "INVENTORY_DIR='{{ vars.ENV_DIR }}/inventory-after' mise run cloud:inventory",
-  '''yq eval-all -e '[filename as $source | .data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED") | select($source != "{{ vars.ENV_DIR }}/inventory-after/buckets.json" or .name != load("{{ vars.ENV_DIR }}/asset-store.yaml").bucketName or ."freeform-tags"."tamoss-asset-store-id" != load("{{ vars.ENV_DIR }}/asset-store.yaml").storeId)] | length == 0' '{{ vars.ENV_DIR }}/inventory-after/'*.json > /dev/null || { echo 'Resources remain in the dedicated compartment; retain Kind and inspect inventory-after.' >&2; exit 1; }''',
+  '''yq eval-all -e '[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED")] | length == 0' '{{ vars.ENV_DIR }}/inventory-after/'*.json > /dev/null || { echo 'Resources remain in the dedicated compartment; retain Kind and inspect inventory-after.' >&2; exit 1; }''',
 ]
 
 ["cloud:prepare-deletion"]

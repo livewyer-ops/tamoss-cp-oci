@@ -1,0 +1,18 @@
+name: setup-test
+compartmentId: ocid1.compartment.oc1.fixture
+contactEmail: operator@example.test
+adminCidrs: [192.0.2.10/32]
+storageIdentity:
+  domainId: ocid1.domain.oc1.fixture
+  idcsEndpoint: https://identity.example.test:443/
+storage:
+  namespace: fixture
+network:
+  ociServiceId: ocid1.service.oc1.fixture
+  ociServiceCidr: all-fra-services-in-oracle-services-network
+oke:
+  imageId: ocid1.image.oc1.fixture
+  placements:
+    - {availabilityDomain: 'fixture:AD-1', faultDomain: FAULT-DOMAIN-1}
+    - {availabilityDomain: 'fixture:AD-2', faultDomain: FAULT-DOMAIN-1}
+    - {availabilityDomain: 'fixture:AD-3', faultDomain: FAULT-DOMAIN-1}

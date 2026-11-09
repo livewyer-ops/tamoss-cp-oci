@@ -42,7 +42,7 @@ run = [
 env.TASKV_GITOPS_VALUES = '''{{ env.GITOPS_VALUES | default(value="") }}'''
 env.TASKV_PRODUCT_COMMIT = '''{{ env.PRODUCT_COMMIT | default(value="") }}'''
 
-env.TASKV_SOURCE = '''{{ vars.ENV_DIR }}/assets-verification/{{ read_yaml(path=env.TASKV_GITOPS_VALUES) | get(key="assets") | get(key="prefix") }}'''
+env.TASKV_SOURCE = '''{{ vars.ENV_DIR }}/assets-verification/'''
 
 ["management:check:run"]
 hide = true
@@ -104,6 +104,7 @@ env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
+  "mise run test:oci:cleanup",
   "kind delete cluster --name '{{ env.TASKV_CHECK_NAME }}'",
 ]
 env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''

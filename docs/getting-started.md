@@ -36,7 +36,7 @@ following settings must be supplied before `up`.
 Use a precreated compartment with quota for three OKE workers, two PostgreSQL
 nodes, networking, storage and a load balancer. The [account prerequisites](../deploy/oci/README.md)
 define infrastructure and restricted identity-management permissions. Deployment
-creates separate application storage and deployment-asset readers. The provisioner also needs the [Vault and runtime IAM permissions](../deploy/gitops/README.md#inputs-and-secret-delivery).
+creates the application storage identity. The provisioner also needs the [Vault and runtime IAM permissions](../deploy/gitops/README.md#inputs-and-secret-delivery).
 These account prerequisites can be reused across deployments.
 
 ### API signing profile
@@ -55,17 +55,14 @@ key_file=/absolute/path/to/oci_api_key.pem
 Restrict the configuration and key to mode `600` and their directory to `700`.
 `OCI_CLI_CONFIG_FILE` and `OCI_CLI_PROFILE` select another file/profile; their
 defaults are `~/.oci/config` and `DEFAULT`. The deployment reads its region from
-that profile. Verify it with the installed native CLI:
-
-```bash
-mise exec -- oci os ns get
-```
+that profile.
 
 ### Storage identity
 
 Crossplane creates a dedicated storage user, group and bucket access policy in
-the tenancy's Default identity domain. Setup discovers that domain and reuses
-`contactEmail`; there is no storage user OCID to enter. The provisioner needs the
+the tenancy's Default identity domain. Supply that domain's OCID and endpoint in
+`storageIdentity`; the generated user reuses `contactEmail`. There is no storage
+user OCID to enter. The provisioner needs the
 [storage IAM permissions](../deploy/oci/README.md#storage-iam-permissions).
 
 The default bucket is `tamoss-media-demo-media`. Setting `name` changes it to
@@ -81,18 +78,27 @@ Database and application passwords are also generated and persisted in Vault.
 
 The quick deployment needs no GitHub login, environment repository or registry
 credentials. The host fetches the CI deployment release pinned in
-`dependencies.yaml` and copies it to a private client-owned OCI bucket. Kind and
-OKE read that copy. Local source edits do not enter the release; contributors
+`dependencies.yaml`. Flux in Kind and OKE reads its manifest bundle and packaged
+Helm charts directly from the public registry by digest. Local source edits do not enter the release; contributors
 publish and pin a new bundle before deploying their changes. Use a dedicated
 compartment with no workload resources.
 
-Edit `.local/environment/values.yaml`:
+Complete `.local/environment/values.yaml`, copied from the
+[example settings](../environments/example/values.yaml). Have the account
+administrator prepare the OCI values for the selected tenancy and region:
 
-```yaml
-compartmentId: ocid1.compartment.oc1..REPLACE
-contactEmail: operator@example.com
-adminCidrs: [192.0.2.10/32]
-```
+| Input | Value to supply |
+| --- | --- |
+| `compartmentId`, `contactEmail`, `adminCidrs` | Empty deployment compartment, operator contact and administrator API allowlist |
+| `storageIdentity.domainId`, `storageIdentity.idcsEndpoint` | Default identity domain OCID and HTTPS endpoint |
+| `storage.namespace` | Tenancy's Object Storage namespace |
+| `network.ociServiceId`, `network.ociServiceCidr` | Regional All Services network OCID and service CIDR label |
+| `oke.imageId` | OKE-compatible x86-64 image OCID for the selected Kubernetes version and worker shape |
+| `oke.placements` | Worker availability-domain names and fault domains; the example has three placements |
+
+Reuse the prepared tenancy/region values for fresh deployments. Update them when
+the tenancy, region, worker image or placement changes. The installer does not
+query OCI catalogues or check regional image/shape availability before provisioning.
 
 Use your actual public egress IPv4 address, including any VPN gateway, for the
 API allowlist. The name defaults to `media-demo`; choose another unused `name`
@@ -100,7 +106,7 @@ for a separate environment. Names have 3–23 lowercase letters, digits or hyphe
 starting with a letter and ending with a letter or digit.
 
 The [defaults](../charts/setup/values.yaml) supply HA capacity, network ranges,
-PostgreSQL settings and a qualified OKE version/image. Owner, ACME contact and
+PostgreSQL settings and the OKE version. Owner, ACME contact and
 administrator email use `contactEmail`. The Vault foundation defaults to
 `<name>-vault`. TADOSS credentials are prepared, with the application disabled.
 
@@ -108,18 +114,10 @@ administrator email use `contactEmail`. The Vault foundation defaults to
 mise run up
 ```
 
-`up` fetches the pinned deployment release and renders validated inputs. Native
-OCI queries resolve the storage namespace, service network, availability domains
-and pinned worker image. Default placement requires three availability domains;
-Frankfurt is the previously qualified region. Unavailable or ambiguous selections
-stop the build rather than silently choosing another image.
-
-Before Kind starts, the host creates the private asset bucket and a separate
-read-only identity and uploads the release with OCI checksum verification.
-The asset-reader key is seeded into Kind and removed from local files after the
-seed is accepted. ESO persists it to Vault; Crossplane waits for all expected
-credential deliveries before retiring staging resources. Its permissions cover this
-asset bucket only; the application storage identity remains separate.
+`up` fetches the pinned deployment release and renders the supplied inputs.
+Helm checks required fields and input types. OCI handles deployment compatibility
+errors. Frankfurt with three availability domains is the previously qualified
+placement.
 
 Kind starts Flux, Crossplane and Vault credential persistence. Once OKE is ready,
 the host records its identity and creates a temporary bootstrap ServiceAccount.
@@ -132,14 +130,14 @@ and applications independently of the host.
 After public TLS and application readiness pass, `up` suspends Kind's remote
 bootstrap Kustomizations, stops their controller and revokes the bootstrap
 ServiceAccount. It then prints URLs and writes initial login details to
-`.local/environment/access/ui-login.json` with owner-only permissions. If setup
-outlives the server-issued token, rerun `up` to renew it. An interrupted retirement
-resumes cleanup without renewing access or resubmitting workloads.
+`.local/environment/access/ui-login.json` with owner-only permissions. If bootstrap
+access expires before completion, follow
+[failed-deployment cleanup](operations.md#clean-up-a-failed-deployment).
 
-Kind remains the infrastructure writer. Applications run on OKE. Repeating `up`
-reuses the original identity and does not replay a completed remote seed. Keep
-`values.yaml` unchanged after inputs are recorded. `mise run check` is a contributor
-validation command; it is not required before each deployment.
+Kind remains the infrastructure writer. Applications run on OKE. `up` accepts
+only a fresh deployment directory; it refuses an existing deployment identity.
+Keep `values.yaml` unchanged while installation runs. `mise run check` is a
+contributor validation command; it is not required before each deployment.
 
 ## Optional GitOps handover
 
@@ -206,26 +204,24 @@ Keep subnets inside the selected VCN. Reuse an owned Vault/key through
 `foundation.name` and recorded `foundation.adoption` fields; a matching name is
 not proof of ownership.
 
-`product.url` records source provenance. Publication uses the exact local commit;
-no remote branch membership is required. `assets.bucket` overrides the derived
-asset bucket name. A same-named bucket must carry the recorded ownership tag;
-the workflow never adopts an unrelated store. See [client assets](../deploy/assets/README.md).
+`product.url` records source provenance. Local source edits require a new published
+release and digest pin. See [release artifacts](../deploy/assets/README.md).
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
-| Recorded bootstrap input | `setup-values.yaml` |
+| Deployment input | `values.yaml` |
 | Resolved product, infrastructure and settings | `product.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
 | Initial deployment configuration | `deployment/`, `deployment.yaml` |
-| Client asset store and selected snapshot | `asset-store.yaml`, `assets.lock.yaml` |
-| OCI discovery and package checks | `discovery/` |
+| Selected bundle and chart digests | `assets.lock.yaml` |
+| Protected OCI profile and render inputs | `discovery/` |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Cloud outputs and adoption record | `outputs.json`, `adoption.yaml` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
-| Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `assets-state/`, `inventory-after/` |
+| Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `inventory-after/` |
 | Qualification reports | `reports/` |
 
-Follow [retry instructions](operations.md#retry-a-failed-deployment) using the
-same directory. Existing deployments must retain their deployed product revision
+Follow [cleanup instructions](operations.md#clean-up-a-failed-deployment) using the
+original directory. Existing deployments must retain their deployed product revision
 for operations and teardown; this layout does not migrate them.
 
 ## Access

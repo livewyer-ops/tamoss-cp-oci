@@ -1,11 +1,18 @@
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: Bucket
+kind: OCIRepository
 metadata: {name: tamoss-product, namespace: flux-system}
 spec:
   interval: 1m
-  provider: generic
-  bucketName: REPLACE
-  endpoint: REPLACE
-  region: REPLACE
-  prefix: REPLACE
-  secretRef: {name: asset-reader}
+  url: oci://REPLACE
+  ref: {digest: 'sha256:REPLACE'}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: tamoss-chart-gitops-bootstrap, namespace: flux-system}
+spec:
+  interval: 10m
+  url: oci://REPLACE
+  ref: {digest: 'sha256:REPLACE'}
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy

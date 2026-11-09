@@ -12,10 +12,10 @@ metadata: {name: infrastructure, namespace: tamoss-infra}
 spec:
   interval: 1m
   prune: false
-  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
 status:
   observedGeneration: 1
-  lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
+  lastAppliedRevision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: Current infrastructure revision, lastTransitionTime: '2026-01-01T00:00:00Z'}
 ---
@@ -25,10 +25,10 @@ metadata: {name: runtime, namespace: tamoss-infra}
 spec:
   interval: 1m
   prune: false
-  sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
 status:
   observedGeneration: 1
-  lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
+  lastAppliedRevision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: Current runtime revision, lastTransitionTime: '2026-01-01T00:00:00Z'}
 ---
@@ -65,41 +65,38 @@ status:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: Bucket
+kind: OCIRepository
 metadata: {name: tamoss-product, namespace: flux-system}
 spec:
   interval: 1m
-  bucketName: fixture-assets
-  endpoint: storage.example.invalid
-  provider: generic
-  prefix: releases/fixture/
+  url: oci://example.invalid/product
+  ref: {digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 status:
   observedGeneration: 1
   artifact:
     path: fixture
     url: http://fixture.invalid/artifact.tar.gz
-    revision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
+    revision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     digest: sha256:ccccccccccccccccccccccccccccccccccccccccaaaaaaaaaaaaaaaaaaaaaaaa
     lastUpdateTime: '2026-11-04T11:00:00Z'
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmChart
-metadata: {name: tamoss-infra-tamoss-gitops, namespace: flux-system}
+kind: OCIRepository
+metadata: {name: tamoss-chart-gitops, namespace: flux-system}
 spec:
   interval: 1m
-  chart: ./charts/gitops
-  sourceRef: {kind: Bucket, name: tamoss-product}
+  url: oci://example.invalid/gitops
+  ref: {digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 status:
   observedGeneration: 1
   artifact:
     path: fixture
     url: http://fixture.invalid/artifact.tar.gz
-    revision: 0.1.0+fixture
+    revision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     digest: sha256:ccccccccccccccccccccccccccccccccccccccccaaaaaaaaaaaaaaaaaaaaaaaa
     lastUpdateTime: '2026-11-04T11:00:00Z'
-  observedSourceArtifactRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
@@ -108,13 +105,11 @@ kind: HelmRelease
 metadata: {name: tamoss-gitops, namespace: tamoss-infra}
 spec:
   interval: 1m
-  chart:
-    spec:
-      chart: ./charts/gitops
-      sourceRef: {kind: Bucket, name: tamoss-product}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-gitops, namespace: flux-system}
 status:
   observedGeneration: 1
   lastAttemptedRevision: 0.1.0+fixture
+  lastAttemptedRevisionDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
@@ -125,9 +120,9 @@ spec:
   interval: 1m
   prune: false
   path: ./deploy/gitops/readiness
-  sourceRef: {kind: Bucket, name: tamoss-product}
+  sourceRef: {kind: OCIRepository, name: tamoss-product}
 status:
   observedGeneration: 1
-  lastAppliedRevision: main@sha1:cccccccccccccccccccccccccccccccccccccccc
+  lastAppliedRevision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   conditions:
     - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}

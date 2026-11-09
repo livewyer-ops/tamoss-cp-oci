@@ -5,7 +5,7 @@ spec:
   bindings:
     - {name: directory, value: "(join('/', [$values.root, '.local/tmp/check/absence']))"}
   steps:
-    - name: permit only the retained asset bucket and terminated resources
+    - name: accept empty inventories and terminated resources
       try:
         - command:
             env: &paths
@@ -17,12 +17,12 @@ spec:
             env: *paths
             entrypoint: env
             args: [MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml, mise, -C, "$DIRECTORY", run, audit]
-    - name: a different resource cannot impersonate the retained bucket
+    - name: reject an active volume
       try:
         - command:
             env: *paths
-            entrypoint: cp
-            args: ["$DIRECTORY/inventory-after/buckets.json", "$DIRECTORY/inventory-after/volumes.json"]
+            entrypoint: yq
+            args: [-i, '.data = [{"name": "volume", "lifecycle-state": "AVAILABLE"}]', "$DIRECTORY/inventory-after/volumes.json"]
         - command:
             <<: *audit
             check: {($error != null): true}
@@ -35,7 +35,7 @@ spec:
         - command:
             env: *paths
             entrypoint: yq
-            args: [-i, '.data[0]."freeform-tags"."tamoss-asset-store-id" = "other"', "$DIRECTORY/inventory-after/buckets.json"]
+            args: [-i, '.data = [{"name": "unexpected-bucket"}]', "$DIRECTORY/inventory-after/buckets.json"]
         - command:
             <<: *audit
             check: {($error != null): true}

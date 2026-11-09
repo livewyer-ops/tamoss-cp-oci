@@ -1,0 +1,70 @@
+["test:oci:publish"]
+hide = true
+run = [
+  "rm -rf '{{ env.DIRECTORY }}/assets-build/tree'",
+  "install -d '{{ env.DIRECTORY }}/assets-build/tree'",
+  "cp -a charts deploy dependencies.yaml '{{ env.DIRECTORY }}/assets-build/tree/'",
+  "install -d '{{ env.DIRECTORY }}/assets-build/tree/deploy/tamoss/instance/upstream'",
+  "cp -a '.local/tmp/tamoss/{{ read_yaml(path=vars.ROOT_DIR ~ \"/deploy/tamoss/release.yaml\") | get(key=\"releaseSha256\") }}/source/deploy' '{{ env.DIRECTORY }}/assets-build/tree/deploy/tamoss/instance/upstream/'",
+  "docker run --rm --detach --network kind --publish 127.0.0.1::5000 '{{ read_yaml(path=vars.ROOT_DIR ~ \"/dependencies.yaml\") | get(key=\"tests\") | get(key=\"registryImage\") }}' > '{{ env.DIRECTORY }}/registry-id'",
+  '''docker inspect "$(cat '{{ env.DIRECTORY }}/registry-id')" > '{{ env.DIRECTORY }}/registry.json' ''',
+  '''yq 'del(.charts, .manifestSha256)' tests/setup/deployment-release.yaml > '{{ env.DIRECTORY }}/assets-build/tree/build.yaml'''',
+  "RELEASE_LOCK=deploy/tamoss/release.yaml OUTPUT='{{ env.DIRECTORY }}/assets-build/tree/pins.yaml' mise run gitops:pins",
+  "mise run test:oci:push",
+  "mise run test:oci:proof",
+  "mise run test:oci:verify",
+]
+env.DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/oci'
+
+["test:oci:push"]
+hide = true
+run = [
+  "RELEASE_BUILD_DIR='{{ env.DIRECTORY }}' PRODUCT_COMMIT=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa CHART_REGISTRY='oci://127.0.0.1:{{ env.TASKV_PORT }}/charts' CHART_PLAIN_HTTP=true mise run release:charts",
+  "RELEASE_BUILD_DIR='{{ env.DIRECTORY }}' mise run release:seal",
+  "flux push artifact 'oci://127.0.0.1:{{ env.TASKV_PORT }}/product:fixture' --insecure-registry --source https://example.invalid/fixture --revision main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --ignore-paths=.git/,.local/,AGENTS.md,CLAUDE.md --path '{{ env.DIRECTORY }}/assets-build/tree' --output json > '{{ env.DIRECTORY }}/product.json'",
+  '''yq -n '{"assets": {"url": "oci://{{ env.TASKV_ADDRESS }}:5000/product", "digest": load("{{ env.DIRECTORY }}/product.json").digest, "charts": (load("{{ env.DIRECTORY }}/assets-build/tree/charts.yaml") | with_entries(.value.url |= sub("127.0.0.1:{{ env.TASKV_PORT }}"; "{{ env.TASKV_ADDRESS }}:5000")))}}' > '{{ env.DIRECTORY }}/values.yaml' ''',
+  '''yq '.assets.charts."database-connection" as $chart | {"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "OCIRepository", "metadata": {"name": "tamoss-chart-database-connection", "namespace": "tamoss-infra"}, "spec": {"interval": "1m", "url": $chart.url, "ref": {"digest": $chart.digest}, "insecure": true, "layerSelector": {"mediaType": "application/vnd.cncf.helm.chart.content.v1.tar+gzip", "operation": "copy"}}}' '{{ env.DIRECTORY }}/values.yaml' > '{{ env.DIRECTORY }}/operations.yaml'''',
+
+]
+env.DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/oci'
+env.TASKV_PORT = '{{ read_json(path=env.DIRECTORY ~ "/registry.json") | nth(n=0) | get(key="NetworkSettings") | get(key="Ports") | get(key="5000/tcp") | nth(n=0) | get(key="HostPort") }}'
+env.TASKV_ADDRESS = '{{ read_json(path=env.DIRECTORY ~ "/registry.json") | nth(n=0) | get(key="NetworkSettings") | get(key="Networks") | get(key="kind") | get(key="IPAddress") }}'
+
+["test:oci:cleanup"]
+hide = true
+skip_if = "test ! -s '{{ vars.ROOT_DIR }}/.local/tmp/check/oci/registry-id'"
+run = [
+  '''docker rm --force --volumes "$(cat '{{ vars.ROOT_DIR }}/.local/tmp/check/oci/registry-id')"''',
+  "rm '{{ vars.ROOT_DIR }}/.local/tmp/check/oci/registry-id'",
+]
+
+["test:oci:proof"]
+hide = true
+run = [
+  "install -d '{{ env.DIRECTORY }}/proof'",
+  "helm package tests/oke-bootstrap/chart --destination '{{ env.DIRECTORY }}/proof'",
+  "helm push '{{ env.DIRECTORY }}/proof/seed-proof-0.1.0.tgz' 'oci://127.0.0.1:{{ env.TASKV_PORT }}/charts' --plain-http > '{{ env.DIRECTORY }}/proof/push.log' 2>&1",
+  '''yq -n '{"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "OCIRepository", "metadata": {"name": "seed-proof", "namespace": "flux-system"}, "spec": {"interval": "10s", "url": "oci://{{ env.TASKV_ADDRESS }}:5000/charts/seed-proof", "insecure": true, "ref": {"digest": (load_str("{{ env.DIRECTORY }}/proof/push.log") | capture("Digest: (?P<digest>sha256:[a-f0-9]{64})").digest)}, "layerSelector": {"mediaType": "application/vnd.cncf.helm.chart.content.v1.tar+gzip", "operation": "copy"}}}' > '{{ env.DIRECTORY }}/proof/source.yaml'''',
+]
+env.DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/oci'
+env.TASKV_PORT = '{{ read_json(path=env.DIRECTORY ~ "/registry.json") | nth(n=0) | get(key="NetworkSettings") | get(key="Ports") | get(key="5000/tcp") | nth(n=0) | get(key="HostPort") }}'
+env.TASKV_ADDRESS = '{{ read_json(path=env.DIRECTORY ~ "/registry.json") | nth(n=0) | get(key="NetworkSettings") | get(key="Networks") | get(key="kind") | get(key="IPAddress") }}'
+
+["test:oci:verify"]
+hide = true
+run = [
+  "install -d '{{ env.DIRECTORY }}/environment'",
+  "helm template inputs charts/deployment-inputs --show-only templates/asset-lock.yaml --set-file files.releaseMetadata='{{ env.DIRECTORY }}/assets-build/tree/release.yaml',files.pins='{{ env.DIRECTORY }}/assets-build/tree/pins.yaml' --set-string releaseURL='oci://127.0.0.1:{{ env.TASKV_PORT }}/product',releaseDigest='{{ read_json(path=env.DIRECTORY ~ \"/product.json\") | get(key=\"digest\") }}' > '{{ env.DIRECTORY }}/environment/assets.lock.yaml'",
+  '''DIRECTORY='{{ env.DIRECTORY }}/environment' yq -p=toml -o=toml '."assets:verify" as $v | {"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"verify": $v, "check-lock": ($v | .run = .run[5:])}} | .tasks.verify.run |= map(sub("flux pull artifact "; "flux pull artifact --insecure-registry "))' tasks/assets.toml > '{{ env.DIRECTORY }}/environment/verify.mise.toml'''',
+  "mise trust '{{ env.DIRECTORY }}/environment/verify.mise.toml'",
+  "MISE_OVERRIDE_CONFIG_FILENAMES=verify.mise.toml mise -C '{{ env.DIRECTORY }}/environment' run verify",
+  "cp '{{ env.DIRECTORY }}/environment/assets.lock.yaml' '{{ env.DIRECTORY }}/environment/verified.lock.yaml'",
+  '''yq -i '.data."values.yaml" |= (from_yaml | .assets.charts.packages.digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" | to_yaml)' '{{ env.DIRECTORY }}/environment/assets.lock.yaml'''',
+  "! MISE_OVERRIDE_CONFIG_FILENAMES=verify.mise.toml mise -C '{{ env.DIRECTORY }}/environment' run check-lock",
+  "cp '{{ env.DIRECTORY }}/environment/verified.lock.yaml' '{{ env.DIRECTORY }}/environment/assets.lock.yaml'",
+  '''yq -i '.data."values.yaml" |= (from_yaml | .release.tag = "wrong-release" | to_yaml)' '{{ env.DIRECTORY }}/environment/assets.lock.yaml'''',
+  "! MISE_OVERRIDE_CONFIG_FILENAMES=verify.mise.toml mise -C '{{ env.DIRECTORY }}/environment' run check-lock",
+  "cp '{{ env.DIRECTORY }}/environment/verified.lock.yaml' '{{ env.DIRECTORY }}/environment/assets.lock.yaml'",
+]
+env.DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/oci'
+env.TASKV_PORT = '{{ read_json(path=env.DIRECTORY ~ "/registry.json") | nth(n=0) | get(key="NetworkSettings") | get(key="Ports") | get(key="5000/tcp") | nth(n=0) | get(key="HostPort") }}'

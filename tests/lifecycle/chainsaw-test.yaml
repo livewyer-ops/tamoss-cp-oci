@@ -293,10 +293,7 @@ spec:
               spec:
                 suspend: true
                 interval: 1m
-                chart:
-                  spec:
-                    chart: ./tests/lifecycle/platform-release
-                    sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
+                chartRef: {kind: OCIRepository, name: tamoss-chart-runtime-access}
         - command:
             entrypoint: env
             env: *paths

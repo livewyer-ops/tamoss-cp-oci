@@ -12,27 +12,18 @@ run = [
 hide = true
 depends = ["assets:fetch"]
 run = [
-  "install -d -m 700 '{{ vars.ENV_DIR }}/discovery' '{{ vars.ENV_DIR }}/assets-state' '{{ vars.ENV_DIR }}/reports' '{{ vars.ENV_DIR }}/access'",
+  "install -d -m 700 '{{ vars.ENV_DIR }}/discovery' '{{ vars.ENV_DIR }}/reports' '{{ vars.ENV_DIR }}/access'",
   '''umask 077
 OCI_PROFILE={{ env.TASKV_PROFILE | quote }} yq -p=ini '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region, "tenancy": .tenancy, "oci": {"region": .region, "tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "privateKey": load_str(.key_file), "privateKeyPassword": .pass_phrase}}' {{ env.TASKV_CONFIG | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
-  '''oci iam domain list --compartment-id "$(yq -r .tenancy '{{ vars.ENV_DIR }}/discovery/profile.yaml')" --all > '{{ vars.ENV_DIR }}/discovery/identity-domains.json'''',
-  "oci os ns get > '{{ vars.ENV_DIR }}/discovery/namespace.json'",
-  "oci network service list --all > '{{ vars.ENV_DIR }}/discovery/services.json'",
-  "oci iam availability-domain list --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --all > '{{ vars.ENV_DIR }}/discovery/domains.json'",
-  "oci ce node-pool-options get --node-pool-option-id all --compartment-id {{ env.TASKV_COMPARTMENT | quote }} --node-pool-k8s-version {{ env.TASKV_VERSION | quote }} --node-pool-os-arch X86_64 > '{{ vars.ENV_DIR }}/discovery/node-options.json'",
 ]
 env.TASKV_CONFIG = '''{{ env.OCI_CONFIG | default(value=env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config")) }}'''
 env.TASKV_PROFILE = '''{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | default(value="DEFAULT")) }}'''
-env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_CONFIG }}"
-env.OCI_CLI_PROFILE = "{{ env.TASKV_PROFILE }}"
-env.TASKV_COMPARTMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/values.yaml") | get(key="compartmentId") }}'''
-env.TASKV_VERSION = '''{% set inputs = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}{{ (inputs | get(key="oke", default={})) | get(key="version", default=read_yaml(path=vars.RELEASE_DIR ~ "/charts/setup/values.yaml") | get(key="oke") | get(key="version")) }}'''
 
 ["setup:render"]
 hide = true
 run = [
   '''umask 077
-yq -n '{"oci": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").oci, "discovery": {"region": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").region, "tenancy": load("{{ vars.ENV_DIR }}/discovery/profile.yaml").tenancy, "identityDomains": load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data, "namespace": load("{{ vars.ENV_DIR }}/discovery/namespace.json").data, "services": load("{{ vars.ENV_DIR }}/discovery/services.json").data, "domains": load("{{ vars.ENV_DIR }}/discovery/domains.json").data, "nodeOptions": load("{{ vars.ENV_DIR }}/discovery/node-options.json").data}, "product": load("{{ vars.RELEASE_DIR }}/build.yaml").product, "bundles": {"tamoss": load("{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.RELEASE_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'
+yq -n '{"oci": (load("{{ vars.ENV_DIR }}/discovery/profile.yaml").oci | pick(["region", "tenancy", "user", "fingerprint"])), "product": load("{{ vars.RELEASE_DIR }}/build.yaml").product, "bundles": {"tamoss": load("{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.RELEASE_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'
 helm template setup '{{ vars.RELEASE_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/discovery/values.yaml' --output-dir '{{ vars.ENV_DIR }}/setup-render'''',
 ]
 
@@ -40,8 +31,8 @@ helm template setup '{{ vars.RELEASE_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}
 hide = true
 depends = ["setup:resolve"]
 run = [
-  "mise run setup:render",
+  { task = "setup:render" },
   "cp '{{ vars.ENV_DIR }}/setup-render/setup/templates/'*.yaml '{{ vars.ENV_DIR }}/'",
+  "helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/asset-lock.yaml --set-file files.releaseMetadata='{{ vars.RELEASE_DIR }}/release.yaml',files.pins='{{ vars.RELEASE_DIR }}/pins.yaml' --set-string releaseURL={{ read_yaml(path=vars.ROOT_DIR ~ \"/dependencies.yaml\") | get(key=\"deploymentBundle\") | get(key=\"url\") | quote }},releaseDigest={{ read_yaml(path=vars.ROOT_DIR ~ \"/dependencies.yaml\") | get(key=\"deploymentBundle\") | get(key=\"digest\") | quote }} > '{{ vars.ENV_DIR }}/assets.lock.yaml'",
   "cp '{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
-  "install -m 600 '{{ vars.ENV_DIR }}/values.yaml' '{{ vars.ENV_DIR }}/setup-values.yaml'",
 ]

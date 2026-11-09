@@ -118,7 +118,6 @@ run = [
   "mkdir -p '{{ vars.CHECKOUT }}/clusters'",
   "cp -a '{{ vars.ENV_DIR }}/deployment' '{{ env.TASKV_DESTINATION }}'",
   '''yq -i 'with(select(.kind == "HelmRelease" and .metadata.name == "tamoss-gitops-bootstrap"); .spec.values.vaultId = load("{{ vars.ENV_DIR }}/foundation-record.yaml").vaultId) | with(select(.kind == "Kustomization" and .metadata.name == "runtime"); .spec.postBuild.substitute.VAULT_ID = load("{{ vars.ENV_DIR }}/foundation-record.yaml").vaultId)' '{{ env.TASKV_DESTINATION }}/releases.yaml'''',
-  '''yq -i 'with(select(.kind == "SecretStore" and .metadata.name == "asset-vault"); .spec.provider.oracle.vault = load("{{ vars.ENV_DIR }}/foundation-record.yaml").vaultId)' '{{ env.TASKV_DESTINATION }}/bootstrap-access.yaml' ''',
   "kubectl kustomize '{{ env.TASKV_DESTINATION }}' > /dev/null",
 ]
 env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
@@ -165,7 +164,7 @@ run = [
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system get secret flux-system -o json | yq -p=json '{"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "gitops-input", "namespace": "tamoss-infra"}, "type": "Opaque", "data": {"identity": .data.identity, "publicKey": .data."identity.pub", "known_hosts": .data.known_hosts}}' > '{{ vars.ENV_DIR }}/gitops-key.yaml'''',
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/gitops-key.yaml'",
   '''yq '{"deploymentId": .deploymentUID, "initialise": true}' {{ vars.ENV_DIR }}/identity.yaml > {{ vars.ENV_DIR }}/gitops-auth-values.yaml''',
-  "flux create helmrelease gitops-auth -n tamoss-infra --source=Bucket/tamoss-bootstrap-product --reconcile-strategy=Revision --chart='./{{ read_yaml(path=vars.ENV_DIR ~ \"/assets.lock.yaml\") | get(key=\"data\") | get(key=\"prefix\") }}charts/gitops-auth' --values='{{ vars.ENV_DIR }}/gitops-auth-values.yaml' --export > '{{ vars.ENV_DIR }}/gitops-auth.yaml'",
+  "flux create helmrelease gitops-auth -n tamoss-infra --chart-ref=OCIRepository/tamoss-chart-gitops-auth.tamoss-infra --values='{{ vars.ENV_DIR }}/gitops-auth-values.yaml' --export > '{{ vars.ENV_DIR }}/gitops-auth.yaml'",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/gitops-auth.yaml'",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret/gitops --for=create --timeout=300s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait externalsecret/gitops --for=condition=Ready --timeout=300s",
@@ -300,14 +299,12 @@ run = [
   "helm template inputs '{{ env.TASKV_SOURCE }}charts/deployment-inputs' --show-only templates/remote.yaml --set-file files.externalSecrets='{{ env.TASKV_SOURCE }}deploy/secrets/controller-values.yaml',files.dependencies='{{ env.TASKV_SOURCE }}dependencies.yaml',files.environment='{{ vars.ENV_DIR }}/environment.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.assets='{{ vars.ENV_DIR }}/assets.lock.yaml',files.product='{{ vars.ENV_DIR }}/product.yaml',files.upstreamRelease='{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/release.json',files.seedValues='{{ env.TASKV_CANDIDATE }}/values.yaml',files.seedEnvironment='{{ env.TASKV_CANDIDATE }}/infrastructure/environment.yaml' > '{{ vars.ENV_DIR }}/remote-bootstrap.yaml'",
   '''yq 'select(.kind == "Kustomization" and .metadata.name == "oke-seed") | del(.spec.postBuild)' '{{ vars.ENV_DIR }}/remote-bootstrap.yaml' > '{{ vars.ENV_DIR }}/seed-build.yaml'''',
   "flux build kustomization oke-seed -n tamoss-infra --dry-run --in-memory-build --path '{{ env.TASKV_SOURCE }}deploy/bootstrap/remote' --kustomization-file '{{ vars.ENV_DIR }}/seed-build.yaml' > '{{ vars.ENV_DIR }}/deployment.yaml'",
-  '''yq 'select(.kind == "Bucket") | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace")' '{{ vars.ENV_DIR }}/deployment.yaml' > '{{ env.TASKV_CANDIDATE }}/sources.yaml'''',
-  '''yq 'select(.kind == "HelmRelease" or .kind == "Kustomization") | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace") | with(select(.kind == "Kustomization"); .spec.path |= sub("releases/[a-f0-9]{64}/"; "")) | with(select(.kind == "HelmRelease"); .spec.chart.spec.chart |= sub("releases/[a-f0-9]{64}/"; "")) | with(select(.kind == "HelmRelease"); .spec.valuesFrom[0].name = "tamoss-gitops-values") | with(select(.metadata.name == "runtime"); .spec.postBuild.substitute.VALUES_CONFIGMAP = "tamoss-gitops-values")' '{{ vars.ENV_DIR }}/deployment.yaml' > '{{ env.TASKV_CANDIDATE }}/releases.yaml'''',
-  '''{% for step in ["eso", "asset-access"] %}
-yq 'select(.kind == "Kustomization" and .metadata.name == "oke-{{ step }}") | del(.spec.postBuild)' '{{ vars.ENV_DIR }}/remote-bootstrap.yaml' > '{{ vars.ENV_DIR }}/{{ step }}-build.yaml'
-flux build kustomization oke-{{ step }} -n tamoss-infra --dry-run --in-memory-build --path '{{ env.TASKV_SOURCE }}deploy/bootstrap/{{ step }}' --kustomization-file '{{ vars.ENV_DIR }}/{{ step }}-build.yaml' > '{{ env.TASKV_CANDIDATE }}/{{ step }}.yaml'
-{% endfor %}''',
-  "yq eval-all 'del(.metadata.labels.\"kustomize.toolkit.fluxcd.io/name\", .metadata.labels.\"kustomize.toolkit.fluxcd.io/namespace\")' '{{ env.TASKV_CANDIDATE }}/eso.yaml' '{{ env.TASKV_CANDIDATE }}/asset-access.yaml' > '{{ env.TASKV_CANDIDATE }}/bootstrap-access.yaml'",
-  "rm '{{ env.TASKV_CANDIDATE }}/eso.yaml' '{{ env.TASKV_CANDIDATE }}/asset-access.yaml'",
+  '''yq 'select(.kind == "OCIRepository") | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace")' '{{ vars.ENV_DIR }}/deployment.yaml' > '{{ env.TASKV_CANDIDATE }}/sources.yaml'''',
+  '''yq 'select(.kind == "HelmRelease" or .kind == "Kustomization") | del(.metadata.labels."kustomize.toolkit.fluxcd.io/name", .metadata.labels."kustomize.toolkit.fluxcd.io/namespace") | with(select(.kind == "HelmRelease"); .spec.valuesFrom[0].name = "tamoss-gitops-values") | with(select(.metadata.name == "runtime"); .spec.postBuild.substitute.VALUES_CONFIGMAP = "tamoss-gitops-values")' '{{ vars.ENV_DIR }}/deployment.yaml' > '{{ env.TASKV_CANDIDATE }}/releases.yaml'''',
+  '''yq 'select(.kind == "Kustomization" and .metadata.name == "oke-eso") | del(.spec.postBuild)' '{{ vars.ENV_DIR }}/remote-bootstrap.yaml' > '{{ vars.ENV_DIR }}/eso-build.yaml'''',
+  "flux build kustomization oke-eso -n tamoss-infra --dry-run --in-memory-build --path '{{ env.TASKV_SOURCE }}deploy/bootstrap/eso' --kustomization-file '{{ vars.ENV_DIR }}/eso-build.yaml' > '{{ env.TASKV_CANDIDATE }}/eso.yaml'",
+  "yq eval-all 'del(.metadata.labels.\"kustomize.toolkit.fluxcd.io/name\", .metadata.labels.\"kustomize.toolkit.fluxcd.io/namespace\")' '{{ env.TASKV_CANDIDATE }}/eso.yaml' > '{{ env.TASKV_CANDIDATE }}/bootstrap-access.yaml'",
+  "rm '{{ env.TASKV_CANDIDATE }}/eso.yaml'",
   "kubectl kustomize '{{ env.TASKV_CANDIDATE }}' > /dev/null",
   "rm '{{ env.TASKV_CANDIDATE }}/pins.yaml'",
   "mv '{{ env.TASKV_CANDIDATE }}' '{{ env.TASKV_DESTINATION }}'",
@@ -316,7 +313,7 @@ env.TASKV_CANDIDATE = "{% if env.CANDIDATE is defined %}{{ env.CANDIDATE }}{% el
 env.TASKV_DESTINATION = "{% if env.DESTINATION is defined %}{{ env.DESTINATION }}{% else %}{{ vars.ENV_DIR }}/deployment{% endif %}"
 env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ ((vars.ENV_DIR) | quote) ~ "/tamoss-release.yaml") }}{% endif %}'''
 
-env.TASKV_SOURCE = '''{{ vars.ENV_DIR }}/assets-verification/{{ read_yaml(path=vars.ENV_DIR ~ "/assets.lock.yaml") | get(key="data") | get(key="prefix") }}'''
+env.TASKV_SOURCE = '''{{ vars.ENV_DIR }}/assets-verification/'''
 
 ["gitops:render"]
 hide = true

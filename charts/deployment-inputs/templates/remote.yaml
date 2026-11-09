@@ -75,11 +75,11 @@ spec:
   timeout: 5m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
-  path: {{ printf "./%sdeploy/bootstrap/remote" $assets.prefix | quote }}
+  sourceRef: {kind: OCIRepository, name: tamoss-bootstrap-product}
+  path: ./deploy/bootstrap/remote
   kubeConfig:
     secretRef: {name: oke-bootstrap-access}
-  dependsOn: [{name: oke-asset-access}]
+  dependsOn: [{name: oke-eso}]
   commonMetadata:
     labels:
       tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}
@@ -109,33 +109,16 @@ spec:
         metadata: {name: infrastructure-intent, namespace: tamoss-infra}
         data:
           environment.yaml: {{ .Values.files.seedEnvironment | toJson }}
-    - target: {kind: Bucket, name: tamoss-product}
+{{- range $name, $source := dict "tamoss-product" (dict "url" $assets.url "digest" $assets.digest) "tamoss-chart-gitops-bootstrap" (index $assets.charts "gitops-bootstrap") }}
+    - target: {kind: OCIRepository, name: {{ $name }}}
       patch: |
         apiVersion: source.toolkit.fluxcd.io/v1
-        kind: Bucket
-        metadata: {name: tamoss-product, namespace: flux-system}
+        kind: OCIRepository
+        metadata: {name: {{ $name }}, namespace: flux-system}
         spec:
-          bucketName: {{ $assets.bucketName | quote }}
-          endpoint: {{ $assets.endpoint | quote }}
-          region: {{ $assets.region | quote }}
-          prefix: {{ $assets.prefix | quote }}
-    - target: {kind: HelmRelease, name: tamoss-gitops-bootstrap}
-      patch: |-
-        - op: replace
-          path: /spec/chart/spec/chart
-          value: {{ printf "./%scharts/gitops-bootstrap" $assets.prefix | quote }}
-{{- range $name, $path := dict "platform-defaults" "platform-defaults" "infrastructure" "infrastructure" "runtime" "runtime" "infrastructure-controllers" "readiness" }}
-    - target: {kind: Kustomization, name: {{ $name }}}
-      patch: |-
-        - op: replace
-          path: /spec/path
-          value: {{ printf "./%sdeploy/gitops/%s" $assets.prefix $path | quote }}
+          url: {{ $source.url | quote }}
+          ref: {digest: {{ $source.digest | quote }}}
 {{- end }}
-    - target: {kind: Kustomization, name: runtime}
-      patch: |-
-        - op: add
-          path: /spec/postBuild/substitute/ASSET_PREFIX
-          value: {{ $assets.prefix | quote }}
     - target: {kind: Kustomization, name: infrastructure}
       patch: |-
         - op: replace
@@ -144,12 +127,11 @@ spec:
         - op: replace
           path: /spec/healthChecks/0/name
           value: {{ $environment.metadata.name | quote }}
-{{ range $step := list (dict "name" "oke-eso" "path" "eso" "dependency" "oke-flux") (dict "name" "oke-asset-access" "path" "asset-access" "dependency" "oke-eso") }}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: {{ $step.name }}
+  name: oke-eso
   namespace: tamoss-infra
   labels:
     tamoss.livewyer.io/remote-bootstrap: 'true'
@@ -160,17 +142,16 @@ spec:
   timeout: 10m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
-  path: {{ printf "./%sdeploy/bootstrap/%s" $assets.prefix $step.path | quote }}
+  sourceRef: {kind: OCIRepository, name: tamoss-bootstrap-product}
+  path: ./deploy/bootstrap/eso
   kubeConfig:
     secretRef: {name: oke-bootstrap-access}
-  dependsOn: [{name: {{ $step.dependency }}}]
+  dependsOn: [{name: oke-flux}]
   commonMetadata:
     labels: {tamoss.livewyer.io/deployment-id: {{ $identity.deploymentUID | quote }}}
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: oke-bootstrap-facts}]
   patches:
-{{ if eq $step.name "oke-eso" }}
     - target: {kind: HelmRelease, name: external-secrets}
       patch: |
         apiVersion: helm.toolkit.fluxcd.io/v2
@@ -189,21 +170,6 @@ spec:
           values.yaml: {{ ($.Values.files.assets | fromYaml).data.externalSecretsValues | toJson }}
   healthChecks:
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: external-secrets, namespace: external-secrets}
-{{ else }}
-    - target: {kind: SecretStore, name: asset-vault}
-      patch: |-
-        - op: replace
-          path: /spec/provider/oracle/region
-          value: {{ $assets.region | quote }}
-    - target: {kind: ExternalSecret, name: asset-reader}
-      patch: |-
-        - op: replace
-          path: /spec/dataFrom/0/extract/key
-          value: {{ printf "%s-asset-reader" $identity.deploymentUID | quote }}
-  healthChecks:
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: asset-reader, namespace: flux-system}
-{{ end }}
-{{ end }}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -219,8 +185,8 @@ spec:
   timeout: 30m
   prune: false
   deletionPolicy: Orphan
-  sourceRef: {kind: Bucket, name: tamoss-bootstrap-product}
-  path: {{ printf "./%sdeploy/gitops/readiness" $assets.prefix | quote }}
+  sourceRef: {kind: OCIRepository, name: tamoss-bootstrap-product}
+  path: ./deploy/gitops/readiness
   kubeConfig:
     secretRef: {name: oke-bootstrap-access}
   dependsOn: [{name: oke-seed}]

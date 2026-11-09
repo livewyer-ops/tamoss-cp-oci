@@ -8,5 +8,4 @@ foundationDefinition: ''
 secretBootstrapFile: ''
 instance: {}
 credentialsEstablished: false
-assets:
-  prefix: ''
+assets: {}

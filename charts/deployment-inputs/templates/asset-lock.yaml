@@ -1,12 +1,8 @@
-{{- if or .Values.files.assetBuild .Values.files.releaseMetadata }}
-{{- $build := (.Values.files.releaseMetadata | default .Values.files.assetBuild) | fromYaml -}}
-{{- $store := .Values.files.assetStore | fromYaml -}}
-{{- $prefix := printf "releases/%s/" (.Values.files.assetBuild | default "" | sha256sum) -}}
-{{- if .Values.files.releaseMetadata -}}
-{{- $prefix = printf "releases/%s/" (trimPrefix "sha256:" (required "releaseDigest is required" .Values.releaseDigest)) -}}
-{{- end -}}
-{{- $pins := .Values.files.pins | default "{}" | fromYaml -}}
+{{- if .Values.files.releaseMetadata }}
+{{- $build := .Values.files.releaseMetadata | fromYaml -}}
+{{- $pins := .Values.files.pins | fromYaml -}}
 {{- with $pins.tadoss }}{{- $_ := unset . "enabled" }}{{- end }}
+{{- $charts := required "Release chart digests are required" $build.charts -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,18 +11,12 @@ metadata:
   labels: {reconcile.fluxcd.io/watch: Enabled}
   annotations: {kustomize.toolkit.fluxcd.io/substitute: disabled}
 data:
-  schemaVersion: {{ ternary "2" "1" (not (empty .Values.files.releaseMetadata)) | quote }}
-{{- if .Values.files.releaseMetadata }}
+  schemaVersion: '3'
   bundleURL: {{ required "releaseURL is required" .Values.releaseURL | quote }}
-  bundleDigest: {{ .Values.releaseDigest | quote }}
-{{- end }}
-  bucketName: {{ $store.bucketName | quote }}
-  endpoint: {{ $store.endpoint | quote }}
-  region: {{ $store.region | quote }}
-  prefix: {{ $prefix | quote }}
-  root: {{ printf "./%s" (trimSuffix "/" $prefix) | quote }}
-  storeId: {{ $store.storeId | quote }}
-  manifestSha256: {{ .Values.assetManifestSha256 | default $build.manifestSha256 | default "" | quote }}
+  bundleDigest: {{ required "releaseDigest is required" .Values.releaseDigest | quote }}
+  bootstrapChartURL: {{ (index $charts "gitops-bootstrap").url | quote }}
+  bootstrapChartDigest: {{ (index $charts "gitops-bootstrap").digest | quote }}
+  manifestSha256: {{ $build.manifestSha256 | quote }}
   productCommit: {{ $build.product.commit | quote }}
   externalSecretsVersion: {{ $pins.dependencies.externalSecrets.version | quote }}
   externalSecretsValues: |
@@ -34,10 +24,8 @@ data:
   values.yaml: |
 {{ $pins | toYaml | indent 4 }}
     assets:
-      bucketName: {{ $store.bucketName | quote }}
-      endpoint: {{ $store.endpoint | quote }}
-      region: {{ $store.region | quote }}
-      prefix: {{ $prefix | quote }}
-      storeId: {{ $store.storeId | quote }}
-      manifestSha256: {{ .Values.assetManifestSha256 | default $build.manifestSha256 | default "" | quote }}
+      url: {{ .Values.releaseURL | quote }}
+      digest: {{ .Values.releaseDigest | quote }}
+      charts:
+{{ $charts | toYaml | indent 8 }}
 {{- end }}

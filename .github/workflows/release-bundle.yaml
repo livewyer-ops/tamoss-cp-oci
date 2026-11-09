@@ -52,6 +52,14 @@ jobs:
           PUBLISHER: ${{ github.actor }}
           PUBLISH_TOKEN: ${{ github.token }}
         run: printf '%s' "$PUBLISH_TOKEN" | docker login ghcr.io --username "$PUBLISHER" --password-stdin
+      - name: Publish Helm charts and seal the deployment bundle
+        if: inputs.application == 'deployment'
+        env:
+          PRODUCT_COMMIT: ${{ github.sha }}
+          CHART_REGISTRY: oci://ghcr.io/${{ github.repository_owner }}/tamoss-release-assets/charts
+        run: |
+          HELM_REGISTRY_CONFIG="$HOME/.docker/config.json" mise run release:charts
+          mise run release:seal
       - name: Publish reproducibly
         env:
           PRODUCT_COMMIT: ${{ github.sha }}

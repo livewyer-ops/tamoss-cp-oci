@@ -5,8 +5,6 @@ spec:
   steps:
     - name: establish the observed management prerequisites
       try:
-        - apply: {cluster: remote, file: '../../../.local/tmp/check/oke-bootstrap/backend.yaml'}
-        - apply: {cluster: remote, file: '../../assets/reader-backend.yaml'}
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/bootstrap.yaml'}
         - apply: {file: credentials.yaml}
         - apply: {file: source.yaml}
@@ -33,10 +31,10 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: Bucket
+              kind: OCIRepository
               metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
               status:
-                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'tamoss-bootstrap-product').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'tamoss-infra', 'tamoss-bootstrap-product').metadata.generation)
                 conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
     - name: provide the product artifact before credentials arrive
       bindings:
@@ -60,10 +58,10 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: Bucket
+              kind: OCIRepository
               metadata: {name: oke-bootstrap-fixture, namespace: tamoss-infra}
               status:
-                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'tamoss-infra', 'oke-bootstrap-fixture').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'tamoss-infra', 'oke-bootstrap-fixture').metadata.generation)
                 conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
                 artifact:
                   path: oke-product.tar.gz
@@ -119,7 +117,7 @@ spec:
             args: [-n, flux-system, scale, deployment/kustomize-controller, --replicas=1]
         - command:
             entrypoint: kubectl
-            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-eso, oke-asset-access, oke-seed, oke-ready, --timeout=60s]
+            args: [-n, tamoss-infra, delete, kustomization, oke-flux, oke-eso, oke-seed, oke-ready, --timeout=60s]
         - apply: {file: '../../../.local/tmp/check/oke-bootstrap/remote-bootstrap.yaml', template: false}
     - name: Kind installs Flux and seeds OKE after the credential process exits
       try:
@@ -211,10 +209,10 @@ spec:
             subresource: status
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: Bucket
+              kind: OCIRepository
               metadata: {name: tamoss-product, namespace: flux-system}
               status:
-                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'Bucket', 'flux-system', 'tamoss-product').metadata.generation)
+                observedGeneration: (x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').metadata.generation)
                 conditions: [{type: Ready, status: 'True', reason: Fixture, message: Fixture, lastTransitionTime: '2026-01-01T00:00:00Z'}]
                 artifact:
                   path: seed-proof.tar.gz
@@ -438,7 +436,7 @@ spec:
                 prune: false
                 deletionPolicy: Orphan
                 path: ./handover
-                sourceRef: {kind: Bucket, name: tamoss-product}
+                sourceRef: {kind: OCIRepository, name: tamoss-product}
         - assert:
             cluster: remote
             resource:

@@ -32,10 +32,10 @@ kind: Render
   kind: ConfigMap
   name: database-connection
   valuesKey: DATABASE_CA_BASE64
-(resources[?kind == 'Kustomization' && metadata.name == 'tadoss-operator'] | [0].spec.sourceRef.kind): Bucket
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss-operator'] | [0].spec.sourceRef.kind): OCIRepository
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.deletionPolicy): Orphan
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.prune): false
 (resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.dependsOn[].name): [tadoss-operator, tadoss-credentials, platform, calico]
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 1
-(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'Bucket'].name): [tamoss-product]
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'OCIRepository'].name): [tamoss-product]
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls, tadoss-public-tls]

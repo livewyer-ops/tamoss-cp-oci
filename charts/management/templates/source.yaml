@@ -3,17 +3,13 @@ kind: Namespace
 metadata: {name: tamoss-infra}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: Bucket
+kind: OCIRepository
 metadata: {name: {{ .Values.sourceName }}, namespace: tamoss-infra}
 spec:
   interval: 1m
-  timeout: 1m
-  provider: generic
-  bucketName: {{ required "assets.bucketName is required" .Values.assets.bucketName | quote }}
-  endpoint: {{ required "assets.endpoint is required" .Values.assets.endpoint | quote }}
-  region: {{ required "assets.region is required" .Values.assets.region | quote }}
-  prefix: {{ .Values.assets.prefix | quote }}
-  secretRef: {name: asset-reader}
+  url: {{ required "assets.url is required" .Values.assets.url | quote }}
+  ref:
+    digest: {{ required "assets.digest is required" .Values.assets.digest | quote }}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
@@ -24,3 +20,17 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata: {name: external-secrets, namespace: tamoss-infra}
 spec: {interval: 1h, url: 'https://charts.external-secrets.io'}
+{{- range $name := list "packages" "environment" "secret-foundation" "bootstrap" "bootstrap-instance" "secrets" "runtime-access" "gitops-auth" }}
+{{- $chart := index $.Values.assets.charts $name }}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: tamoss-chart-{{ $name }}, namespace: tamoss-infra}
+spec:
+  interval: 10m
+  url: {{ $chart.url | quote }}
+  ref: {digest: {{ $chart.digest | quote }}}
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+{{- end }}

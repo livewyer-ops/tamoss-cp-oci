@@ -13,11 +13,11 @@
 {{- $releases := list
   (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))
   (dict "name" "traefik" "namespace" "traefik" "chart" "traefik" "source" "traefik" "version" $bom.traefik.chartVersion "values" $platform.traefik)
-  (dict "name" "authentik-bootstrap" "namespace" "auth" "chart" "./deploy/platform/charts/authentik-bootstrap" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart) "secret" "authentik-values" "connection" true "needs" (list (dict "name" "tamoss-secrets" "namespace" "auth") (dict "name" "tamoss-database-connection" "namespace" "auth")))
-  (dict "name" "tamoss-database-connection" "namespace" "auth" "product" true "chart" "./charts/database-connection" "values" (dict "databaseId" .Values.databaseId "region" .Values.region "refreshRevision" .Values.databaseRefreshRevision "images" .Values.connectionImages))
-  (dict "name" "tamoss-database-init" "namespace" "auth" "product" true "chart" "./deploy/tamoss/database/chart" "values" dict "connection" true "needs" (list (dict "name" "authentik-bootstrap" "namespace" "auth") (dict "name" "tamoss-database-connection" "namespace" "auth")))
+  (dict "name" "authentik-bootstrap" "namespace" "auth" "chart" "authentik-bootstrap" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart) "secret" "authentik-values" "connection" true "needs" (list (dict "name" "tamoss-secrets" "namespace" "auth") (dict "name" "tamoss-database-connection" "namespace" "auth")))
+  (dict "name" "tamoss-database-connection" "namespace" "auth" "chart" "database-connection" "values" (dict "databaseId" .Values.databaseId "region" .Values.region "refreshRevision" .Values.databaseRefreshRevision "images" .Values.connectionImages))
+  (dict "name" "tamoss-database-init" "namespace" "auth" "chart" "tamoss-database-init" "values" dict "connection" true "needs" (list (dict "name" "authentik-bootstrap" "namespace" "auth") (dict "name" "tamoss-database-connection" "namespace" "auth")))
   (dict "name" "authentik" "namespace" "auth" "chart" "authentik" "source" "authentik" "version" $bom.authentik.chartVersion "values" $platform.authentikChart "connection" true "needs" (list (dict "name" "tamoss-database-init" "namespace" "auth")))
-  (dict "name" "tamoss-platform-config" "namespace" "tamoss-platform" "chart" "./deploy/platform/charts/config" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart "tls" $platform.tls "clusterIssuer" $platform.clusterIssuer) "needs" (list (dict "name" "cert-manager" "namespace" "cert-manager") (dict "name" "authentik" "namespace" "auth"))) -}}
+  (dict "name" "tamoss-platform-config" "namespace" "tamoss-platform" "chart" "tamoss-platform-config" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart "tls" $platform.tls "clusterIssuer" $platform.clusterIssuer) "needs" (list (dict "name" "cert-manager" "namespace" "cert-manager") (dict "name" "authentik" "namespace" "auth"))) -}}
 {{ range $releases }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -38,15 +38,14 @@ spec:
 {{ if and $.Values.tadoss.enabled (eq .name "authentik") }}
     - {name: tadoss-config, namespace: auth}
 {{ end }}
+{{ if .source }}
   chart:
     spec:
-      chart: {{ if .source }}{{ .chart }}{{ else }}{{ printf "./%s%s%s" $.Values.assets.prefix (ternary "" "deploy/tamoss/instance/upstream/" (.product | default false)) (trimPrefix "./" .chart) | quote }}{{ end }}
-{{ if .source }}
+      chart: {{ .chart }}
       version: {{ .version | quote }}
       sourceRef: {kind: HelmRepository, name: {{ .source }}, namespace: flux-system}
 {{ else }}
-      reconcileStrategy: Revision
-      sourceRef: {kind: Bucket, name: tamoss-product, namespace: flux-system}
+  chartRef: {kind: OCIRepository, name: tamoss-chart-{{ .chart }}, namespace: flux-system}
 {{ end }}
 {{ if or .secret .connection }}
   valuesFrom:

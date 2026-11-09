@@ -1,4 +1,4 @@
-{{- if .Values.discovery }}
+{{- if .Values.oci }}
 product:
 {{ .Values.product | toYaml | indent 2 }}
 bundle:

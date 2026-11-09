@@ -42,8 +42,31 @@ DOCKER_CONFIG='{{ vars.RELEASE_BUILD_DIR }}/registry' flux pull artifact "$(yq -
   "kubectl kustomize '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/upstream/tamoss' > /dev/null",
   "kubectl kustomize '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/upstream/tadoss' > /dev/null",
   "cp '{{ vars.RELEASE_BUILD_DIR }}/assets-build/pins.yaml' '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/pins.yaml'",
-  '''cd '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree' && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > '../SHA256SUMS' ''',
-  "mv '{{ vars.RELEASE_BUILD_DIR }}/assets-build/SHA256SUMS' '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/SHA256SUMS'",
-  '''MANIFEST_SHA256="$(sha256sum '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/SHA256SUMS' | cut -d ' ' -f 1)" yq '.manifestSha256 = strenv(MANIFEST_SHA256)' '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/build.yaml' > '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/release.yaml'''',
 ]
 env.TASKV_TAMOSS_KEY = '''{{ read_yaml(path=vars.ROOT_DIR ~ "/deploy/tamoss/release.yaml") | get(key="releaseSha256") }}'''
+
+["release:charts"]
+hide = true
+run = [
+  "rm -rf '{{ vars.RELEASE_BUILD_DIR }}/charts'",
+  "install -d '{{ vars.RELEASE_BUILD_DIR }}/charts'",
+  '''{% for key, path in read_yaml(path=vars.ROOT_DIR ~ "/deploy/assets/charts.yaml") %}
+install -d '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/anonymous'
+helm package '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/{{ path }}' --dependency-update --version '0.0.0-{{ env.PRODUCT_COMMIT }}' --destination '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}'
+helm push '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/'*.tgz '{{ env.CHART_REGISTRY }}' {% if env.CHART_PLAIN_HTTP | default(value="false") == "true" %}--plain-http{% endif %} 2>&1 | tee '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/push.log'
+CHART_URL='{{ env.CHART_REGISTRY }}/{{ read_yaml(path=vars.RELEASE_BUILD_DIR ~ "/assets-build/tree/" ~ path ~ "/Chart.yaml") | get(key="name") }}' yq -n -e '{"{{ key }}": {"url": strenv(CHART_URL), "digest": (load_str("{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/push.log") | capture("Digest: (?P<digest>sha256:[a-f0-9]{64})").digest)}} | select(."{{ key }}".digest != null)' > '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}.yaml'
+{% endfor %}''',
+  '''yq eval-all '. as $item ireduce ({}; . * $item)' '{{ vars.RELEASE_BUILD_DIR }}/charts/'*.yaml > '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/charts.yaml'''',
+  '''{% for key, path in read_yaml(path=vars.ROOT_DIR ~ "/deploy/assets/charts.yaml") %}
+DOCKER_CONFIG='{{ vars.RELEASE_BUILD_DIR }}/anonymous-docker' helm pull '{{ env.CHART_REGISTRY }}/{{ read_yaml(path=vars.RELEASE_BUILD_DIR ~ "/assets-build/tree/" ~ path ~ "/Chart.yaml") | get(key="name") }}@'"$(yq -r '."{{ key }}".digest' '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}.yaml')" {% if env.CHART_PLAIN_HTTP | default(value="false") == "true" %}--plain-http{% endif %} --registry-config '{{ vars.RELEASE_BUILD_DIR }}/anonymous-registry.json' --destination '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/anonymous'
+cmp '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/'*.tgz '{{ vars.RELEASE_BUILD_DIR }}/charts/{{ key }}/anonymous/'*.tgz
+{% endfor %}''',
+]
+
+["release:seal"]
+hide = true
+run = [
+  '''cd '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree' && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > '../SHA256SUMS' ''',
+  "mv '{{ vars.RELEASE_BUILD_DIR }}/assets-build/SHA256SUMS' '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/SHA256SUMS'",
+  '''MANIFEST_SHA256="$(sha256sum '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/SHA256SUMS' | cut -d ' ' -f 1)" yq '.manifestSha256 = strenv(MANIFEST_SHA256) | .charts = load("{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/charts.yaml")' '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/build.yaml' > '{{ vars.RELEASE_BUILD_DIR }}/assets-build/tree/release.yaml'''',
+]

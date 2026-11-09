@@ -9,6 +9,8 @@ product:
   url: https://github.com/dodwyer/tamoss-cp-oci
   commit: ''
 network:
+  ociServiceId: ''
+  ociServiceCidr: ''
   vcn: 10.40.0.0/16
   api: 10.40.0.0/28
   loadBalancer: 10.40.1.0/24
@@ -18,7 +20,6 @@ network:
   services: 10.96.0.0/16
 oke:
   version: v1.36.0
-  imageName: Oracle-Linux-8.10-2026.04.30-3-OKE-1.36.0-1462
   imageId: ''
   shape: VM.Standard.E5.Flex
   ocpus: 4
@@ -33,11 +34,13 @@ database:
   regionalStorage: true
   backupRetentionDays: 1
 storage:
+  namespace: ''
   bucket: ''
-assets:
-  bucket: ''
+storageIdentity:
+  domainId: ''
+  idcsEndpoint: ''
 foundation:
   name: ''
   adoption: {}
 bundles: {}
-discovery: {}
+oci: {}

@@ -27,9 +27,8 @@ ready, the host retrieves the OKE kubeconfig with the pinned OCI CLI and checks
 TLS before issuing remote access. It creates a dedicated bootstrap ServiceAccount,
 requests a one-hour token and submits a self-contained kubeconfig Secret to Kind.
 Kind's `oke-flux` Kustomization installs the pinned official Flux OCI manifests.
-`oke-eso` installs ESO from its public Helm repository; `oke-asset-access` uses
-OKE workload identity to retrieve the asset reader from Vault. Only then does
-`oke-seed` apply the deployment's Bucket source and shared seed base.
+`oke-eso` installs ESO from its public Helm repository. `oke-seed` then applies
+the deployment's OCI sources and shared seed base.
 Crossplane supplies the Vault identifier through `oke-bootstrap-facts` in Kind.
 The database can continue provisioning while these controllers reconcile.
 
@@ -67,7 +66,7 @@ flowchart LR
     Git[Optional environment Git configuration]
     Kind --> Bindings[Immutable adoption bindings in Vault]
     Git --> Flux[Flux on OKE]
-    Checkout[Pinned CI deployment release] --> Store[Private client asset bucket]
+    Checkout[Pinned CI deployment release] --> Store[Public OCI bundle and Helm charts]
     Store --> Kind
     Store --> Flux
     Git -->|Select asset lock| Store
@@ -87,7 +86,7 @@ secret delivery. Release upgrades and credential rotation remain unqualified.
 | Owner | Responsibility |
 | --- | --- |
 | Account administrator | Dedicated compartment, authorised provisioner and its signing key |
-| Host OCI CLI | Client asset bucket, append-only publication and restricted reader IAM; store retained after down |
+| Host OCI CLI | Initial OKE kubeconfig; cloud inventory and credential retirement during teardown |
 | Crossplane | Kind initially owns the environment; OKE takes the same provider bindings after verified handover |
 | Crossplane in retained Kind | Storage user, group and bucket policy; paused after handover and deleted after key revocation during teardown |
 | OKE cloud controller | Load balancer created by the ingress `LoadBalancer` Service |
@@ -175,12 +174,12 @@ See [recovery procedures](operations.md#operation-recovery).
 
 | Source | Purpose |
 | --- | --- |
-| [Setup values](../environments/example/values.yaml) and [defaults](../charts/setup/values.yaml) | Operator choices and the HA configuration; regional discovery and complete declarations are recorded privately |
+| [Setup values](../environments/example/values.yaml) and [defaults](../charts/setup/values.yaml) | Prepared OCI tenancy/region settings and HA capacity; complete declarations are recorded privately |
 | [Environment schema](../charts/environment/definition.yaml) | Typed infrastructure contract and immutable fields |
 | [Bootstrap chart](../charts/bootstrap/) | Kind root, child dependencies and release state; reuses the foundation and environment schemas |
 | [dependencies.yaml](../dependencies.yaml), [mise.toml](../mise.toml) | Infrastructure component selections/checksums and workstation tools |
 | [TAMOSS release lock](../deploy/tamoss/release.yaml) | Verified release record and matching source archive |
-| [Client asset lock](../deploy/assets/README.md) | Selected immutable prefix, checksums and release/dependency pins; Git owns selection after handover |
+| [Release lock](../deploy/assets/README.md) | Selected bundle/chart digests, checksums and dependency pins; Git owns selection after handover |
 | [TAMOSS integration](../deploy/tamoss/README.md) | Platform settings, instance overlays, database bootstrap and qualification assets |
 
 Once all cloud resources are ready, Kind's Crossplane creates an immutable snapshot
@@ -197,7 +196,7 @@ release. Both integration HelmReleases and their values ConfigMaps reside in
 Local `outputs.json` remains an inspection and qualification record.
 Flux derives sslip.io hostnames from the reserved IP. A bounded
 OCI CLI Job obtains the current database hostname and CA. Make subsequent desired
-changes in the environment repository; repeating `up` preserves them.
+changes in the environment repository. `up` only creates fresh deployments.
 
 TAMOSS's upstream manifests, charts, profile and tests are consumed unchanged from
 the selected release. A sibling checkout is unnecessary. The operator's release
@@ -256,7 +255,7 @@ irreversibly; its secret HelmRelease then removes credential generators and Push
 The separate adoption-binding PushSecret remains until infrastructure deletion
 and the direct cloud audit finish.
 CI reads and verifies upstream packages while building a deployment release. Cluster
-product sources use a bucket-scoped reader, delivered through Vault. During handover, a
+product sources pull public OCI artifacts by digest. During handover, a
 separate credential-establishment step persists the generated SSH deploy key
 without restarting application password generators. A missing established value must fail secret delivery
 without silently generating a replacement. Secret retirement remains an explicit

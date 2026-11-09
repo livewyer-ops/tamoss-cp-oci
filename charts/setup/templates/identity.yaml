@@ -1,4 +1,4 @@
-{{- if .Values.discovery }}
+{{- if .Values.oci }}
 {{- $e := include (print .Template.BasePath "/environment.yaml") . | fromYaml }}
 deploymentUID: {{ randBytes 32 | sha256sum | trunc 32 | quote }}
 environment:
