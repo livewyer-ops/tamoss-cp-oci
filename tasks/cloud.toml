@@ -257,7 +257,7 @@ run = [
   "{{ env.TASKV_OCI }} os multipart list --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/uploads.json",
   "{{ env.TASKV_OCI }} os object list-object-versions --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/versions.json",
   '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/uploads.json''',
-  '''yq -i '. // {"data": []}' {{ vars.ENV_DIR }}/versions.json''',
+  '''yq -i '.data = (.data // [])' {{ vars.ENV_DIR }}/versions.json''',
   '''yq -e '.data | tag == "!!seq"' {{ vars.ENV_DIR }}/versions.json > /dev/null''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} BUCKET={{ ((env.TASKV_BUCKET)) | quote }} NAMESPACE={{ ((env.TASKV_NAMESPACE)) | quote }} mise run cloud:purge-objects",
   "{{ env.TASKV_OCI }} os object list --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --all > {{ vars.ENV_DIR }}/objects-after.json",

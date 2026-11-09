@@ -109,3 +109,11 @@ run = [
   '''yq -n -o=json '{"data": [{"name": "old", "lifecycle-state": "TERMINATED"}]}' > '{{ env.DIRECTORY }}/inventory-after/volumes.json'''',
   "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
 ]
+
+["test:lifecycle:bucket-versions"]
+hide = true
+run = [
+  "mkdir -p '{{ env.DIRECTORY }}'",
+  '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"normalise": {"run": (."cloud:empty-bucket:apply".run | map(select(test("^yq ") and contains("/versions.json"))))}}}' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
+  "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
+]

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Allow teardown of an empty media bucket when OCI's version listing contains
+  only prefix metadata and omits its empty data array.
+
 - Install a pinned CI deployment bundle and copy it to the customer's private
   asset store. Normal installation no longer assembles a release from the checkout.
 - Seed the full Kind graph once and supply temporary OKE access. Crossplane
