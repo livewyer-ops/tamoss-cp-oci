@@ -6,10 +6,7 @@ run = [
   '''CACHE={{ ((env.TASKV_CACHE)) | quote }} TARGET={{ ("calico/calico-policy-only.yaml") | quote }} URL={{ ((env.TASKV_URL)) | quote }} SHA={{ ((env.TASKV_SHA)) | quote }} mise run verify:artifact''',
   "cp deploy/calico/kustomization.yaml '{{ env.TASKV_CACHE }}/calico/'",
   "cp charts/gitops/files/calico-oci.yaml '{{ env.TASKV_CACHE }}/calico/oci.yaml'",
-  "mkdir -p '{{ env.TASKV_CACHE }}/calico-chart/templates'",
-  "cp charts/calico/Chart.yaml '{{ env.TASKV_CACHE }}/calico-chart/'",
-  "cp charts/calico/templates/policy.yaml '{{ env.TASKV_CACHE }}/calico-chart/templates/'",
-  "kubectl kustomize '{{ env.TASKV_CACHE }}/calico' > '{{ env.TASKV_CACHE }}/calico-chart/policy.yaml'",
+  "kubectl kustomize '{{ env.TASKV_CACHE }}/calico' > '{{ env.TASKV_CACHE }}/calico.yaml'",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
 env.TASKV_SHA = '''{% if env.SHA is defined %}{{ env.SHA }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts[] | select(.path == \"calico/calico-policy-only.yaml\") | .sha256' dependencies.yaml") }}{% endif %}'''

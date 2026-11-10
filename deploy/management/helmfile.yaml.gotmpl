@@ -1,5 +1,5 @@
 {{- $selection := dict "dependencies" (readFile "../../dependencies.yaml" | fromYaml) "packages" (readFile "../../charts/packages/values.yaml" | fromYaml) -}}
-{{- $packages := mergeOverwrite (deepCopy $selection.packages) (dict "family" false "services" false "foundation" false "okeWorkloadIdentity" (dict "region" "")) -}}
+{{- $packages := mergeOverwrite (deepCopy $selection.packages) (dict "family" false "services" false "foundation" false) -}}
 repositories:
   - name: crossplane-stable
     url: https://charts.crossplane.io/stable

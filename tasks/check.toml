@@ -58,7 +58,6 @@ run = [
   '''yq 'select(.kind == "Composition")' {{ env.TASKV_CACHE }}/environment-api.yaml > {{ env.TASKV_CACHE }}/composition.yaml''',
   '''helm template packages charts/packages --set services=true | yq 'select(.kind == "Function")' > '{{ env.TASKV_CACHE }}/functions.yaml'''',
   "mise run application:calico",
-  "helm template calico-oci-policy '{{ env.TASKV_CACHE }}/calico-chart' > '{{ env.TASKV_CACHE }}/calico.yaml'",
   "mise run tamoss:operator",
   "cp '{{ env.TASKV_CACHE }}/operator/rendered.yaml' '{{ env.TASKV_CACHE }}/operator.yaml'",
   '''OUTPUT_DIR={{ ((env.TASKV_CACHE) ~ "/instance-base") | quote }} mise run tamoss:instance''',
@@ -102,7 +101,6 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
 yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/{{ item }}.yaml > {{ env.TASKV_CACHE }}/{{ item }}-list.yaml
 {% endfor %}''',
   "chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render",
-  "mise run verify:handover",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render",
   "mise run test:s3:render",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render-native",
@@ -123,30 +121,6 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
 kubectl kustomize tests/invalid/{{ item }} > '{{ env.TASKV_CACHE }}/rejected-{{ item }}.yaml'
 {% endfor %}''',
   "chainsaw test --no-cluster --set-string crossplaneImage={{ vars.CORE }} --test-dir tests/invalid --report-format JUNIT-TEST --report-path .local/reports --report-name invalid-inputs",
-]
-env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
-
-["verify:handover"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''kubectl kustomize tests/handover | yq 'select(.kind == "TamossEnvironment")' > '{{ env.TASKV_CACHE }}/adoption.yaml'''',
-  '''yq '.metadata.annotations."crossplane.io/paused" = "true"' {{ env.TASKV_CACHE }}/adoption.yaml > {{ env.TASKV_CACHE }}/adoption-admission.yaml''',
-  "crossplane resource validate charts/environment/definition.yaml '{{ env.TASKV_CACHE }}/adoption.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas",
-  "crossplane composition render {{ env.TASKV_CACHE }}/adoption.yaml {{ env.TASKV_CACHE }}/composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/adoption-render.yaml",
-  '''yq 'select(.kind != "TamossEnvironment")' {{ env.TASKV_CACHE }}/adoption-render.yaml > {{ env.TASKV_CACHE }}/adoption-observed.yaml''',
-  '''yq '.spec.managementPolicies = ["Observe", "Delete"]' {{ env.TASKV_CACHE }}/adoption.yaml > {{ env.TASKV_CACHE }}/adoption-return.yaml''',
-  "crossplane composition render {{ env.TASKV_CACHE }}/adoption-return.yaml {{ env.TASKV_CACHE }}/composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/adoption-return-render.yaml",
-  "yq 'del(.spec.adoption.externalNames.vcn)' {{ env.TASKV_CACHE }}/adoption.yaml > {{ env.TASKV_CACHE }}/adoption-missing.yaml",
-  '''yq '.spec.adoption.deploymentId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' {{ env.TASKV_CACHE }}/adoption.yaml > {{ env.TASKV_CACHE }}/adoption-wrong-identity.yaml''',
-  '''yq '.spec.adoption.externalNames.bucket = "n/REPLACE/b/unrelated-media"' {{ env.TASKV_CACHE }}/adoption.yaml > {{ env.TASKV_CACHE }}/adoption-wrong-bucket.yaml''',
-  '''yq 'select(.kind != "TamossEnvironment") | with(select(.kind == "Vcn"); .metadata.annotations."crossplane.io/external-name" = "ocid1.test.oc1..unrelated")' {{ env.TASKV_CACHE }}/adoption-render.yaml > {{ env.TASKV_CACHE }}/adoption-conflict.yaml''',
-  '''yq 'select(.kind != "TamossEnvironment") | with(select(.kind == "Vcn"); .spec.forProvider.freeformTags."tamoss-composite-uid" = "22222222-2222-4222-8222-222222222222")' {{ env.TASKV_CACHE }}/adoption-render.yaml > {{ env.TASKV_CACHE }}/adoption-wrong-owner.yaml''',
-  "helm template oci-services charts/packages --set services=true --set okeWorkloadIdentity.region=eu-frankfurt-1 > '{{ env.TASKV_CACHE }}/workload-identity.yaml'",
-  '''{% for item in ["adoption-render", "adoption-return-render", "workload-identity"] %}
-yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/{{ item }}.yaml > {{ env.TASKV_CACHE }}/{{ item }}-list.yaml
-{% endfor %}''',
-  "chainsaw test --no-cluster --set-string root='{{ vars.ROOT_DIR }}' --set-string crossplaneImage={{ vars.CORE }} --test-dir tests/handover --report-format JUNIT-TEST --report-path .local/reports --report-name handover",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
 

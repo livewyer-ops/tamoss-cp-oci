@@ -29,8 +29,8 @@ spec:
               x-kubernetes-validations:
                 - rule: self.foundation.region == self.environment.region && self.foundation.compartmentId == self.environment.compartmentId && self.foundation.providerConfigName == self.environment.providerConfigName
                   message: Foundation and environment must share their region, compartment and provider
-                - rule: '!has(self.environment.adoption) && self.environment.managementPolicies == ["*"]'
-                  message: Bootstrap creates a new environment; ownership return uses the existing child directly
+                - rule: 'self.environment.managementPolicies == ["*"]'
+                  message: Bootstrap creates a new environment with full management
                 - rule: self.environment.database.credentialsSecret == "database-admin"
                   message: Bootstrap requires the scoped database-admin delivery
                 - rule: has(self.vaultAuth) == has(oldSelf.vaultAuth)

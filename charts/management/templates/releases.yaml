@@ -1,4 +1,4 @@
-{{- $packages := mergeOverwrite (deepCopy .Values.packages) (dict "family" false "services" false "foundation" false "okeWorkloadIdentity" (dict "region" "")) -}}
+{{- $packages := mergeOverwrite (deepCopy .Values.packages) (dict "family" false "services" false "foundation" false) -}}
 {{- $releases := list
   (dict "name" "crossplane" "repository" "crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" (dict "image" (dict "repository" .Values.dependencies.crossplane.imageRepository)) "needs" list)
   (dict "name" "external-secrets" "repository" "external-secrets" "chart" "external-secrets" "version" .Values.dependencies.externalSecrets.version "values" .Values.externalSecrets "needs" list)

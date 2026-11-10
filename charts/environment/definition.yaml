@@ -25,53 +25,15 @@ spec:
             spec:
               type: object
               required: [region, compartmentId, providerConfigName, owner, network, oke, database, storage]
-              x-kubernetes-validations:
-                - rule: '!has(self.adoption) || (oldSelf.hasValue() && has(oldSelf.value().adoption)) || self.managementPolicies == ["Observe"]'
-                  optionalOldSelf: true
-                  message: Adoption must begin with Observe only
-                - rule: '!has(oldSelf.adoption) || has(self.adoption)'
-                  message: Adoption bindings cannot be removed
-                - rule: 'self.managementPolicies != ["Observe", "Delete"] || has(self.adoption)'
-                  message: Deletion-only management requires complete adoption bindings
               properties:
                 managementPolicies:
                   type: array
                   default: ['*']
                   minItems: 1
-                  maxItems: 2
+                  maxItems: 1
                   items:
                     type: string
-                    enum: ['*', Observe, Delete]
-                  x-kubernetes-validations:
-                    - rule: 'self == ["*"] || self == ["Observe"] || self == ["Observe", "Delete"]'
-                      message: Use full management, Observe only, or Observe and Delete
-                adoption:
-                  type: object
-                  required: [deploymentId, creationCompositeUID, externalNames]
-                  x-kubernetes-validations:
-                    - rule: self == oldSelf
-                      message: Adoption identity and external names are immutable
-                  properties:
-                    deploymentId:
-                      type: string
-                      pattern: '^[a-f0-9]{32}$'
-                      maxLength: 32
-                    creationCompositeUID:
-                      type: string
-                      pattern: '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
-                      maxLength: 36
-                    externalNames:
-                      type: object
-                      minProperties: 23
-                      maxProperties: 23
-                      required: [vcn, internet, nat, service, public-routes, private-routes, api-security, api-subnet, workers-security, workers-subnet, pods-security, pods-subnet, database-security, database-subnet, loadBalancer-security, loadBalancer-subnet, cluster, worker-0, worker-1, worker-2, database, bucket, public-ip]
-                      additionalProperties:
-                        type: string
-                        minLength: 1
-                        maxLength: 2048
-                      x-kubernetes-validations:
-                        - rule: 'self.all(k, k == "bucket" || self[k].startsWith("ocid1."))'
-                          message: Non-bucket external names must be OCI resource IDs
+                    enum: ['*', Observe]
                 region:
                   type: string
                   maxLength: 64

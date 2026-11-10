@@ -2,8 +2,6 @@ family: false
 services: false
 foundation: false
 providerVersion: v2.0.0
-okeWorkloadIdentity:
-  region: ''
 functions:
   go-templating: v0.13.1
   auto-ready: v0.7.1

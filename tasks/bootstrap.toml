@@ -198,7 +198,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -s '{{ vars.ENV_DIR }}/foundation-record.yaml' || { printf '%s\n' "Restore the retained foundation record before teardown" >&2; exit 1; }''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run transfer:start-kind",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run management:start-kind",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "yq -i '.teardownStarted = true' {{ vars.ENV_DIR }}/identity.yaml",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-stop",
@@ -215,12 +215,10 @@ run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{ env.TASKV_NAME }} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:delete-backups",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:audit",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete pushsecret/adoption-bindings --ignore-not-found --wait=true --timeout=120s",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-access",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --for=delete --timeout=300s",
   "mise run storage:retire",
   "mise run storage:delete-identity",
-  "yq -i ' .resourcesRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:secret-inventory",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retire-secrets",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retained-foundation",
@@ -296,7 +294,6 @@ run = [
   "mise run bootstrap:down:early-management",
   "INVENTORY_DIR='{{ vars.ENV_DIR }}/inventory-early-down' mise run cloud:inventory",
   "yq eval-all -e '[.data | (select(tag == \"!!seq\"), (select(tag == \"!!map\") | .items)) | .[] | select(.\"lifecycle-state\" != \"DELETED\" and .\"lifecycle-state\" != \"TERMINATED\") | select(.\"freeform-tags\".\"tamoss-deployment-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID or .\"freeform-tags\".\"tamoss-environment\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").environment.name or .name == load(\"{{ vars.ENV_DIR }}/identity.yaml\").environment.storage.bucket)] | length == 0' '{{ vars.ENV_DIR }}/inventory-early-down/'*.json > /dev/null",
-  "yq -i '.resourcesRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
   "mise run bootstrap:down:early-kind",
   "yq -i '.teardownComplete = true' '{{ vars.ENV_DIR }}/identity.yaml'",
   "printf '%s\\n' 'Partial deployment removed.'"
@@ -307,7 +304,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
 run = [
-  "mise run transfer:start-kind",
+  "mise run management:start-kind",
   "mise run identity:management",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get customresourcedefinitions -o json > '{{ vars.ENV_DIR }}/early-crds.json'",
   "yq -p=json -e '[.items[] | select(.metadata.name | test(\"[.]oci[.]|[.]tamoss[.]livewyer[.]io$\"))] | length == 0' '{{ vars.ENV_DIR }}/early-crds.json' > /dev/null || { printf '%s\\n' 'Cloud controllers may have started; recover the foundation record before teardown' >&2; exit 1; }"

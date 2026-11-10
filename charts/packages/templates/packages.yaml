@@ -24,38 +24,6 @@ metadata:
 spec:
   package: ghcr.io/oracle/provider-oci-{{ $service }}:{{ $.Values.providerVersion }}
   revisionHistoryLimit: 1
-{{- if $.Values.okeWorkloadIdentity.region }}
-  runtimeConfigRef:
-    name: provider-oci-{{ $service }}
----
-apiVersion: pkg.crossplane.io/v1beta1
-kind: DeploymentRuntimeConfig
-metadata:
-  name: provider-oci-{{ $service }}
-spec:
-  serviceAccountTemplate:
-    metadata:
-      name: provider-oci-{{ $service }}
-  deploymentTemplate:
-    spec:
-      selector: {}
-      template:
-        spec:
-          automountServiceAccountToken: true
-          containers:
-            - name: package-runtime
-{{- if eq $service "psql" }}
-              # Re-observe after finaliser creation within the five-minute adoption gate.
-              args: [--poll=1m]
-{{- end }}
-              env:
-                - name: OCI_RESOURCE_PRINCIPAL_VERSION
-                  value: '2.2'
-                - name: OCI_RESOURCE_PRINCIPAL_REGION
-                  value: {{ $.Values.okeWorkloadIdentity.region | quote }}
-                - name: OCI_RESOURCE_PRINCIPAL_WORKLOAD_IDENTITY
-                  value: '1'
-{{- end }}
 {{- end }}
 {{- end }}
 {{- if .Values.services }}

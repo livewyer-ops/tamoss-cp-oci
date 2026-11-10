@@ -86,7 +86,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "(test -f '{{ vars.ENV_DIR }}/composite.json' && test ! -s '{{ vars.ENV_DIR }}/composite.json')"
 run = [
-  '''yq -i '.compositeUID = load("{{ vars.ENV_DIR }}/composite.json").metadata.uid | .creationCompositeUID = (.creationCompositeUID // load("{{ vars.ENV_DIR }}/composite.json").spec.adoption.creationCompositeUID // .compositeUID)' {{ vars.ENV_DIR }}/identity.yaml''',
+  '''yq -i '.compositeUID = load("{{ vars.ENV_DIR }}/composite.json").metadata.uid | .creationCompositeUID = (.creationCompositeUID // .compositeUID)' {{ vars.ENV_DIR }}/identity.yaml''',
 ]
 
 ["identity:record-observed-composite"]
