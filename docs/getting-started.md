@@ -17,19 +17,12 @@ Install [mise](https://mise.jdx.dev/installing-mise.html), then run:
 ```bash
 mise trust
 mise install --locked
-mise run setup
 ```
 
 mise supplies the pinned tools, including an isolated native OCI CLI and Python.
 The committed lockfile includes its Python dependencies. No PATH export or shell
-activation is required for `mise run`. `setup` creates an owner-only input directory containing
-`values.yaml`. Repeating setup preserves the file. It refuses to
-initialise a directory containing an earlier deployment. Select a fresh directory
-with `ENV_DIR=.local/environments/my-environment mise run setup` when needed, then use
-that same `ENV_DIR` for every lifecycle command.
-
-Setup performs no OCI provisioning or Git publication. Account access and the
-following settings must be supplied before `up`.
+activation is required for `mise run`. Configure the OCI profile below before
+running `setup`; discovery uses that profile for read-only OCI requests.
 
 ## OCI preparation
 
@@ -56,13 +49,14 @@ key_file=/absolute/path/to/oci_api_key.pem
 Restrict the configuration and key to mode `600` and their directory to `700`.
 `OCI_CLI_CONFIG_FILE` and `OCI_CLI_PROFILE` select another file/profile; their
 defaults are `~/.oci/config` and `DEFAULT`. The deployment reads its region from
-that profile.
+that profile. The profile also needs the [discovery permissions](../deploy/oci/README.md#setup-discovery)
+for any settings you leave unspecified.
 
 ### Storage identity
 
 Crossplane creates a dedicated storage user, group and bucket access policy in
-the tenancy's Default identity domain. Supply that domain's OCID and endpoint in
-`storageIdentity`; the generated user reuses `contactEmail`. There is no storage
+the tenancy's Default identity domain. `setup` discovers that domain's OCID and
+endpoint in `storageIdentity`; the generated user reuses `contactEmail`. There is no storage
 user OCID to enter. The provisioner needs the
 [storage IAM permissions](../deploy/oci/README.md#storage-iam-permissions).
 
@@ -84,25 +78,43 @@ an account allowed to manage its deploy keys. Leave `source.private: true` in
 settings. A public repository can use `source.private: false` to skip this step.
 Use a dedicated compartment with no workload resources.
 
-Complete `.local/environment/values.yaml`, copied from the
-[example settings](../environments/example/values.yaml). Have the account
-administrator prepare the OCI values for the selected tenancy and region:
+Run setup with the authorised OCI profile:
 
-| Input | Value to supply |
+```bash
+mise run setup
+"${EDITOR:-vi}" .local/environment/values.yaml
+```
+
+`setup` creates an owner-only directory and `values.yaml` from the
+[example settings](../environments/example/values.yaml), then fills missing OCI
+settings. Complete `compartmentId` and `contactEmail`, review the discovered
+values and choose whether to enable TADOSS:
+
+| Input | How it is set |
 | --- | --- |
-| `compartmentId`, `contactEmail`, `adminCidrs` | Empty deployment compartment, operator contact and administrator API allowlist |
-| `storageIdentity.domainId`, `storageIdentity.idcsEndpoint` | Default identity domain OCID and HTTPS endpoint |
-| `storage.namespace` | Tenancy's Object Storage namespace |
-| `network.ociServiceId`, `network.ociServiceCidr` | Regional All Services network OCID and service CIDR label |
-| `oke.imageId` | OKE-compatible x86-64 image OCID for the selected Kubernetes version and worker shape |
-| `oke.placements` | Worker availability-domain names and fault domains; the example has three placements |
+| `compartmentId`, `contactEmail` | You supply the empty deployment compartment and operator contact |
+| `storageIdentity.domainId`, `storageIdentity.idcsEndpoint` | Discover the single active Default identity domain |
+| `storage.namespace` | Discover the tenancy's Object Storage namespace |
+| `network.ociServiceId`, `network.ociServiceCidr` | Discover the regional All Services network |
+| `oke.imageId` | Select the highest OKE build number among standard Oracle Linux 8 x86-64 images matching the configured Kubernetes version; require the configured worker shape in the returned options |
+| `oke.placements` | Sort availability-domain names and distribute three workers across them, using separate fault domains when an availability domain is reused |
+| `adminCidrs` | Look up the host's public IPv4 address using `https://api.ipify.org` and allow that address as `/32` |
 
-Reuse the prepared tenancy/region values for fresh deployments. Update them when
-the tenancy, region, worker image or placement changes. The installer does not
-query OCI catalogues or check regional image/shape availability before provisioning.
+Supplied values are preserved and skip their corresponding lookups. You can
+prepopulate `values.yaml` before setup to override discovery. Before deployment,
+remove a discovered field or set it empty and rerun `setup` to refresh it; remove
+both fields together when changing an identity domain or service network.
+Failed discovery leaves the original settings file intact.
 
-Use your actual public egress IPv4 address, including any VPN gateway, for the
-API allowlist. The name defaults to `media-demo`; choose another unused `name`
+Setup makes read-only requests and creates no cloud resources. It refuses an
+environment containing an existing deployment identity. For another demo, use
+`ENV_DIR=.local/environments/my-environment mise run setup`, then use that same
+`ENV_DIR` for every lifecycle command. Keep the selected OCI profile and region
+consistent between setup and deployment. Discovery does not reserve capacity.
+
+Review `adminCidrs` if your VPN or proxy uses different egress addresses for HTTPS
+and Kubernetes access; supply the required address or range explicitly.
+The name defaults to `media-demo`; choose another unused `name`
 for a separate environment. Names have 3–23 lowercase letters, digits or hyphens,
 starting with a letter and ending with a letter or digit.
 

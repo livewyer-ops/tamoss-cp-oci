@@ -4,6 +4,8 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "chainsaw test --no-cluster --test-dir '{{ vars.ROOT }}/tests/setup/contracts' --exec-timeout 120s --set-string root='{{ vars.ROOT }}' --report-format JUNIT-TEST --report-path '{{ vars.ROOT }}/.local/reports' --report-name setup",
+  "mise run test:setup:discovery:prepare",
+  "chainsaw test --no-cluster --test-dir tests/setup/discovery --exec-timeout 60s --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name setup-discovery",
 ]
 
 ["test:setup:fixture"]
@@ -100,3 +102,81 @@ run = [
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}/interrupted' mise run bootstrap:install",
 ]
 env.TASKV_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/setup"
+
+["test:setup:discovery:prepare"]
+hide = true
+run = [
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery'",
+  "install -d -m 700 '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixtures'",
+  "cp tests/setup/discovery/*.json tests/setup/discovery/public-ip '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixtures/'",
+  '''PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq eval-all -p=toml -o=toml '
+    select(fileIndex == 0) as $root | select(fileIndex == 1) as $setup | select(fileIndex == 0) |
+    {"vars":{"ROOT_DIR":strenv(PROJECT_ROOT), "ENV_DIR":(strenv(PROJECT_ROOT) + "/.local/tmp/check/setup-discovery/environment")},
+     "env":{"OCI_CLI_CONFIG_FILE":(strenv(PROJECT_ROOT) + "/tests/setup/oci-config"), "OCI_CLI_PROFILE":"demo"},
+     "task_config":{"shell":$root.task_config.shell},
+     "tasks":{"setup":$root.tasks.setup, "setup:initialise":$setup."setup:initialise", "setup:discover":$setup."setup:discover"}} |
+    .tasks[].dir = strenv(PROJECT_ROOT) |
+    .tasks."setup:discover".run |= map(sub("(?m)^(oci|curl) [^\\n]+ > (\\x27[^\\n]+/([^/\\x27]+)\\x27)";
+      "cat " + ((strenv(PROJECT_ROOT) + "/.local/tmp/check/setup-discovery/fixtures/${3}") | @sh) + " > ${2}"))' mise.toml tasks/setup.toml > '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml' ''',
+  '''yq -p=toml -o=yaml -e '.tasks."setup:discover".run | join("\n") | test("(?m)^(oci|curl) ") | not' '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml' > /dev/null''',
+  "mise trust '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml'",
+]
+
+["test:setup:discovery:run"]
+hide = true
+run = ["MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery' run setup"]
+
+["test:setup:discovery:defaults"]
+hide = true
+run = [
+  "mise run test:setup:discovery:run",
+  '''yq -e '[.storageIdentity.domainId == "ocid1.domain.oc1.fixture", .storageIdentity.idcsEndpoint == "https://identity.example.test:443/", .storage.namespace == "fixture-namespace", .network.ociServiceId == "ocid1.service.oc1.fixture", .network.ociServiceCidr == "all-fra-services-in-oracle-services-network", .oke.imageId == "ocid1.image.oc1.fixture", (.oke.placements | length == 3), .oke.placements[0].availabilityDomain == "fixture:AD-1", .oke.placements[1].availabilityDomain == "fixture:AD-2", .oke.placements[2].availabilityDomain == "fixture:AD-3", (.adminCidrs | join(",") == "192.0.2.25/32"), .compartmentId == "ocid1.compartment.oc1..REPLACE", .contactEmail == "operator@example.invalid", .tadoss.enabled == false, .oci == null] | all' '{{ env.TASKV_DIRECTORY }}/values.yaml' ''',
+  '''test "$(cat '{{ env.TASKV_DIRECTORY }}/discovery/tenancy')" = ocid1.tenancy.oc1.fixture''',
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}')" = 700 && test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/values.yaml')" = 600''',
+  "test ! -e '{{ env.TASKV_DIRECTORY }}/identity.yaml'",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/environment'
+
+["test:setup:discovery:overrides"]
+hide = true
+run = [
+  "cp tests/setup/values.yaml '{{ env.TASKV_DIRECTORY }}/values.yaml'",
+  '''yq -i '.tadoss.enabled = true | .oke.placements |= reverse' '{{ env.TASKV_DIRECTORY }}/values.yaml' ''',
+  "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before.yaml'",
+  "mv '{{ env.TASKV_DIRECTORY }}/../fixtures' '{{ env.TASKV_DIRECTORY }}/../fixtures-unused'",
+  "mise run test:setup:discovery:run",
+  "cmp '{{ env.TASKV_DIRECTORY }}/before.yaml' '{{ env.TASKV_DIRECTORY }}/values.yaml'",
+  "mv '{{ env.TASKV_DIRECTORY }}/../fixtures-unused' '{{ env.TASKV_DIRECTORY }}/../fixtures'",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/environment'
+
+["test:setup:discovery:partial"]
+hide = true
+run = [
+  '''yq -i 'del(.storageIdentity.domainId, .network.ociServiceCidr, .oke.imageId, .oke.placements) | .oke.version = "v1.36.1"' '{{ env.TASKV_DIRECTORY }}/values.yaml' ''',
+  '''yq -i '.data = [.data[0]]' '{{ env.TASKV_DIRECTORY }}/../fixtures/domains.json' ''',
+  "mise run test:setup:discovery:run",
+  '''yq -e '[.storageIdentity.domainId == "ocid1.domain.oc1.fixture", .storageIdentity.idcsEndpoint == "https://identity.example.test:443/", .network.ociServiceCidr == "all-fra-services-in-oracle-services-network", .oke.imageId == "ocid1.image.oc1.other-version", .oke.version == "v1.36.1", .storage.namespace == "fixture", (.adminCidrs | join(",") == "192.0.2.10/32"), .tadoss.enabled == true, ([.oke.placements[].availabilityDomain] | join(",") == "fixture:AD-3,fixture:AD-3,fixture:AD-3"), ([.oke.placements[].faultDomain] | join(",") == "FAULT-DOMAIN-1,FAULT-DOMAIN-2,FAULT-DOMAIN-3")] | all' '{{ env.TASKV_DIRECTORY }}/values.yaml' ''',
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/environment'
+
+["test:setup:discovery:failure"]
+hide = true
+run = [
+  "cp tests/setup/discovery/*.json tests/setup/discovery/public-ip '{{ env.TASKV_DIRECTORY }}/../fixtures/'",
+  "cp environments/example/values.yaml '{{ env.TASKV_DIRECTORY }}/values.yaml'",
+  "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before.yaml'",
+  '''{% if env.CASE == "api" %}
+rm '{{ env.TASKV_DIRECTORY }}/../fixtures/namespace.json'
+{% elif env.CASE == "domain" %}
+yq -i '.data += [.data[-1]]' '{{ env.TASKV_DIRECTORY }}/../fixtures/identity-domains.json'
+{% elif env.CASE == "image" %}
+yq -i '.data.sources = []' '{{ env.TASKV_DIRECTORY }}/../fixtures/node-options.json'
+{% elif env.CASE == "ip" %}
+printf '999.1.2.3\n' > '{{ env.TASKV_DIRECTORY }}/../fixtures/public-ip'
+{% elif env.CASE == "identity" %}
+touch '{{ env.TASKV_DIRECTORY }}/identity.yaml'
+{% endif %}''',
+  "mise run test:setup:discovery:run",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/environment'

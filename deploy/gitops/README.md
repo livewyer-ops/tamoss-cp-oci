@@ -9,6 +9,7 @@ has completed. OKE runs External Secrets and the application controllers.
 
 | Step | Runs on | Action and result |
 | --- | --- | --- |
+| Discover settings | Host, during `setup` | Use the selected OCI profile to fill missing tenancy/region settings and the host's public IPv4 allowlist; preserve explicit overrides. |
 | Prepare | Host | Read private settings and OCI profile; require a clean checkout whose commit is available from `origin`; validate the settings against the management chart. |
 | Start management | Host -> Kind | Create Kind and install official Flux controllers. Apply one Kustomize overlay: Git source, settings ConfigMap, OCI Secrets and the `tamoss-management` HelmRelease. |
 | Authenticate private Git | Host -> Kind | Register a dedicated read-only repository deploy key and create its Secret in Kind, with GitHub's published SSH host keys. |
@@ -76,8 +77,9 @@ again. Retain the key until that anonymous fetch succeeds.
 
 ## Demo inputs and source changes
 
-`mise run setup` creates the private `values.yaml`. Configure OCI settings and
-optional `tadoss.enabled` there before `up`. Helm validates the inputs; generated
+Configure the OCI profile before `mise run setup`, which discovers missing settings
+in the private `values.yaml`. Supply `compartmentId`, `contactEmail` and optional
+`tadoss.enabled` there before `up`. Helm validates the inputs; generated
 configuration and credentials stay outside Git. The source checkout shows every
 controller declaration, chart and overlay that Flux will use.
 

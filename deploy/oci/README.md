@@ -26,7 +26,7 @@ Allow group id <provisioner-group-ocid> to manage cluster-family in compartment 
 
 ## Storage IAM permissions
 
-Supply the active Default identity domain's OCID and endpoint in `values.yaml`.
+Setup discovers the active Default identity domain's OCID and endpoint in `values.yaml`.
 The provisioner needs permission to manage users/groups with the reserved
 `tamoss-storage-` name prefix. An account administrator grants these permissions
 once; deployment does not authorise itself:
@@ -61,6 +61,23 @@ Vault. Keep credential output out of logs and shared manifests. Validate the pro
 the [pinned OCI CLI](../../docs/operations.md#native-oci-cli) and read-only
 compartment inventory before deployment; new IAM
 credentials and policies can take time to propagate.
+
+## Setup discovery
+
+Configure the signing profile before running `mise run setup`. Missing settings
+are filled using read-only OCI lookups. The profile needs `DOMAIN_INSPECT` for
+the tenancy's identity domains, `COMPARTMENT_INSPECT` for availability-domain
+discovery, and `INSTANCE_INSPECT` for the unscoped OKE node-pool options lookup.
+Compartment-scoped provisioning grants alone may not cover these lookups.
+Account administrators can grant tenancy-level inspection of `domains`,
+`compartments` and `instances`, or supply the corresponding settings explicitly
+so setup skips those requests. Oracle lists the permissions for
+[IAM discovery](https://docs.oracle.com/en-us/iaas/Content/Identity/policyreference/iampolicyreference.htm)
+and [OKE node-pool options](https://docs.oracle.com/en-us/iaas/Content/Identity/Reference/contengpolicyreference.htm).
+
+Setup also reads the Object Storage namespace and regional service-gateway
+catalogue. It writes the selected identifiers into the private settings file;
+it does not change account permissions or create OCI resources.
 
 ## Deployment asset access
 

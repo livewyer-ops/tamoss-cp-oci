@@ -1,0 +1,68 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: setup-discovery}
+spec:
+  steps:
+    - name: discover defaults using the selected profile without provisioning
+      try:
+        - command:
+            entrypoint: mise
+            env: &paths [{name: PROJECT_ROOT, value: ($values.root)}]
+            args: [-C, $PROJECT_ROOT, run, test:setup:discovery:defaults]
+    - name: preserve explicit settings and skip every supplied lookup
+      try:
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:setup:discovery:overrides]
+    - name: fill partial settings and use separate fault domains in a single availability domain
+      try:
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:setup:discovery:partial]
+    - name: retain the original inputs when a lookup fails
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=api, mise, -C, $PROJECT_ROOT, run, test:setup:discovery:failure]
+            check: {($error != null): true}
+        - command: &unchanged
+            entrypoint: cmp
+            env: *paths
+            args: [$PROJECT_ROOT/.local/tmp/check/setup-discovery/environment/before.yaml, $PROJECT_ROOT/.local/tmp/check/setup-discovery/environment/values.yaml]
+    - name: reject an ambiguous Default identity domain
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=domain, mise, -C, $PROJECT_ROOT, run, test:setup:discovery:failure]
+            check: {($error != null): true}
+        - command: *unchanged
+    - name: reject a missing compatible image
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=image, mise, -C, $PROJECT_ROOT, run, test:setup:discovery:failure]
+            check: {($error != null): true}
+        - command: *unchanged
+    - name: reject malformed public IPv4 discovery
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=ip, mise, -C, $PROJECT_ROOT, run, test:setup:discovery:failure]
+            check: {($error != null): true}
+        - command: *unchanged
+    - name: refuse to change an existing deployment even when values are present
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=identity, mise, -C, $PROJECT_ROOT, run, test:setup:discovery:failure]
+            check:
+              ($error != null): true
+              (contains($stderr, 'existing deployment')): true
+        - command: *unchanged

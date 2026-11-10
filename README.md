@@ -44,17 +44,20 @@ git clone https://github.com/dodwyer/tamoss-cp-oci.git
 cd tamoss-cp-oci
 mise trust
 mise install --locked
-mise run setup
 ```
 
 Complete [Getting started](docs/getting-started.md) with an authorised OCI profile,
-dedicated empty compartment and prepared tenancy/region settings in `values.yaml`.
-Then deploy:
+including discovery permissions, and a dedicated empty compartment. Prepare the
+settings, enter the compartment OCID and contact email, then deploy:
 
 ```bash
+mise run setup
+"${EDITOR:-vi}" .local/environment/values.yaml
 mise run up
 ```
 
+`setup` discovers the storage namespace, identity domain, service network, OKE
+image and placements, and current public IPv4 address. Supplied values are preserved.
 Use a clean, committed and pushed checkout. While this repository is private,
 [authenticate GitHub CLI](deploy/gitops/README.md#private-repository-authentication)
 on the host before `up`. Flux receives a dedicated read-only deploy key. `up`
@@ -72,7 +75,7 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 
 | Command | Purpose |
 | --- | --- |
-| `mise run setup` | Create private settings without overwriting existing deployment state. |
+| `mise run setup` | Discover missing OCI settings in a private deployment directory. |
 | `mise run check` | Validate releases, rendering, TLS and local contracts. |
 | `mise run check:management` | Also test controller reconciliation in disposable Kind clusters. |
 | `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |

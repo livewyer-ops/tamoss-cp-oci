@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Discover missing OCI settings and the host's public IPv4 allowlist during
+  `mise run setup`. Preserve explicit overrides and leave discovery out of `up`.
 - Keep Flux and Crossplane in Kind through deployment and teardown. Flux deploys
   the platform and applications remotely to OKE.
 - Read this repository at a pushed Git commit and build chart directories with
