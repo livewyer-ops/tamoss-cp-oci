@@ -15,7 +15,7 @@ mise run check
 | --- | --- |
 | TAMOSS release | Published metadata/checksums, matching source, immutable bundle and selected upstream browser-test collection |
 | Infrastructure | Initial/partial/ready composition rendering, schema validation, immutable inputs and deletion dependencies |
-| Generated state | Complete adoption snapshots, retention through missing status, rejection of changed IDs and mismatched readback; local seed preparation without cloud outputs and identical configuration export |
+| Generated state | Published runtime values and runtime access readiness; local seed preparation without cloud outputs and identical configuration export |
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
 | Operational Jobs | Shared retry bounds, security, image and temporary-storage contract for the remaining Jobs; rejection of missing deadlines and unsafe container permissions |
