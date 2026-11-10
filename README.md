@@ -28,8 +28,8 @@ coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md
 Flux in Kind reads this repository and manages OKE remotely. Crossplane provisions
 OCI resources from Kind. The host supplies OKE access; no second Flux or Crossplane
 stack is installed in OKE. A removable read-only deploy key allows private Git
-access. The new flow has local coverage; fresh OCI deployment and teardown remain
-unqualified.
+access. Fresh OCI deployment, application qualification and teardown have passed;
+[testing](docs/testing.md#verified-coverage-and-limits) records the coverage and limits.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
 using the same platform. Enable it in the private settings before deployment.

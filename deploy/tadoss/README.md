@@ -57,7 +57,7 @@ The instance requires its current generation, selected release and both API and
 worker replica counts to be ready. The deployment aggregate also requires its
 public certificate to be Ready; working API requests are a separate check.
 Initial enablement and full environment teardown are the
-supported integration paths; application uninstall and upgrades are unqualified.
+supported integration paths; standalone application uninstall and upgrades are unqualified.
 Removing the enablement setting is not a database deletion procedure.
 
 ## Verification and removal
@@ -76,8 +76,8 @@ checks anonymous and insufficient-scope rejection, retained events after pod
 replacement and continued media access. Replacement is verified by comparing
 pod UIDs before and after deletion. Keep Kind running. Capture an infrastructure
 baseline with `tadoss:baseline` before qualification; the checks compare OCI IDs
-afterwards and record the selected Git commit. Historical checks used the former
-ownership-transfer flow; fresh cloud qualification of this flow remains pending.
+afterwards and record the selected Git commit. These checks passed in the
+Kind-owned OCI run; see [verified coverage](../../docs/testing.md#verified-coverage-and-limits).
 These checks require an authorised live environment; local passes alone do not
 establish them.
 

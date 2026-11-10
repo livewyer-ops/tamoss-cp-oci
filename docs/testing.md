@@ -156,59 +156,42 @@ evidence and continue independent checks as appropriate. Follow
 
 ## Verified coverage and limits
 
-The current flow consumes this repository through Git, keeps Flux and Crossplane
-in Kind and deploys to OKE remotely. Local controller checks cover authenticated
-Git delivery, native chart packaging, remote values, token expiry/renewal and
-revocation. These checks do not qualify the complete OCI lifecycle. All cloud
-results below predate this architecture and describe historical behaviour.
+On 10 November 2026, published commit `0bc2c3e` completed a fresh OCI deployment,
+TAMOSS and TADOSS qualification, original Kind restart and teardown. Both
+applications were enabled before installation. Deployment and teardown used a
+temporary scoped OCI identity and needed no manual resource repair.
 
-The local suites have passed across focused runs. A clean uninterrupted management
-run remains outstanding: an intermittent Authentik blueprint-import failure was
-observed, although the subsequent cold-start and recovery checks passed with no
-pod restarts. Its cause remains unconfirmed.
-
-Setup contracts exercise private initialisation, profile inheritance, explicit
-OCI settings, credential exclusion from render inputs, invalid configuration and
-refusal to overwrite an existing deployment identity. Installation contracts
-cover fresh deployment, rejection of repeated installation and preservation of
-records after failure. An assisted OCI deployment consumed a
-private client-owned snapshot built from a committed, unpushed product revision.
-Kind and OKE used that snapshot without product Git access. Native GitHub
-bootstrap and Vault-backed SSH handover passed, followed by Git-only TADOSS
-enablement and qualification with Kind stopped. Neither application source
-nor the selected snapshot changed during enablement.
-
-The run required manual recovery of an OCI policy whose Kubernetes record had
-lost its external binding after successful creation. Its underlying cause remains
-unresolved. It also exposed a missing report directory, a duplicate Flux namespace
-and a field-ownership conflict when returning deletion authority; these product
-defects are corrected and covered by local checks. Asset-reader retirement needed
-an empty-list handling correction and administrator removal of a membership that
-the scoped provisioner could list but could not delete through the legacy IAM API.
-A separate live test reproduced that refusal and removed the exact member through
-the native Identity Domains group API using the existing scoped permissions.
-The corrected reader retirement and its repeat passed without administrator
-intervention. An uninterrupted full lifecycle remains unqualified.
-
-Public TLS passed for Authentik, TAMOSS and TADOSS in this run. Native readiness
-checks also reject missing, false, unknown and stale certificate observations.
-These results do not establish that every cold certificate request will succeed
-or that earlier intermittent ACME connection timeouts are resolved.
+Flux fetched the exact commit using a temporary read-only GitHub deploy key.
+Flux and Crossplane remained in Kind throughout; OKE ran the application stack.
+An independent administrator audit confirmed cleanup, then retired the temporary
+provisioner account and its API key, group and policy.
 
 | Behaviour | Observed status |
 | --- | --- |
-| Historical bucket-based release assets | Private upload/readback, exact object-set verification, repeated publication and denied reader writes passed. Kind and OKE consumed the same snapshot while its product commit remained unpushed. OKE source-controller replacement recovered the identical artifact digest with Kind stopped |
-| Automatic storage identity and credentials | Crossplane IAM creation, generated key, exact Vault readback, application storage and native storage IAM retirement passed during the full deployment. Separate isolated checks cover restricted capabilities, denial for another bucket and preservation across provider restarts |
-| TAMOSS application | External DB/S3, trusted TLS, ingest, all five selected upstream browser tests, replica placement and network policy passed |
-| Worker disruption | All 540 API/login-path requests succeeded across the worker drain; post-drain media reads passed |
-| Original Kind interruption | Stop/start preserved identity and resumed reconciliation; service continuity passed |
-| Remote bootstrap | The host supplied temporary OKE access to Kind. Native Flux stages installed remote Flux, ESO and asset access before the shared seed. Vault-delivered bindings and runtime values converged; successful up retired temporary remote access |
-| Initial Flux convergence | All initial runtime Kustomizations, including TAMOSS, reached Ready before any host reconciliation request. Current-Git refresh and ownership transfer remain explicit operations |
-| Public GitOps lifecycle | Repeated up preserved exact resource bindings. Native SSH bootstrap, Vault persistence, ownership transfer and repeated handover passed after the namespace correction. Repeated handover preserved Git and left Kind stopped |
-| Shared TAMOSS/TADOSS operation | Changing only `tadoss.enabled` in client Git deployed TADOSS without asset publication or a host reconcile request. Trusted HTTPS, OAuth scopes, linked timed metadata and persistence after four verified pod replacements passed; all 35 inventoried OCI IDs, including the asset store, were unchanged |
-| Workload convergence | TADOSS's OAuth Job completed on its first attempt with unchanged Authentik pod UIDs and restart counts |
-| Environment cleanup | Assisted `down` and its repeat passed. Workloads, storage IAM and Kind were removed; Vault secret deletion was scheduled. Explicit asset-store retirement and its repeat passed. Independent administrator inventory found all 21 hardware categories empty; the pre-existing compartment, Vault and key remain retained |
-| Release upgrade and package credential rotation/revocation | Remain unqualified; local fixtures and same-version reconciliation do not establish these outcomes |
-| Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
+| Git delivery and readiness | Private SSH fetch, chart packaging from the selected commit and current-revision deployment readiness passed. Fresh `up` completed in approximately 26 minutes |
+| Execution context | Database metadata lookup completed in Kind; SQL initialisation ran in OKE. OKE contained no Flux or Crossplane deployment |
+| Remote access | The host issued a token with a recorded 24-hour expiry. Renewal passed; teardown removed the remote service account, binding and Kind access Secret after application removal |
+| Storage and secrets | Generated storage credentials, Vault synchronisation, external PostgreSQL and S3 access passed |
+| TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, all five selected browser tests, replica placement and network policy passed |
+| Worker disruption | All 540 API/login-path requests succeeded across the worker drain; the worker was uncordoned and post-drain media reads passed |
+| TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after four verified pod replacements passed. All inventoried OCI IDs were unchanged |
+| Original Kind interruption | Media and UI login access passed with Kind stopped. The same container and management identity returned; all 23 recorded infrastructure bindings were unchanged and Flux readiness recovered |
+| Teardown | Workloads, cloud resources, application IAM, Git deploy key and Kind were removed. Independent native OCI inventory found all 21 resource categories empty. Existing local clusters, Git keys and upstream worktrees were unchanged |
+| Retained foundation | The pre-existing compartment, Vault and key were retained. The deployment's ten Vault secrets were scheduled for deletion |
+
+The TADOSS OAuth blueprint Job failed its first attempt and completed on its
+automatic retry; Authentik had no pod restarts during initial convergence. Its
+failure log contained an exception while sanitising importer logs, so the
+underlying cause remains unconfirmed. Earlier local testing also observed an
+intermittent blueprint failure. The local suites have passed across focused runs;
+a clean uninterrupted management-suite run remains outstanding.
+
+Local controller checks additionally cover actual token expiry, rejected renewal
+after revocation, invalid cluster identity and interrupted retirement. Release
+upgrades, credential rotation, managed-database failover, browser logout-button
+interaction, regional recovery and management-state restoration remain unqualified.
+Earlier OCI external-binding loss and intermittent ACME failures were not
+reproduced; their causes remain unconfirmed. Reliability across repeated fresh
+deployments remains unqualified.
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
