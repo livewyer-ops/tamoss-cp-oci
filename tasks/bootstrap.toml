@@ -46,6 +46,7 @@ oci ce cluster create-kubeconfig --cluster-id {{ env.TASKV_CLUSTER | quote }} --
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/remote-uid'",
   '''yq -i '.users[].user.exec |= (.command = "oci" | .env = [{"name":"OCI_CLI_CONFIG_FILE","value":strenv(OCI_CLI_CONFIG_FILE)},{"name":"OCI_CLI_PROFILE","value":strenv(OCI_CLI_PROFILE)}])' '{{ vars.ENV_DIR }}/remote.kubeconfig'''',
   '''yq -i '.remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster.server' '{{ vars.ENV_DIR }}/identity.yaml'''',
+  "mise run bootstrap:remote-rbac",
   "mise run bootstrap:remote-access:issue",
 ]
 env.TASKV_CLUSTER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="clusterID") }}'''
