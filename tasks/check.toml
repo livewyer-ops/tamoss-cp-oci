@@ -129,10 +129,6 @@ env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "helm lint charts/runtime-access -f tests/secrets/access-values.yaml",
-  "helm template access charts/runtime-access -n tamoss-infra -f tests/secrets/access-values.yaml > '{{ env.TASKV_CACHE }}/runtime-access.yaml'",
-  "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/runtime-access.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
-  '''yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/runtime-access.yaml > {{ env.TASKV_CACHE }}/runtime-access-list.yaml''',
   "helm lint charts/secret-foundation",
   "helm lint charts/secrets -f tests/secrets/values.yaml",
   "helm template foundation charts/secret-foundation > '{{ env.TASKV_CACHE }}/foundation-api.yaml'",

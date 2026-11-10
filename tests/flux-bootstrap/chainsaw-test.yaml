@@ -72,11 +72,12 @@ spec:
               status: {credentialsReady: true, infrastructureReady: true}
         - assert:
             resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: runtime-access, namespace: tamoss-infra}
-              spec:
-                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/composition-resource-name: runtime-policy-auth, tamoss.livewyer.io/cluster-id: ocid1.cluster.oc1.fixture}
         - command:
             entrypoint: kubectl
             args: [-n, tamoss-infra, wait, externalsecret, --all, --for=condition=Ready, --timeout=180s]
@@ -200,13 +201,6 @@ spec:
               kind: TamossEnvironment
               metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
               spec: {managementPolicies: [Observe]}
-        - patch:
-            resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: runtime-access, namespace: tamoss-infra}
-              spec:
-                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
         - command:
             entrypoint: kubectl
             args: [-n, flux-system, rollout, restart, deployment/helm-controller]
@@ -240,11 +234,12 @@ spec:
               spec: {managementPolicies: [Observe]}
         - assert:
             resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: runtime-access, namespace: tamoss-infra}
-              spec:
-                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/composition-resource-name: runtime-policy-auth, tamoss.livewyer.io/cluster-id: ocid1.cluster.oc1.fixture}
     - name: restart original Kind with bootstrap authority still released
       try:
         - command:
@@ -274,8 +269,9 @@ spec:
               spec: {managementPolicies: [Observe]}
         - assert:
             resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: runtime-access, namespace: tamoss-infra}
-              spec:
-                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/composition-resource-name: runtime-policy-auth, tamoss.livewyer.io/cluster-id: ocid1.cluster.oc1.fixture}

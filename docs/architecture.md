@@ -33,8 +33,9 @@ flowchart LR
 
 The root `TamossBootstrap` composes foundation and environment resources together.
 Networking and OKE can progress while Vault credentials are prepared. PostgreSQL
-creation waits for its persisted credential. Crossplane composes the secret and
-IAM HelmReleases from observed resource IDs; Flux performs their Helm operations.
+creation waits for its persisted credential. Crossplane composes the secret
+HelmRelease and the runtime IAM policies from observed resource IDs; Flux performs
+the Helm operations.
 
 The host records OKE's cluster ID, API endpoint and namespace UID before issuing
 remote access. Flux uses a self-contained kubeconfig Secret in Kind. Chart
