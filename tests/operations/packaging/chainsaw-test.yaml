@@ -1,26 +1,74 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
-metadata: {name: operational-chart-dependencies}
+metadata:
+  name: operational-chart-dependencies
 spec:
   steps:
-    - name: fetch packaged operation charts by digest
-      try:
-        - apply: {file: ../../../.local/tmp/check/oci/operations.yaml}
-        - assert:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-chart-database-connection, namespace: tamoss-infra}
-              (status.observedGeneration == metadata.generation): true
-              (status.artifact.revision == spec.ref.digest): true
-              status:
-                (conditions[?type == 'Ready'] | [0].status): 'True'
-        - assert:
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-chart-secrets, namespace: tamoss-infra}
-              (status.observedGeneration == metadata.generation): true
-              (status.artifact.revision == spec.ref.digest): true
-              status:
-                (conditions[?type == 'Ready'] | [0].status): 'True'
+  - name: package chart directories and local library dependencies from Git
+    try:
+    - apply:
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: &id001
+            name: operation-database-connection
+            namespace: tamoss-infra
+          spec:
+            interval: 1m
+            chart: ./charts/database-connection
+            reconcileStrategy: Revision
+            sourceRef:
+              kind: GitRepository
+              name: tamoss-bootstrap-product
+    - assert:
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: *id001
+          (status.observedGeneration == metadata.generation): true
+          status:
+            (conditions[?type == 'Ready'] | [0].status): 'True'
+    - apply:
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: &id002
+            name: operation-secrets
+            namespace: tamoss-infra
+          spec:
+            interval: 1m
+            chart: ./charts/secrets
+            reconcileStrategy: Revision
+            sourceRef:
+              kind: GitRepository
+              name: tamoss-bootstrap-product
+    - assert:
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: *id002
+          (status.observedGeneration == metadata.generation): true
+          status:
+            (conditions[?type == 'Ready'] | [0].status): 'True'
+    - apply:
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: &id003
+            name: operation-retirement
+            namespace: tamoss-infra
+          spec:
+            interval: 1m
+            chart: ./charts/retirement
+            reconcileStrategy: Revision
+            sourceRef:
+              kind: GitRepository
+              name: tamoss-bootstrap-product
+    - assert:
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: *id003
+          (status.observedGeneration == metadata.generation): true
+          status:
+            (conditions[?type == 'Ready'] | [0].status): 'True'

@@ -3,21 +3,23 @@ kind: Render
 (length(resources[?kind == 'Secret'])): 0
 (length(resources[?metadata.name == 'tadoss' || metadata.name == 'tadoss-config' || metadata.name == 'tadoss-release' || metadata.name == 'tads'])): 0
 (resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-platform-config'] | [0].spec.values.tls.mode): public
-(length(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-secrets'])): 3
+(length(resources[?kind == 'HelmRelease' && starts_with(metadata.name, 'tamoss-secrets-')])): 2
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentik.secretKey): null
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentik.bootstrap.password): null
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.values.authentikChart.authentik.postgresql.host): null
-(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[0].name): authentik-values
-(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[1].targetPath): authentikChart.authentik.postgresql.host
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[0].name): authentik-secret-key
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik-bootstrap'] | [0].spec.valuesFrom[5].targetPath): authentikChart.authentik.postgresql.host
 (resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.worker.lifecycle.postStart): null
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.prune): false
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.deletionPolicy): Orphan
-(length(resources[?kind == 'Kustomization' && metadata.name == 'credentials'] | [0].spec.healthChecks)): 7
-(resources[?kind == 'HelmRelease' && metadata.name == 'oci-services'] | [0].spec.values.foundation): false
+(length(resources[?kind == 'Kustomization' && metadata.name == 'credentials'] | [0].spec.healthChecks)): 5
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 0
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 16
-(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls]
-(resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.sourceRef.kind): OCIRepository
+(resources[?kind == 'Kustomization' && metadata.name == 'application-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls]
+(resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.sourceRef.kind): GitRepository
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss-operator'] | [0].spec.sourceRef.kind): OCIRepository
-(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'OCIRepository'].name): [tamoss-product]
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'GitRepository'].name): [tamoss-bootstrap-product]
 (length(resources[?kind == 'GitRepository'])): 0
+(length(resources[?kind == 'HelmRelease' && metadata.name != 'tamoss-database-connection' && spec.kubeConfig.secretRef.name != 'oke-bootstrap-access'])): 0
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-database-connection' && spec.kubeConfig == null])): 1
+(length(resources[?kind == 'HelmRelease' || kind == 'Kustomization'].metadata.namespace | [?@ != 'tamoss-infra'])): 0

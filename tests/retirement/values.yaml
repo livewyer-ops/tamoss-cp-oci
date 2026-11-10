@@ -1,0 +1,16 @@
+verifySecrets: false
+oracle: {region: eu-frankfurt-1}
+images:
+  oci: fixture/oci:1
+  kubectl: fixture/kubectl:1
+bucket:
+  name: demo
+  namespace: fixture
+  uploads: [{object: incomplete, upload-id: upload-1}]
+backups: [{id: ocid1.postgresbackup.oc1.fixture}]
+secretDeletions: [{id: ocid1.vaultsecret.oc1.fixture}]
+deletionTime: '2030-01-01T00:00:00Z'
+storageKey: {userId: ocid1.user.oc1.fixture, keyId: fixture}
+workloads:
+  - {namespace: tams, resource: tamosses.tamoss.livewyer.io, name: tamoss}
+  - {namespace: tads, resource: tadosses.tadoss.livewyer.io, name: tadoss}

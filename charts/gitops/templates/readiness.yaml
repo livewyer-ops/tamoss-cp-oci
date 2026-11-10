@@ -1,43 +1,20 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: deployment-ready, namespace: flux-system}
+metadata: {name: application-ready, namespace: tamoss-infra}
 spec:
   interval: 1m
-  retryInterval: 30s
   timeout: 15m
   prune: false
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
   path: ./deploy/gitops/readiness
-  sourceRef: {kind: OCIRepository, name: tamoss-product}
-  # Recheck health after a values change even when the resource names are unchanged.
-  commonMetadata:
-    annotations:
-      tamoss.livewyer.io/configuration-sha256: {{ .Values | toJson | sha256sum | quote }}
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  dependsOn: [{name: tamoss}{{ if .Values.tadoss.enabled }}, {name: tadoss}{{ end }}]
   healthChecks:
-    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: OCIRepository, name: tamoss-product, namespace: flux-system}
-    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: infrastructure, namespace: tamoss-infra}
-    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: adoption-bindings, namespace: tamoss-infra}
-    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: runtime, namespace: tamoss-infra}
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-gitops-bootstrap, namespace: tamoss-infra}
     - {apiVersion: cert-manager.io/v1, kind: Certificate, name: authentik-public-tls, namespace: auth}
     - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tams-public-tls, namespace: tams}
-{{ range list "credentials" "database-connection" "database-ca" "platform" "calico" "tamoss-operator" "tamoss" }}
-    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: auth}
-{{ end }}
-{{ range $namespace, $names := dict "crossplane-system" (list "crossplane" "oci-family" "oci-services" "tamoss-environment-api") "external-secrets" (list "external-secrets") "cert-manager" (list "cert-manager") "traefik" (list "traefik") "auth" (list "authentik-bootstrap" "tamoss-database-connection" "tamoss-database-init" "authentik") "tamoss-platform" (list "tamoss-platform-config") }}
-{{ range $names }}
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: {{ . }}, namespace: {{ $namespace }}}
-{{ end }}
-{{ end }}
-{{ range list "tamoss-infra" "auth" "tams" }}
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-secrets, namespace: {{ . }}}
-{{ end }}
 {{ if .Values.tadoss.enabled }}
     - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tadoss-public-tls, namespace: tads}
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: auth}
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tads}
-{{ range list "tadoss-credentials" "tadoss-operator" "tadoss" }}
-    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: auth}
-{{ end }}
 {{ end }}
   healthCheckExprs:
     - apiVersion: cert-manager.io/v1
@@ -46,7 +23,37 @@ spec:
         has(status.conditions) && status.conditions.exists(c,
         c.type == 'Ready' && c.status == 'True' &&
         has(c.observedGeneration) && c.observedGeneration == metadata.generation)
-{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "OCIRepository") }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: deployment-ready, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 15m
+  prune: false
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  commonMetadata:
+    annotations:
+      tamoss.livewyer.io/configuration-sha256: {{ .Values | toJson | sha256sum | quote }}
+  healthChecks:
+    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+{{ range list "bootstrap-ready" "runtime" "oke-prerequisites" "application-ready" "credentials" "database-connection" "database-ca" "platform" "calico" "tamoss-operator" "tamoss" }}
+    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ range list "crossplane" "oci-family" "oci-services" "tamoss-environment-api" "external-secrets" "oke-external-secrets" "tamoss-gitops" "cert-manager" "traefik" "authentik-bootstrap" "tamoss-database-connection" "tamoss-database-init" "authentik" "tamoss-platform-config" "tamoss-secrets-auth" "tamoss-secrets-tams" }}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ if .Values.tadoss.enabled }}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: tamoss-infra}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tamoss-infra}
+{{ range list "tadoss-credentials" "tadoss-operator" "tadoss" }}
+    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ end }}
+  healthCheckExprs:
+{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "GitRepository") }}
     - apiVersion: {{ .api }}
       kind: {{ .kind }}
       current: >-

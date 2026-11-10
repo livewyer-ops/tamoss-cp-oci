@@ -1,0 +1,15 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: tamoss-operator, namespace: tamoss-system}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {control-plane: controller-manager}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: tadoss-operator, namespace: tadoss-system}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: tadoss-operator}

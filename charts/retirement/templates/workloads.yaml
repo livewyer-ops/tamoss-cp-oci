@@ -1,0 +1,61 @@
+{{- range .Values.workloads }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: retire-{{ .name | replace "/" "-" }}
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  activeDeadlineSeconds: 1000
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- include "operation-common.podSecurity" $ | nindent 8 }}
+      initContainers:
+        - name: authorise
+          image: {{ required "kubectl image is required" $.Values.images.kubectl | quote }}
+          command: [kubectl]
+          args:
+{{ if eq .resource "tadosses.tadoss.livewyer.io" }}
+            - patch
+            - {{ .resource }}/{{ .name }}
+            - --type=merge
+            - '--patch={"spec":{"deletionProtection":false}}'
+{{ else }}
+            - annotate
+            - {{ .resource }}
+            - --field-selector=metadata.name={{ .name }}
+            - confirmation.tamoss.livewyer.io/deletion=true
+            - --overwrite
+{{ end }}
+            - --namespace={{ .namespace }}
+            - --kubeconfig=/oke/value.yaml
+            - --request-timeout=30s
+          resources: &resources
+            {{- include "operation-common.resources" $ | nindent 12 }}
+          securityContext: &security
+            {{- include "operation-common.containerSecurity" $ | nindent 12 }}
+          volumeMounts: &mounts
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+            - {name: oke, mountPath: /oke, readOnly: true}
+      containers:
+        - name: delete
+          image: {{ $.Values.images.kubectl | quote }}
+          command: [kubectl]
+          args: [delete, {{ printf "%s/%s" .resource .name | quote }}, --namespace={{ .namespace }}, --kubeconfig=/oke/value.yaml, --ignore-not-found, --wait=true, --timeout=900s]
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *mounts
+      volumes:
+        {{- include "operation-common.volumes" $ | nindent 8 }}
+        - name: oke
+          secret:
+            secretName: oke-bootstrap-access
+            defaultMode: 0440
+{{- end }}

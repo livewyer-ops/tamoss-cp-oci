@@ -2,6 +2,8 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata: {name: tamoss-gitops, namespace: tamoss-infra}
 spec:
+  commonMetadata:
+    labels: {tamoss.livewyer.io/deployment-id: '${DEPLOYMENT_ID}'}
   interval: 5m
   timeout: 10m
   releaseName: tamoss-gitops
@@ -11,10 +13,14 @@ spec:
   upgrade:
     disableWait: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chartRef: {kind: OCIRepository, name: tamoss-chart-gitops, namespace: flux-system}
+  chart:
+    spec:
+      chart: ./charts/gitops
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
-    - {kind: ConfigMap, name: '${VALUES_CONFIGMAP}', valuesKey: values.yaml}
+    - {kind: ConfigMap, name: tamoss-gitops-values, valuesKey: values.yaml}
     - {kind: ConfigMap, name: tamoss-assets, valuesKey: values.yaml}
   values:
     vaultId: ${VAULT_ID}

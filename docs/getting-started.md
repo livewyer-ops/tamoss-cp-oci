@@ -3,8 +3,8 @@
 [Overview](../README.md) | [Operations](operations.md) | [Testing](testing.md) | [Architecture](architecture.md)
 
 Run commands from the repository root. The default deployment directory is
-`.local/environment`; the environment Git checkout is `.local/gitops`. Retain
-both directories and the original Kind cluster until teardown is verified.
+`.local/environment`. Retain that directory and the original Kind cluster until
+teardown is verified.
 
 ## Workstation prerequisites
 
@@ -23,7 +23,7 @@ mise run setup
 mise supplies the pinned tools, including an isolated native OCI CLI and Python.
 The committed lockfile includes its Python dependencies. No PATH export or shell
 activation is required for `mise run`. `setup` creates an owner-only input directory containing
-`values.yaml` and optional `gitops.yaml`. Repeating setup preserves the file. It refuses to
+`values.yaml`. Repeating setup preserves the file. It refuses to
 initialise a directory containing an earlier deployment. Select a fresh directory
 with `ENV_DIR=.local/environments/my-environment mise run setup` when needed, then use
 that same `ENV_DIR` for every lifecycle command.
@@ -36,7 +36,8 @@ following settings must be supplied before `up`.
 Use a precreated compartment with quota for three OKE workers, two PostgreSQL
 nodes, networking, storage and a load balancer. The [account prerequisites](../deploy/oci/README.md)
 define infrastructure and restricted identity-management permissions. Deployment
-creates the application storage identity. The provisioner also needs the [Vault and runtime IAM permissions](../deploy/gitops/README.md#inputs-and-secret-delivery).
+creates the application storage identity. The provisioner also needs the
+Vault and runtime IAM permissions listed in those prerequisites.
 These account prerequisites can be reused across deployments.
 
 ### API signing profile
@@ -76,12 +77,12 @@ Database and application passwords are also generated and persisted in Vault.
 
 ## Quick deployment
 
-The quick deployment needs no GitHub login, environment repository or registry
-credentials. The host fetches the CI deployment release pinned in
-`dependencies.yaml`. Flux in Kind and OKE reads its manifest bundle and packaged
-Helm charts directly from the public registry by digest. Local source edits do not enter the release; contributors
-publish and pin a new bundle before deploying their changes. Use a dedicated
-compartment with no workload resources.
+Use a clean checkout with its current commit pushed to this repository's GitHub
+`origin`. Flux in Kind reads that exact commit. While the repository is private,
+run `mise exec -- gh auth login --hostname github.com --git-protocol https` with
+an account allowed to manage its deploy keys. Leave `source.private: true` in
+settings. A public repository can use `source.private: false` to skip this step.
+Use a dedicated compartment with no workload resources.
 
 Complete `.local/environment/values.yaml`, copied from the
 [example settings](../environments/example/values.yaml). Have the account
@@ -108,83 +109,27 @@ starting with a letter and ending with a letter or digit.
 The [defaults](../charts/setup/values.yaml) supply HA capacity, network ranges,
 PostgreSQL settings and the OKE version. Owner, ACME contact and
 administrator email use `contactEmail`. The Vault foundation defaults to
-`<name>-vault`. TADOSS credentials are prepared, with the application disabled.
+`<name>-vault`. Set `tadoss.enabled: true` before deployment to include TADOSS.
 
 ```bash
 mise run up
 ```
 
-`up` fetches the pinned deployment release and renders the supplied inputs.
-Helm checks required fields and input types. OCI handles deployment compatibility
-errors. Frankfurt with three availability domains is the previously qualified
-placement.
+`up` records the Git revision and renders the supplied inputs. Helm validates
+required fields and types. Kind installs Flux, Crossplane and External Secrets;
+Crossplane provisions OCI resources. The host records OKE's identity and supplies
+Kind with a bounded ServiceAccount kubeconfig. Flux in Kind then installs the
+platform and applications on OKE. Keep Kind running through teardown.
 
-Kind starts Flux, Crossplane and Vault credential persistence. Once OKE is ready,
-the host records its identity and creates a temporary bootstrap ServiceAccount.
-It requests a one-hour token and submits a self-contained kubeconfig Secret to
-Kind. Keep `up` running until that submission; afterwards Kind's Flux installs
-and seeds OKE through declared dependencies: Flux, ESO, Vault-backed asset access,
-then the deployment. OKE's Flux reconciles the platform
-and applications independently of the host.
+After current source/chart revisions and public TLS are ready, `up` prints URLs
+and writes initial login details to `.local/environment/access/ui-login.json`.
+OKE access remains available in Kind until workload cleanup finishes. See the
+[full process](../deploy/gitops/README.md#process-and-execution-context), including
+token expiry and renewal.
 
-After public TLS and application readiness pass, `up` suspends Kind's remote
-bootstrap Kustomizations, stops their controller and revokes the bootstrap
-ServiceAccount. It then prints URLs and writes initial login details to
-`.local/environment/access/ui-login.json` with owner-only permissions. If bootstrap
-access expires before completion, follow
-[failed-deployment cleanup](operations.md#clean-up-a-failed-deployment).
-
-Kind remains the infrastructure writer. Applications run on OKE. `up` accepts
-only a fresh deployment directory; it refuses an existing deployment identity.
-Keep `values.yaml` unchanged while installation runs. `mise run check` is a
-contributor validation command; it is not required before each deployment.
-
-## Optional GitOps handover
-
-After `up` succeeds, authenticate once on the workstation:
-
-```bash
-mise exec -- gh auth login --hostname github.com --git-protocol https
-```
-
-Set `.local/environment/gitops.yaml`:
-
-```yaml
-owner: YOUR-OWNER
-repository: tamoss-environments
-branch: main
-```
-
-The repository and branch above are defaults; the cluster path defaults to
-`clusters/<name>`. Use an account allowed to create the repository or administer
-an existing repository and its deploy keys. Existing repositories must contain
-the selected branch and permit the generated commits. Existing cluster paths
-belonging to another deployment are rejected.
-
-```bash
-mise run handover
-```
-
-Handover creates a private repository if needed and publishes the running
-configuration. Native Flux bootstrap registers a repository-scoped, read-only SSH
-deploy key. The operator's GitHub token stays on the workstation; the deploy key
-is persisted through Kind's Vault store and delivered to OKE through ESO.
-
-Once Git has adopted the deployment, handover verifies both inventories, quiesces
-Kind, grants OKE write authority and publishes the ownership change. Original Kind
-stops only after readiness passes. Resources, passwords and application capabilities
-remain in place. Git owns subsequent changes, including
-[TADOSS enablement](../deploy/tadoss/README.md#enable-through-git).
-
-GitHub may remove a deploy key when the token used to register it is revoked.
-Retain that authentication. Renewal must update GitHub, Vault and ESO together;
-see [credential ownership](../deploy/gitops/README.md#inputs-and-secret-delivery).
-Automated rotation is not yet qualified, and Vault persistence does not keep a
-revoked GitHub key valid.
-
-Retain `.local/gitops`, `.local/environment` and the original Kind containers
-until teardown. Failed handover can be retried with the same inputs; `up` never
-restores the initial configuration over established GitOps settings.
+`up` accepts only a fresh deployment directory. Keep its inputs unchanged during
+installation. `mise run check` is a contributor validation command; it is not
+required before every deployment.
 
 ## Advanced inputs and generated records
 
@@ -204,18 +149,18 @@ Keep subnets inside the selected VCN. Reuse an owned Vault/key through
 `foundation.name` and recorded `foundation.adoption` fields; a matching name is
 not proof of ownership.
 
-`product.url` records source provenance. Local source edits require a new published
-release and digest pin. See [release artifacts](../deploy/assets/README.md).
+`source.json` records the repository and Git commit. Commit and push source edits
+before a fresh deployment; local chart directories require no registry publication.
 
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
 | Deployment input | `values.yaml` |
 | Resolved product, infrastructure and settings | `product.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
-| Initial deployment configuration | `deployment/`, `deployment.yaml` |
-| Selected bundle and chart digests | `assets.lock.yaml` |
+| Initial deployment configuration | `seed-render/`, `remote-bootstrap.yaml` |
+| Selected Git commit and dependency pins | `assets.lock.yaml` |
 | Protected OCI profile and render inputs | `discovery/` |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
-| Cloud outputs and adoption record | `outputs.json`, `adoption.yaml` |
+| Cloud outputs | `outputs.json` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `inventory-after/` |
 | Qualification reports | `reports/` |

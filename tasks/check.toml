@@ -111,7 +111,6 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "mise run test:bootstrap:remote-record",
   "mise run test:s3:composition",
   "ROOT={{ vars.ROOT_DIR }} mise run test:controller-state:render",
-  "ROOT={{ vars.ROOT_DIR }} mise run test:oke-bootstrap:render",
   "mise run test:oke-bootstrap:retirement",
   "mise run verify:secrets",
   "mise run verify:connection-details",
@@ -147,12 +146,6 @@ run = [
   '''{% for item in ["adoption-render", "adoption-return-render", "workload-identity"] %}
 yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/{{ item }}.yaml > {{ env.TASKV_CACHE }}/{{ item }}-list.yaml
 {% endfor %}''',
-  "mkdir -p '{{ env.TASKV_CACHE }}/transfer'",
-  '''yq eval-all -o=json '[select(.spec.forProvider != null) | .metadata.annotations."crossplane.io/paused" = "true" | .status = {"conditions": [{"type": "Synced", "status": "False", "reason": "ReconcilePaused"}, {"type": "AsyncOperation", "status": "True"}], "atProvider": { "id": .metadata.annotations."crossplane.io/external-name", "freeformTags": .spec.forProvider.freeformTags}}] | {"apiVersion": "v1", "kind": "TransferInventory", "resources": .}' '{{ env.TASKV_CACHE }}/adoption-render.yaml' > '{{ env.TASKV_CACHE }}/transfer/remote-resources.json'''',
-  "cp '{{ env.TASKV_CACHE }}/transfer/remote-resources.json' '{{ env.TASKV_CACHE }}/transfer/management-resources.json'",
-  '''yq '.resources[0].status.conditions[1].status = "False"' {{ env.TASKV_CACHE }}/transfer/management-resources.json > {{ env.TASKV_CACHE }}/transfer/ongoing.yaml''',
-  '''yq '.resources[0].spec.managementPolicies = ["*"]' {{ env.TASKV_CACHE }}/transfer/management-resources.json > {{ env.TASKV_CACHE }}/transfer/writer.yaml''',
-  "yq 'del(.resources[0])' {{ env.TASKV_CACHE }}/transfer/management-resources.json > {{ env.TASKV_CACHE }}/transfer/incomplete.yaml",
   "chainsaw test --no-cluster --set-string root='{{ vars.ROOT_DIR }}' --set-string crossplaneImage={{ vars.CORE }} --test-dir tests/handover --report-format JUNIT-TEST --report-path .local/reports --report-name handover",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
@@ -167,9 +160,6 @@ run = [
   '''yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/runtime-access.yaml > {{ env.TASKV_CACHE }}/runtime-access-list.yaml''',
   "helm lint charts/secret-foundation",
   "helm lint charts/secrets -f tests/secrets/values.yaml",
-  "helm lint charts/gitops-auth --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "helm template gitops-auth charts/gitops-auth -n tamoss-infra --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > '{{ env.TASKV_CACHE }}/gitops-auth.yaml'",
-  "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/gitops-auth.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
   "helm template foundation charts/secret-foundation > '{{ env.TASKV_CACHE }}/foundation-api.yaml'",
   '''yq 'del(.metadata.uid) | .metadata.annotations."crossplane.io/paused" = "true"' tests/secrets/foundation.yaml > {{ env.TASKV_CACHE }}/foundation-admission.yaml''',
   '''yq 'select(.kind == "Composition")' {{ env.TASKV_CACHE }}/foundation-api.yaml > {{ env.TASKV_CACHE }}/foundation-composition.yaml''',
@@ -236,6 +226,9 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''yq 'select(.kind == "Job") | del(.spec.activeDeadlineSeconds)' {{ env.TASKV_CACHE }}/database-connection.yaml > {{ env.TASKV_CACHE }}/operation-no-deadline.yaml''',
   '''yq 'select(.kind == "Job") | .spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation = true' {{ env.TASKV_CACHE }}/database-connection.yaml > {{ env.TASKV_CACHE }}/operation-unsafe.yaml''',
+  "helm dependency build --skip-refresh charts/retirement",
+  '''helm template retirement charts/retirement -n tamoss-infra -f tests/retirement/values.yaml --set images.oci="$(yq -r .oci.image dependencies.yaml)",images.kubectl="$(yq -r .connectionDetails.kubectlImage dependencies.yaml)" > '{{ env.TASKV_CACHE }}/retirement.yaml' ''',
+  "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/retirement.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
   "chainsaw test --no-cluster --test-dir tests/operations/render --report-format JUNIT-TEST --report-path .local/reports --report-name operations",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
@@ -278,12 +271,6 @@ run = [
   '''RELEASE_LOCK={{ ((vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") | quote }} OUTPUT={{ ((env.TASKV_CACHE) ~ "/gitops-pins.yaml") | quote }} mise run gitops:pins''',
   "helm lint '{{ env.TASKV_CHART }}' -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml'",
   "helm template tamoss-gitops '{{ env.TASKV_CHART }}' -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' > '{{ env.TASKV_CACHE }}/gitops-render.yaml'",
-  "helm lint charts/gitops-bootstrap -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' >> '{{ env.TASKV_CACHE }}/gitops-render.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' --set gitops.enabled=true > '{{ env.TASKV_CACHE }}/gitops-auth-render.yaml'",
-  '''yq 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets" and .metadata.namespace == "flux-system") | .spec.values' {{ env.TASKV_CACHE }}/gitops-auth-render.yaml > {{ env.TASKV_CACHE }}/runtime-secrets-flux-system.yaml''',
-  "helm template tamoss-secrets charts/secrets -n flux-system -f '{{ env.TASKV_CACHE }}/runtime-secrets-flux-system.yaml' > '{{ env.TASKV_CACHE }}/runtime-seed.yaml'",
-  '''yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/runtime-seed.yaml > {{ env.TASKV_CACHE }}/runtime-seed-list.yaml''',
   '''yq 'select(.kind == "HelmRelease" and .metadata.name == "tamoss-platform-config") | .spec.values' {{ env.TASKV_CACHE }}/gitops-render.yaml > {{ env.TASKV_CACHE }}/gitops-platform-config-values.yaml''',
   "helm template tamoss-platform-config '{{ env.TASKV_ASSETS }}/source/deploy/platform/charts/config' -n tamoss-platform -f '{{ env.TASKV_CACHE }}/gitops-platform-config-values.yaml' > '{{ env.TASKV_CACHE }}/gitops-platform-config.yaml'",
   "mkdir -p '{{ env.TASKV_CACHE }}/gitops-defaults/upstream'",
@@ -298,23 +285,26 @@ run = [
   '''yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/gitops-render.yaml > {{ env.TASKV_CACHE }}/gitops-list.yaml''',
   '''yq -n '{"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "GitRepository", "metadata": {"name": "tamoss-upstream", "namespace": "flux-check"}, "spec": {"interval": "1m", "url": "https://github.com/livewyer-ops/tamoss", "ref": {"commit": load("{{ env.TASKV_ASSETS }}/release.json").sourceCommit}}}' > '{{ env.TASKV_CACHE }}/gitops-adoption-source.yaml'''',
   '''yq '.metadata.name = "health-only" | .spec.ignore = "/*\n!/README.md\n"' {{ env.TASKV_CACHE }}/gitops-adoption-source.yaml > {{ env.TASKV_CACHE }}/gitops-adoption-health-source.yaml''',
-  '''yq 'select(.kind == "Kustomization" and .metadata.name == "deployment-ready") | .metadata.namespace = "flux-check" | .spec.sourceRef.kind = "GitRepository" | .spec.sourceRef.name = "health-only" | .spec.path = "./" | .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s" | .spec.healthChecks = [{"apiVersion": "kustomize.toolkit.fluxcd.io/v1", "kind": "Kustomization", "name": "connection-readiness", "namespace": "flux-check"}, {"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease", "name": "authentik-bootstrap", "namespace": "flux-check"}, {"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "name": "public-tls", "namespace": "flux-check"}]' '{{ env.TASKV_CACHE }}/gitops-render.yaml' > '{{ env.TASKV_CACHE }}/gitops-adoption-readiness.yaml'''',
+  '''yq '
+    select(.kind == "Kustomization" and (.metadata.name == "deployment-ready" or .metadata.name == "application-ready")) |
+    .metadata.namespace = "flux-check" | .spec.sourceRef.kind = "GitRepository" | .spec.sourceRef.name = "health-only" |
+    .spec.path = "./" | .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s" |
+    del(.spec.kubeConfig) | del(.spec.dependsOn) |
+    with(select(.metadata.name == "application-ready");
+      .spec.healthChecks = [{"apiVersion":"cert-manager.io/v1", "kind":"Certificate", "name":"public-tls", "namespace":"flux-check"}]) |
+    with(select(.metadata.name == "deployment-ready");
+      .spec.healthChecks = [{"apiVersion":"kustomize.toolkit.fluxcd.io/v1", "kind":"Kustomization", "name":"connection-readiness", "namespace":"flux-check"}, {"apiVersion":"helm.toolkit.fluxcd.io/v2", "kind":"HelmRelease", "name":"authentik-bootstrap", "namespace":"flux-check"}, {"apiVersion":"kustomize.toolkit.fluxcd.io/v1", "kind":"Kustomization", "name":"application-ready", "namespace":"flux-check"}])' '{{ env.TASKV_CACHE }}/gitops-render.yaml' > '{{ env.TASKV_CACHE }}/gitops-adoption-readiness.yaml'''',
   '''yq 'select(.kind == "Kustomization" and .metadata.name == "tamoss-operator")' {{ env.TASKV_CACHE }}/gitops-render.yaml > {{ env.TASKV_CACHE }}/gitops-operator-flux.yaml''',
-  "flux build kustomization tamoss-operator -n auth --dry-run --in-memory-build --path '{{ vars.ROOT_DIR }}/.local/tmp/tamoss-bundle' --kustomization-file '{{ env.TASKV_CACHE }}/gitops-operator-flux.yaml' > '{{ env.TASKV_CACHE }}/gitops-operator.yaml'",
+  "flux build kustomization tamoss-operator -n tamoss-infra --dry-run --in-memory-build --path '{{ vars.ROOT_DIR }}/.local/tmp/tamoss-bundle' --kustomization-file '{{ env.TASKV_CACHE }}/gitops-operator-flux.yaml' > '{{ env.TASKV_CACHE }}/gitops-operator.yaml'",
   '''yq eval-all -e '[select(.kind == "Namespace")] | length == 0' {{ env.TASKV_CACHE }}/gitops-operator.yaml > /dev/null''',
   "mkdir -p '{{ env.TASKV_CACHE }}/gitops-instance/upstream'",
   "cp deploy/tamoss/instance/kustomization.yaml deploy/tamoss/instance/patch.yaml deploy/tamoss/instance/storage.yaml '{{ env.TASKV_CACHE }}/gitops-instance/'",
   "cp -a '{{ env.TASKV_ASSETS }}/source/deploy' '{{ env.TASKV_CACHE }}/gitops-instance/upstream/'",
   '''yq 'select(.kind == "Kustomization" and .metadata.name == "tamoss") | .spec.postBuild.substitute = {"DATABASE_HOST": "fixture.postgresql.oci.oraclecloud.com"}' '{{ env.TASKV_CACHE }}/gitops-render.yaml' > '{{ env.TASKV_CACHE }}/gitops-instance-flux.yaml'''',
-  "flux build kustomization tamoss -n auth --dry-run --in-memory-build --strict-substitute --path '{{ env.TASKV_CACHE }}/gitops-instance' --kustomization-file '{{ env.TASKV_CACHE }}/gitops-instance-flux.yaml' > '{{ env.TASKV_CACHE }}/gitops-instance.yaml'",
+  "flux build kustomization tamoss -n tamoss-infra --dry-run --in-memory-build --strict-substitute --path '{{ env.TASKV_CACHE }}/gitops-instance' --kustomization-file '{{ env.TASKV_CACHE }}/gitops-instance-flux.yaml' > '{{ env.TASKV_CACHE }}/gitops-instance.yaml'",
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/gitops-instance.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
   '''yq 'select(.kind == "Tamoss")' {{ env.TASKV_CACHE }}/gitops-instance.yaml > {{ env.TASKV_CACHE }}/gitops-tamoss.yaml''',
   '''yq -e '[.spec.version == load("deploy/tamoss/release.yaml").tag, .spec.backends.db.external.host == "fixture.postgresql.oci.oraclecloud.com", .spec.ingest.sources[0].s3.pathStyle == true] | all' {{ env.TASKV_CACHE }}/gitops-tamoss.yaml''',
-  '''yq '.packages.providerVersion = "v0.0.0" | .packages.okeWorkloadIdentity.region = "eu-frankfurt-1"' {{ env.TASKV_CACHE }}/gitops-pins.yaml > {{ env.TASKV_CACHE }}/management-return-values.yaml''',
-  '''helm template management -f '{{ vars.ROOT_DIR }}/tests/assets/values.yaml' charts/management -f '{{ env.TASKV_CACHE }}/management-return-values.yaml' --set product.url=https://github.com/example/fixture --set-string product.commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --set-file environmentDefinition=charts/environment/definition.yaml --set-file foundationDefinition=charts/secret-foundation/definition.yaml --set-file secretBootstrapFile=deploy/secrets/bootstrap-values.yaml | yq 'select(.kind == "HelmRelease" and .metadata.name == "oci-services") | .spec.values' > '{{ env.TASKV_CACHE }}/management-return-packages.yaml'''',
-  "helm template packages charts/packages -f '{{ env.TASKV_CACHE }}/management-return-packages.yaml' > '{{ env.TASKV_CACHE }}/management-return-render.yaml'",
-  '''yq eval-all -e '[select(.kind == "Provider") | select(.spec.runtimeConfigRef == null) | select(.spec.package | test(":v0.0.0$")) | .metadata.name] | sort | join(",") == "provider-oci-containerengine,provider-oci-identity,provider-oci-identitydomains,provider-oci-kms,provider-oci-networking,provider-oci-objectstorage,provider-oci-psql"' '{{ env.TASKV_CACHE }}/management-return-render.yaml' > /dev/null''',
-  "rm -rf '{{ env.TASKV_CACHE }}/gitops-export-test' '{{ env.TASKV_CACHE }}/gitops-export-test-publication'",
   "chainsaw test --no-cluster --test-dir tests/gitops --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ env.TASKV_CACHE }}/gitops-export-test' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
@@ -330,9 +320,7 @@ run = [
   "hurlfmt --check tests/http/tadoss.hurl tests/http/tadoss-persistence.hurl",
   '''RELEASE_LOCK={{ ((vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") | quote }} OUTPUT={{ ((env.TASKV_CACHE) ~ "/gitops-pins.yaml") | quote }} mise run gitops:pins''',
   "helm template tamoss-gitops charts/gitops -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml > '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml >> '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml'",
   "helm template tamoss-gitops charts/gitops -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml --set tadoss.enabled=false > '{{ env.TASKV_CACHE }}/tadoss-disabled.yaml'",
-  "helm template tamoss-gitops-bootstrap charts/gitops-bootstrap -n tamoss-infra -f tests/assets/values.yaml -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' --set tadoss.enabled=false >> '{{ env.TASKV_CACHE }}/tadoss-disabled.yaml'",
   '''yq 'select(.kind == "CustomResourceDefinition")' {{ env.TASKV_CACHE }}/tadoss-operator.yaml > {{ env.TASKV_CACHE }}/schemas/tadoss.yaml''',
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
   '''{% for item in ["operator", "credentials", "instance"] %}
@@ -363,7 +351,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ env.TASKV_COMPONENT | quote }} || { printf '%s\n' "Missing required input: COMPONENT" >&2; exit 1; }''',
   '''yq 'select(.kind == "Kustomization" and .metadata.name == "{{ env.TASKV_NAME }}") | .spec.postBuild.substitute.DATABASE_HOST = "fixture.postgresql.oci.oraclecloud.com"' '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml' > '{{ env.TASKV_CACHE }}/tadoss-{{ env.TASKV_COMPONENT }}-flux.yaml'''',
-  "flux build kustomization '{{ env.TASKV_NAME }}' -n auth --dry-run --in-memory-build --strict-substitute --path '{{ env.TASKV_BUILD_PATH }}' --kustomization-file '{{ env.TASKV_CACHE }}/tadoss-{{ env.TASKV_COMPONENT }}-flux.yaml' > '{{ env.TASKV_CACHE }}/tadoss-{{ env.TASKV_COMPONENT }}-render.yaml'",
+  "flux build kustomization '{{ env.TASKV_NAME }}' -n tamoss-infra --dry-run --in-memory-build --strict-substitute --path '{{ env.TASKV_BUILD_PATH }}' --kustomization-file '{{ env.TASKV_CACHE }}/tadoss-{{ env.TASKV_COMPONENT }}-flux.yaml' > '{{ env.TASKV_CACHE }}/tadoss-{{ env.TASKV_COMPONENT }}-render.yaml'",
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/tadoss-{{ env.TASKV_COMPONENT }}-render.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
@@ -375,5 +363,6 @@ env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}tadoss{%
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
+  "mise run test:source:inputs",
   "chainsaw test --no-cluster --test-dir tests/contracts --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name contracts",
 ]

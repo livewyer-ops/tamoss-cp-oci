@@ -2,206 +2,79 @@
 
 [Overview](../README.md) | [Getting started](getting-started.md) | [Operations](operations.md) | [Testing](testing.md)
 
-Flux in Kind installs Crossplane and External Secrets from a private seed.
-Crossplane creates the retained OCI Vault/key, storage identity and OKE environment.
-Flux, Crossplane and External Secrets on OKE take over ongoing reconciliation.
-The original Kind stops after verified ownership transfer and is retained for
-teardown. The quick deployment seeds configuration from the private local
-directory. Optional handover publishes it to Git; Vault holds generated
-credentials and adoption bindings.
-
-Kind receives a `TamossBootstrap` composite containing the foundation and
-environment inputs. Flux installs providers, functions and composition APIs,
-then the bootstrap instance, using release dependencies and native retries.
-Crossplane submits the retained foundation and infrastructure together. Networking,
-OKE, the bucket and public IP can progress while Vault is unavailable. The database
-provider requires the persisted credential through its Secret reference before it
-can create the database. Those dependencies reconcile without a running
-mise process. The root reports foundation, credential, bootstrap and infrastructure readiness
-separately; application readiness remains the responsibility of the OKE controllers.
-The root also composes HelmReleases for secret delivery and runtime IAM, deriving
-their values from observed Vault/key and OKE IDs. Flux owns their Helm operations.
-
-Once the OKE API and initial worker, runtime IAM and persisted credentials are
-ready, the host retrieves the OKE kubeconfig with the pinned OCI CLI and checks
-TLS before issuing remote access. It creates a dedicated bootstrap ServiceAccount,
-requests a one-hour token and submits a self-contained kubeconfig Secret to Kind.
-Kind's `oke-flux` Kustomization installs the pinned official Flux OCI manifests.
-`oke-eso` installs ESO from its public Helm repository. `oke-seed` then applies
-the deployment's OCI sources and shared seed base.
-Crossplane supplies the Vault identifier through `oke-bootstrap-facts` in Kind.
-The database can continue provisioning while these controllers reconcile.
-
-After deployment readiness passes, all remote bootstrap Kustomizations are suspended and
-Kind's kustomize-controller is stopped before bootstrap RBAC and credentials are
-removed. The suspended declarations retain the retirement decision across host
-interruption and Kind restart. They use non-pruning, orphan deletion semantics.
-OKE keeps its controllers and applications; Kind's Crossplane retains OCI
-infrastructure ownership until the separate Git handover.
-
-The host supplies initial credential imports. Crossplane observes the expected
-ExternalSecret bindings and Ready conditions, latches completion in root status,
-and retires staging credentials. Missing established values require recovery;
-they do not trigger regeneration. Git publication and deploy-key establishment occur only
-during optional handover. Helm renders local inputs and the initial Git files.
-The shared Kustomize base supplies initial deployment and Git export; Flux
-substitutes observed Vault information during remote reconciliation.
-Ownership transfer, qualification and cleanup remain explicit
-operations. Before handover or teardown, mise freezes the bootstrap-instance
-HelmRelease and excludes an in-flight Helm action. It then irreversibly releases the root's
-configuration authority and confirms its reconciliation is paused. This prevents
-bootstrap settings or child recreation from competing with subsequent operations.
-Release also waits for credential Jobs and Pods to retire before transfer. Release and pause are both required: the release flag alone can still reapply an observed
-child snapshot. Repeated release keeps an already released root paused, including
-after its inputs change.
+The demo follows Host -> Kind -> OKE. Kind contains Flux, Crossplane, the OCI
+providers and External Secrets. Crossplane owns OCI infrastructure until teardown;
+Flux in Kind installs the platform and applications on OKE. The
+[process table](../deploy/gitops/README.md#process-and-execution-context) identifies
+the execution context and output of each step.
 
 ```mermaid
 flowchart LR
-    Inputs[Private environment inputs] --> Kind[Kind / Flux / Crossplane / ESO]
-    Kind --> OCI[OKE, networking, PostgreSQL and bucket]
-    Host[Host OCI CLI / temporary OKE credential] --> Kind
-    Kind -->|Remote Flux bootstrap| Flux
-    OCI --> Host
-    Kind --> Vault[Retained OCI Vault/key]
-    Git[Optional environment Git configuration]
-    Kind --> Bindings[Immutable adoption bindings in Vault]
-    Git --> Flux[Flux on OKE]
-    Checkout[Pinned CI deployment release] --> Store[Public OCI bundle and Helm charts]
-    Store --> Kind
-    Store --> Flux
-    Git -->|Select asset lock| Store
-    Flux --> Runtime[Crossplane and External Secrets on OKE]
-    Runtime --> OCI
-    Vault --> Runtime
-    Bindings --> Runtime
-    Flux --> Operator[TAMOSS operator]
-    Operator --> App[API, worker, UI, Console and ingest]
+    Host[Host: inputs and OKE access] --> Kind[Kind: Flux, Crossplane, ESO]
+    Git[Repository at a pushed commit] --> Kind
+    Upstream[Official charts and packages] --> Kind
+    Kind --> OCI[OCI: network, OKE, database, storage, IAM]
+    Kind --> OKE[OKE: ESO, platform, application operators]
+    Kind --> Vault[Retained Vault and key]
+    Vault --> OKE
+    OKE --> App[TAMOSS and optional TADOSS]
 ```
-
-See the [GitOps integration](../deploy/gitops/README.md) for adoption gates and
-secret delivery. Release upgrades and credential rotation remain unqualified.
 
 ## Ownership
 
 | Owner | Responsibility |
 | --- | --- |
-| Account administrator | Dedicated compartment, authorised provisioner and its signing key |
-| Host OCI CLI | Initial OKE kubeconfig; cloud inventory and credential retirement during teardown |
-| Crossplane | Kind initially owns the environment; OKE takes the same provider bindings after verified handover |
-| Crossplane in retained Kind | Storage user, group and bucket policy; paused after handover and deleted after key revocation during teardown |
-| OKE cloud controller | Load balancer created by the ingress `LoadBalancer` Service |
-| Flux | Kind bootstrap releases; OKE platform releases, HA/OCI overlays, controllers and TAMOSS declarations |
-| TAMOSS operator | Application workloads, runtime images, schema migrations, StorageBackend and IngestRun Jobs |
-| Database bootstrap Job | Separate TAMOSS and Authentik databases and login roles |
-| Operator of this environment | Account access, qualification, retained records and explicit verified cleanup |
+| Account administrator | Dedicated compartment, OCI profile, signing key and prerequisites |
+| Host | Start Kind, establish private Git access, obtain and renew OKE access, read audit results and remove Kind last |
+| Crossplane in Kind | Vault/key ownership, credentials, storage identity, networking, OKE/workers, PostgreSQL, bucket and reserved public IP |
+| Flux in Kind | Management and remote platform releases, overlays, application declarations and readiness |
+| OKE cloud controller | Load balancer created by the ingress Service |
+| Application operators in OKE | Application workloads, migrations, storage and ingest resources |
 
-Flux takes release ownership and Crossplane on
-OKE takes infrastructure ownership through observe-only adoption and exact
-provider bindings. Only one control plane may write at a time. The original Kind
-is retained without write authority, stopped, and later receives current Git/live
-configuration for deletion. This does not recover lost Kind state.
+The root `TamossBootstrap` composes foundation and environment resources together.
+Networking and OKE can progress while Vault credentials are prepared. PostgreSQL
+creation waits for its persisted credential. Crossplane composes the secret and
+IAM HelmReleases from observed resource IDs; Flux performs their Helm operations.
 
-After Kind's Flux submits the remote seed, OKE's Flux fetches the selected client
-snapshot and creates runtime releases through their declared dependencies. The
-seed contains the Vault identifier and non-secret configuration. Flux installs
-ESO and infrastructure controllers independently of database outputs; ESO delivers
-application credentials and adoption bindings from Vault. An environment Git
-repository and its SSH deploy key are needed only for optional handover.
+The host records OKE's cluster ID, API endpoint and namespace UID before issuing
+remote access. Flux uses a self-contained kubeconfig Secret in Kind. Chart
+`valuesFrom` and Kustomize substitutions are resolved in Kind; target and Helm
+storage namespaces are in OKE. Database metadata retrieval therefore runs in Kind,
+while SQL initialisation runs in OKE to reach the private database.
 
-The private local identity record binds the deployment to the OCI cluster ID,
-remote namespace UID and API server. The host obtains renewable kubeconfig tokens
-through the pinned OCI CLI for observation and teardown. These credentials are
-separate from the temporary ServiceAccount token used by Kind Flux. Completed
-deployment, suspended remote Kustomizations and released or retiring
-bootstrap state prevent the original seed being replayed after ownership changes.
-
-Kind's `oke-ready` Kustomization waits for OKE's `deployment-ready` Flux health check.
-That check includes infrastructure, secret delivery, TAMOSS and enabled TADOSS,
-plus their public certificates and Authentik's certificate at the current generation.
-Readiness checks do not force application reconciliation. Handover additionally
-checks the published Git revision, selected product chart and HelmRelease generation.
-`up` finishes with Kind owning infrastructure and OKE observing it. The separate
-`handover` command checks the published deployment before transfer and the
-promoted revision before Kind stops. Handover completion is recorded only after
-that stop succeeds. Flux manages applications throughout; the transfer changes
-infrastructure authority without changing application settings.
-
-Crossplane owns the reserved public IP; the OKE cloud controller attaches it to
-the load balancer. Handover compares the address, resource identity and desired
-configuration, excluding attachment status that the two control planes may
-observe at different times.
-
-The OKE PostgreSQL provider polls every minute so observe-only adoption can
-refresh status within the five-minute readiness check. Its first observation
-can lose status when the provider adds its Kubernetes finaliser. The next poll
-restores it without restarting the provider; Ready, Synced and identity checks
-still control ownership transfer.
-
-The optional [TADOSS integration](../deploy/tadoss/README.md) uses the same OKE,
-PostgreSQL, authentication, ingress and secret services. Git enables its released
-operator and API/worker replicas, a separate database/role and an OAuth client.
-TADOSS owns its schema migrations and stores timed metadata referencing TAMS
-media. This repository owns the platform configuration; both upstream products
-are consumed read-only. Git enablement, authenticated linked-media checks and
-persistence after pod replacement passed with Kind stopped. OCI resource IDs
-remained unchanged across enablement. See the [qualification limits](testing.md#verified-coverage-and-limits).
+Kind remains the sole infrastructure owner. Teardown first suspends runtime
+reconciliation, freezes the instance release and releases and pauses the bootstrap
+root so it cannot recreate children. It keeps access and operators available until
+application finalisers and remote Helm uninstalls finish. Cloud inventory verifies
+absence before credentials and Kind are removed.
 
 ## Operational Jobs
 
-The S3 credential, database connection and secret-retirement Jobs use native CLI
-commands in ordered init containers. Kubernetes owns retries and deadlines.
-Images are pinned through `dependencies.yaml`; containers run without root or
-privilege escalation, with read-only root filesystems and bounded memory-backed
-temporary storage. Credentials use Secret references. Validated non-secret
-outputs may use ConfigMaps; credential payloads stay in Secrets and Vault.
+The S3 credential, database metadata and retirement Jobs use pinned native tools,
+Kubernetes deadlines and bounded retries. Containers run without root or privilege
+escalation, with read-only root filesystems and bounded temporary storage. Secret
+references supply credentials; validated non-secret outputs use ConfigMaps.
 
-The database connection and secret-retirement charts share these settings through
-the [operation-common library](../charts/operation-common/). Helmfile and Flux
-resolve its local chart dependency. Local rendering builds it through the existing
-checks. Crossplane composition rendering remains separate from these Helm templates.
+| Operation | Execution context |
+| --- | --- |
+| S3 credential creation and Vault persistence | Kind |
+| Database hostname and CA retrieval | Kind, using the existing OCI bootstrap Secret |
+| SQL initialisation and application migrations | OKE |
+| Workload finalisation and deletion | Kind Jobs targeting OKE |
+| Object/version/upload cleanup, backup deletion and secret retirement | Kind Jobs targeting OCI |
 
-| Operation | Owner and location | Inputs and completion |
-| --- | --- | --- |
-| S3 credentials | Crossplane-managed secret HelmRelease in Kind | Recorded storage identity, one-time key capture and Vault delivery; exact-key receipt supports safe retirement |
-| Database connection | Flux HelmRelease in OKE, namespace `auth` | Database ID, refresh revision and workload identity; validates hostname/CA before patching the named `database-connection` ConfigMap |
-| Secret retirement | Helmfile during teardown in original Kind | Deployment prefix, Vault/compartment IDs and OCI Secret references; completes when listed matching secrets are pending deletion or deleted |
-
-Jobs can execute more than once. Each operation therefore keeps its own recovery
-and identity checks; Job completion alone does not provide exactly-once execution.
-See [recovery procedures](operations.md#operation-recovery).
+The local operation charts share [operation-common](../charts/operation-common/).
+Flux resolves that dependency from Git; no custom chart publication is required.
+Failures retain Job status and logs for inspection and stop the dependent lifecycle
+step. Teardown retains its ownership checks and can be retried.
 
 ## Configuration flow
 
-| Source | Purpose |
-| --- | --- |
-| [Setup values](../environments/example/values.yaml) and [defaults](../charts/setup/values.yaml) | Prepared OCI tenancy/region settings and HA capacity; complete declarations are recorded privately |
-| [Environment schema](../charts/environment/definition.yaml) | Typed infrastructure contract and immutable fields |
-| [Bootstrap chart](../charts/bootstrap/) | Kind root, child dependencies and release state; reuses the foundation and environment schemas |
-| [dependencies.yaml](../dependencies.yaml), [mise.toml](../mise.toml) | Infrastructure component selections/checksums and workstation tools |
-| [TAMOSS release lock](../deploy/tamoss/release.yaml) | Verified release record and matching source archive |
-| [Release lock](../deploy/assets/README.md) | Selected bundle/chart digests, checksums and dependency pins; Git owns selection after handover |
-| [TAMOSS integration](../deploy/tamoss/README.md) | Platform settings, instance overlays, database bootstrap and qualification assets |
-
-Once all cloud resources are ready, Kind's Crossplane creates an immutable snapshot
-of the deployment identity, creation UID and all 23 provider bindings. ESO persists
-it with `IfNotExists`; handover checks the delivered bindings against the original
-deployment identity before transferring ownership.
-OKE's ESO delivers that record to the infrastructure Kustomization. Missing or
-changed bindings block adoption instead of creating replacement infrastructure.
-
-OKE Crossplane produces the `tamoss-infra/tamoss-runtime` ConfigMap from its own
-observations. The runtime Kustomization supplies these values to the application
-release. Both integration HelmReleases and their values ConfigMaps reside in
-`tamoss-infra`; Flux controllers and sources remain in `flux-system`.
-Local `outputs.json` remains an inspection and qualification record.
-Flux derives sslip.io hostnames from the reserved IP. A bounded
-OCI CLI Job obtains the current database hostname and CA. Make subsequent desired
-changes in the environment repository. `up` only creates fresh deployments.
-
-TAMOSS's upstream manifests, charts, profile and tests are consumed unchanged from
-the selected release. A sibling checkout is unnecessary. The operator's release
-catalogue owns application image digests and schema revisions. See
-[release selection](../deploy/tamoss/README.md#release-selection).
+Private `values.yaml` and the OCI profile seed Kind. This repository supplies the
+chart directories and manifests at a pinned Git commit. `pins.yaml` selects official
+chart versions and upstream package/image digests. Unchanged upstream defaults,
+helper charts and instance manifests are checked in and compared with their pinned
+releases during local checks. See [source details](../deploy/gitops/README.md#sources-and-charts).
 
 ## Availability and external services
 
@@ -226,7 +99,7 @@ and delivers it to OKE; Crossplane sees only references and non-secret receipts.
 The creation claim prevents a repeated Job from creating another key. Teardown
 revokes the recorded key after workload deletion, then removes the storage IAM
 resources through Crossplane. These resources remain with retained Kind during
-handover; stopping Kind does not affect S3 access. Qualification's ingest source
+deployment; runtime S3 access does not depend on the host. Qualification's ingest source
 is restricted to its input prefix.
 
 Crossplane records the user, group, membership and policy IDs before freezing
@@ -243,24 +116,12 @@ See the [coverage limits](testing.md#verified-coverage-and-limits).
 
 ## Secrets and retained state
 
-Owner-only credential inputs remain in the private environment directory. Kind
-creates or adopts a separately retained OCI Vault/key. External Secrets persists initial values, reads them back and delivers them
-to OKE using scoped workload identities. Git contains desired configuration and
-binding references. The environment repository contains neither TAMOSS source nor
-secret payloads. See [secret delivery](../deploy/gitops/README.md#inputs-and-secret-delivery).
+The host's GitHub token stays on the host. Kind receives only a repository-scoped
+read-only deploy key, removed after an anonymous public-source fetch or teardown.
+The OCI signing profile is supplied to Kind's existing bootstrap Secret; application
+credentials are persisted in OCI Vault and delivered to OKE with workload identity.
 
-After persistence is verified, bootstrap disables initial credential creation and
-removes staging inputs. The bootstrap instance records `credentialsEstablished`
-irreversibly; its secret HelmRelease then removes credential generators and PushSecrets.
-The separate adoption-binding PushSecret remains until infrastructure deletion
-and the direct cloud audit finish.
-CI reads and verifies upstream packages while building a deployment release. Cluster
-product sources pull public OCI artifacts by digest. During handover, a
-separate credential-establishment step persists the generated SSH deploy key
-without restarting application password generators. A missing established value must fail secret delivery
-without silently generating a replacement. Secret retirement remains an explicit
-operation with a separate check of OCI's asynchronous deletion state.
-
-Keep original Kind state, deployment identity, release records and cloud inventory
-until deletion is verified. [Operations](operations.md#destroy-the-environment)
-lists the resources deleted and retained.
+Preserve the private environment directory and original Kind until verified cleanup.
+The retained Vault/key and its ownership record survive workload teardown. Scheduled
+secret deletion is verified and recorded. Fresh cloud qualification of this flow,
+upgrades and credential rotation remain outstanding.

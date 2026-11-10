@@ -1,26 +1,24 @@
 {{- if .Values.tadoss.enabled -}}
 {{- $domain := printf "%s.sslip.io" (replace "." "-" .Values.runtime.publicIp) -}}
-apiVersion: v1
-kind: Namespace
-metadata: {name: tads}
----
-apiVersion: v1
-kind: Namespace
-metadata: {name: tadoss-system}
----
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
-metadata: {name: tadoss-config, namespace: auth}
+metadata: {name: tadoss-config, namespace: tamoss-infra}
 spec:
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
   interval: 5m
   timeout: 10m
   releaseName: tadoss-config
   targetNamespace: auth
   storageNamespace: auth
   dependsOn:
-    - {name: tamoss-secrets, namespace: auth}
-    - {name: tamoss-database-init, namespace: auth}
-  chartRef: {kind: OCIRepository, name: tamoss-chart-tadoss-config, namespace: flux-system}
+    - {name: tamoss-secrets-auth, namespace: tamoss-infra}
+    - {name: tamoss-database-init, namespace: tamoss-infra}
+  chart:
+    spec:
+      chart: ./deploy/tadoss/config
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   valuesFrom:
     - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_HOST, targetPath: host}
     - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_CA_BASE64, targetPath: caBase64}
@@ -30,7 +28,7 @@ spec:
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: tadoss-credentials, namespace: auth}
+metadata: {name: tadoss-credentials, namespace: tamoss-infra}
 spec:
   interval: 1m
   timeout: 5m
@@ -38,7 +36,7 @@ spec:
   deletionPolicy: Orphan
   dependsOn: [{name: database-connection}]
   path: ./deploy/tadoss/credentials
-  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
   postBuild:
     substituteFrom: [{kind: ConfigMap, name: database-connection}]
     substitute:
@@ -46,31 +44,22 @@ spec:
       OCI_REGION: {{ .Values.region }}
       VAULT_ID: {{ .Values.vaultId }}
   healthChecks:
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: auth}
-    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tads}
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: tadoss-database, namespace: tads}
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: tadoss-database, namespace: auth}
-    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: tadoss-oauth, namespace: auth}
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata: {name: tadoss-operator, namespace: tadoss-system}
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels: {app.kubernetes.io/name: tadoss-operator}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: tamoss-infra}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tamoss-infra}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: tadoss-operator, namespace: auth}
+metadata: {name: tadoss-operator, namespace: tamoss-infra}
 spec:
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
   interval: 5m
   timeout: 10m
   prune: false
   deletionPolicy: Orphan
-  dependsOn: [{name: platform}]
-  path: ./upstream/tadoss
-  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
+  dependsOn: [{name: platform}, {name: oke-prerequisites}]
+  path: ./
+  sourceRef: {kind: OCIRepository, name: tadoss-operator-source}
   healthChecks:
     - {apiVersion: apps/v1, kind: Deployment, name: tadoss-operator, namespace: tadoss-system}
   images:
@@ -100,15 +89,17 @@ spec:
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: tadoss, namespace: auth}
+metadata: {name: tadoss, namespace: tamoss-infra}
 spec:
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
   interval: 5m
   timeout: 15m
   prune: false
   deletionPolicy: Orphan
   dependsOn: [{name: tadoss-operator}, {name: tadoss-credentials}, {name: platform}, {name: calico}]
   path: ./deploy/tadoss/instance
-  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
   postBuild:
     substitute:
       TADOSS_VERSION: {{ .Values.tadoss.release.version | quote }}

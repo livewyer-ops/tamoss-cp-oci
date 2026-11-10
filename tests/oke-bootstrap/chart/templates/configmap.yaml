@@ -4,3 +4,4 @@ metadata:
   name: seed-proof
 data:
   reconciled: 'true'
+  token: {{ required "token is required" .Values.token | quote }}

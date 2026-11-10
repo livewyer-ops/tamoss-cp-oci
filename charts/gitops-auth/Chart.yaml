@@ -1,5 +1,0 @@
-apiVersion: v2
-name: gitops-auth
-description: Persist the generated GitOps deploy key through the bootstrap Vault store
-type: application
-version: 0.1.0

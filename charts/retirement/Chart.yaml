@@ -1,0 +1,9 @@
+apiVersion: v2
+name: retirement
+description: Bounded workload, data and credential retirement in Kind
+type: application
+version: 0.1.1
+dependencies:
+  - name: operation-common
+    version: 0.1.0
+    repository: file://../operation-common

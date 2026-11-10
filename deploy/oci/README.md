@@ -5,7 +5,7 @@
 Create a dedicated compartment and an authorised infrastructure provisioner.
 Account administrators own these prerequisites. Crossplane creates the storage
 user, group, membership and bucket policy during deployment. Storage IAM remains
-owned by the original Kind bootstrap after handover; OKE needs no user-management
+owned by the Kind bootstrap throughout the demo; OKE needs no user-management
 permissions.
 
 The provisioner needs an API signing key and these permissions in the dedicated
@@ -64,8 +64,9 @@ credentials and policies can take time to propagate.
 
 ## Deployment asset access
 
-Flux reads deployment artifacts anonymously from their pinned public OCI locations.
-No asset-reader IAM identity or Vault delivery is created.
+Flux in Kind reads this repository at the selected Git commit and consumes the
+operators' pinned public OCI artifacts. Private Git access uses a read-only
+repository deploy key. No OCI asset-reader identity or Vault delivery is created.
 
 ## Retirement
 
@@ -79,7 +80,7 @@ The original compartment and provisioner remain administrator-owned. Retire
 temporary account prerequisites through the administrator's credential workflow
 only after all deployment cleanup has completed.
 
-Both quick deployment and [GitOps](../gitops/README.md#inputs-and-secret-delivery)
+Both quick deployment and [GitOps](../gitops/README.md)
 use the Vault/key, secret and runtime-policy permissions above. The retained
 foundation has an explicit owner and prevents treating the compartment as empty
 after workload teardown. Billing access is separate; see

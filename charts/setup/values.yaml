@@ -1,4 +1,6 @@
 name: media-demo
+source: {private: true}
+tadoss: {enabled: false}
 compartmentId: ''
 contactEmail: ''
 adminCidrs: []

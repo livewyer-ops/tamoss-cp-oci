@@ -30,7 +30,11 @@ spec:
     - name: tamoss-secret-foundation-api
     - name: oci-services
     - name: external-secrets
-  chartRef: {kind: OCIRepository, name: tamoss-chart-bootstrap-instance, namespace: tamoss-infra}
+  chart:
+    spec:
+      chart: ./charts/bootstrap-instance
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: {{ $.Values.sourceName }}, namespace: tamoss-infra}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-bootstrap-instance}
 {{- end }}

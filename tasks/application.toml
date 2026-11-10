@@ -31,8 +31,8 @@ dir = "{{ vars.ROOT_DIR }}"
 skip_if = '''(RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd "${TASKV_CRD}" --ignore-not-found -o name)" && test -z "$RESOURCE")'''
 run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n '{{ env.TASKV_RESOURCE_NAMESPACE }}' annotate '{{ env.TASKV_CRD }}' --field-selector 'metadata.name={{ env.TASKV_RESOURCE | split(pat="/") | last }}' confirmation.tamoss.livewyer.io/deletion=true --overwrite''',
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n '{{ env.TASKV_RESOURCE_NAMESPACE }}' delete '{{ env.TASKV_RESOURCE }}' --ignore-not-found --wait=true --timeout=900s",
+  '''yq -n '{"workloads": [{"namespace": "{{ env.TASKV_RESOURCE_NAMESPACE }}", "resource": "{{ env.TASKV_CRD }}", "name": "{{ env.TASKV_RESOURCE | split(pat="/") | last }}"}]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
 ]
 env.TASKV_CRD = '''{{ env.CRD | default(value="") }}'''
 env.TASKV_RESOURCE = '''{{ env.RESOURCE | default(value="") }}'''

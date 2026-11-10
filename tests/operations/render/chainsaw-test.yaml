@@ -11,6 +11,9 @@ spec:
         - command:
             entrypoint: chainsaw
             args: [assert, -r, ../../../.local/tmp/check/secret-retirement.yaml, -f, ../job.yaml, --timeout, 1ms]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../../.local/tmp/check/retirement.yaml, -f, ../job.yaml, --timeout, 1ms]
     - name: reject an unbounded Job
       try:
         - command:

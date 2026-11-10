@@ -47,32 +47,25 @@ image digests and published asset checksums. To select another release, update
 requirements, then run `mise run check`. Upstream interface changes may require local
 overlay or test-selection changes. Verified database TLS remains mandatory.
 
-Initial deployment downloads the pinned deployment bundle.
-`qualify` restores the selected release from that bundle, records it in
-`tamoss-release.yaml` and
-retains the initial lock as `tamoss-release.bootstrap.yaml`. This bookkeeping alone does not qualify an
-upgrade or establish that database migrations can be reversed.
+Initial deployment retains the selected Git revision and records its TAMOSS pin
+in `tamoss-release.yaml`. `qualify` restores that selection from the retained
+revision. This bookkeeping alone does not qualify an upgrade or establish that
+database migrations can be reversed.
 
-Preserve the release records through teardown. `down` returns current Git/live
-configuration to Kind for deletion.
-See [Operations](../../docs/operations.md#release-selection) and the [GitOps guide](../gitops/README.md#release-changes)
+Preserve the release records and original Kind cluster through teardown. `down`
+removes workloads and infrastructure through Kind.
+See [Operations](../../docs/operations.md#release-selection) and
+[deployment from Git](../gitops/README.md#demo-inputs-and-source-changes)
 for release selection, verification and lifecycle instructions.
 
-## Public release bundle
+## Source delivery
 
-The release bundle contains only the checksum-verified published operator assets,
-release metadata and a static Kustomize entry point. Upstream bytes are unchanged;
-the source checkout, credentials and private working files are excluded.
+Flux in Kind consumes the operator's pinned upstream OCI bundle directly.
+Unchanged platform helper charts, defaults and instance manifests from the
+selected TAMOSS source release are checked in under `upstream/` directories.
+`mise run check` compares them with the verified release and checks `pins.yaml`.
+This repository's overlays remain separate from those upstream files.
 
-The [publication workflow](../../.github/workflows/release-bundle.yaml) publishes
-from the default branch using `GITHUB_TOKEN`. The package must be public and
-associated with this product repository. For a new package, its owner must set
-public visibility in GitHub's package settings after the first publication, then
-rerun the workflow. The workflow checks anonymous consumption and records the
-immutable digest for the release lock.
-
-CI pulls that digest without a registry login when building the
-[deployment bundle](../assets/README.md). It copies the matching source's deployment
-directory unchanged and resolves Kustomize includes locally. Kind and OKE read the
-public OCI registry. Upstream assets and this product's overlays remain separate;
-no TAMOSS source or release file is modified.
+Flux packages local chart directories from the pinned Git commit. The demo has
+no custom deployment bundle or chart publication prerequisite. See
+[deployment from Git](../gitops/README.md).

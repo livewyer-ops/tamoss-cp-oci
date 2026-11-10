@@ -1,0 +1,46 @@
+["source:authenticate"]
+hide = true
+quiet = true
+skip_if = "yq -e '.private == false' '{{ vars.ENV_DIR }}/source.json' > /dev/null"
+run = [
+  '''umask 077
+flux create secret git deployment-git --namespace=tamoss-infra --url={{ env.TASKV_URL | quote }} --ssh-key-algorithm=ed25519 --export > '{{ vars.ENV_DIR }}/git-secret.yaml'
+gh api meta --jq '.ssh_keys[] | "github.com " + .' > '{{ vars.ENV_DIR }}/github-known-hosts'
+yq -i '.stringData.known_hosts = load_str("{{ vars.ENV_DIR }}/github-known-hosts")' '{{ vars.ENV_DIR }}/git-secret.yaml'
+yq -r '.stringData."identity.pub"' '{{ vars.ENV_DIR }}/git-secret.yaml' > '{{ vars.ENV_DIR }}/git-public-key'
+gh api --method POST 'repos/{{ env.TASKV_REPOSITORY }}/keys' -f title='tamoss-{{ env.TASKV_DEPLOYMENT }}' -F key=@'{{ vars.ENV_DIR }}/git-public-key' -F read_only=true --jq .id > '{{ vars.ENV_DIR }}/git-key-id'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/git-secret.yaml' ''',
+]
+depends_post = ["source:cleanup"]
+env.TASKV_URL = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="url") }}'''
+env.TASKV_REPOSITORY = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="repository") }}'''
+env.TASKV_DEPLOYMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'''
+
+["source:cleanup"]
+hide = true
+quiet = true
+run = ["rm -f '{{ vars.ENV_DIR }}/git-secret.yaml' '{{ vars.ENV_DIR }}/github-known-hosts' '{{ vars.ENV_DIR }}/git-public-key'"]
+
+["source:revoke"]
+hide = true
+skip_if = "test ! -s '{{ vars.ENV_DIR }}/git-key-id'"
+run = [
+  '''gh api --method DELETE 'repos/{{ env.TASKV_REPOSITORY }}/keys/'"$(cat '{{ vars.ENV_DIR }}/git-key-id')"''',
+  "rm '{{ vars.ENV_DIR }}/git-key-id'",
+]
+env.TASKV_REPOSITORY = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="repository") }}'''
+
+["source:verify"]
+hide = true
+run = [
+  '''{% for path in ["deploy/platform/charts/authentik-bootstrap", "deploy/platform/charts/config", "deploy/instances/multi-server", "deploy/instances/components/shared-defaults", "LICENSE", "NOTICE"] %}
+diff -r '{{ env.TASKV_UPSTREAM }}/{{ path }}' '{{ vars.ROOT_DIR }}/deploy/tamoss/instance/upstream/{{ path }}'
+{% endfor %}''',
+  "cmp '{{ env.TASKV_UPSTREAM }}/deploy/platform/values/defaults.yaml' '{{ vars.ROOT_DIR }}/deploy/gitops/platform-defaults/upstream/defaults.yaml'",
+  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/calico-policy-only.yaml' '{{ vars.ROOT_DIR }}/upstream/calico/calico-policy-only.yaml'",
+  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/LICENSE.md' '{{ vars.ROOT_DIR }}/upstream/calico/LICENSE.md'",
+  "RELEASE_LOCK='{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' OUTPUT='{{ vars.ROOT_DIR }}/.local/tmp/check/source-pins.yaml' mise run gitops:pins",
+  "cmp pins.yaml '{{ vars.ROOT_DIR }}/.local/tmp/check/source-pins.yaml'",
+  "kubectl kustomize deploy/tamoss/instance > /dev/null",
+]
+env.TASKV_UPSTREAM = '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ read_yaml(path=vars.ROOT_DIR ~ "/deploy/tamoss/release.yaml") | get(key="releaseSha256") }}/source'

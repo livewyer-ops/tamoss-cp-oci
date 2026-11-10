@@ -17,11 +17,6 @@ spec:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
             args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:prepare-management"]
-        - command:
-            entrypoint: env
-            env:
-              - {name: ROOT, value: ($values.root)}
-            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:empty-return"]
         - apply: {file: children.yaml}
         - command:
             entrypoint: kubectl
@@ -146,11 +141,6 @@ spec:
               - {name: ROOT, value: ($values.root)}
               - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
             args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:record-composite"]
-        - command:
-            entrypoint: env
-            env:
-              - {name: ROOT, value: ($values.root)}
-            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:bootstrap:owned-return"]
         - command:
             entrypoint: kubectl
             args: [-n, crossplane-system, rollout, restart, deployment/crossplane]

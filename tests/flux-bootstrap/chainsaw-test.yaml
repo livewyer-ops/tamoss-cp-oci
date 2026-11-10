@@ -36,7 +36,8 @@ spec:
               kind: HelmRelease
               metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
               spec:
-                chartRef: {kind: OCIRepository, name: tamoss-chart-bootstrap-instance}
+                chart:
+                  spec: {chart: ./charts/bootstrap-instance}
         - assert:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -75,7 +76,7 @@ spec:
               kind: HelmRelease
               metadata: {name: runtime-access, namespace: tamoss-infra}
               spec:
-                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture, providerWrites: false}
+                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
         - command:
             entrypoint: kubectl
             args: [-n, tamoss-infra, wait, externalsecret, --all, --for=condition=Ready, --timeout=180s]
@@ -205,7 +206,7 @@ spec:
               kind: HelmRelease
               metadata: {name: runtime-access, namespace: tamoss-infra}
               spec:
-                values: {providerWrites: true}
+                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
         - command:
             entrypoint: kubectl
             args: [-n, flux-system, rollout, restart, deployment/helm-controller]
@@ -243,7 +244,7 @@ spec:
               kind: HelmRelease
               metadata: {name: runtime-access, namespace: tamoss-infra}
               spec:
-                values: {providerWrites: true}
+                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}
     - name: restart original Kind with bootstrap authority still released
       try:
         - command:
@@ -277,4 +278,4 @@ spec:
               kind: HelmRelease
               metadata: {name: runtime-access, namespace: tamoss-infra}
               spec:
-                values: {providerWrites: true}
+                values: {clusterId: ocid1.cluster.oc1.fixture, vaultId: ocid1.vault.oc1.fixture}

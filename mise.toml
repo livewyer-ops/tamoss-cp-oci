@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | defa
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/release.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/seed.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/handover/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/oci/tasks.toml", "tests/gitops-key/tasks.toml", "tests/gitops/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/retirement.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tasks/storage.toml", "tasks/transfer.toml", "tests/bootstrap/tasks.toml", "tests/contracts/install/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/storage-cleanup/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -30,10 +30,8 @@ PROJECT_ROOT = "{{config_root}}"
 ROOT = "{{config_root}}"
 ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR | absolute }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
 RELEASE_DIR = '{{ vars.ENV_DIR }}/release'
-CHECKOUT = '''{% if env.CHECKOUT | default(value="") %}{{ env.CHECKOUT }}{% else %}{{ config_root }}/.local/gitops{% endif %}'''
 STORAGE_DIR = '''{% if env.STORAGE_DIR | default(value="") %}{{ env.STORAGE_DIR }}{% else %}{{ config_root }}/.local/tmp/storage-check{% endif %}'''
 ENV_PATH = "{{vars.ENV_DIR | absolute}}"
-CHECKOUT_PATH = "{{vars.CHECKOUT | absolute}}"
 STORAGE_PATH = "{{vars.STORAGE_DIR | absolute}}"
 CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.crossplane.imageRepository }}:v{{ dependencies.crossplane.version }}'''
 OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.oci.version }}'''
@@ -59,6 +57,7 @@ run = [
   "mise run tamoss:bundle",
   "mise run tadoss:fetch",
   "mise run tadoss:bundle",
+  "mise run source:verify",
   "mise run verify:render",
   "mise run verify:database",
   "mise run tamoss:tls",
@@ -106,16 +105,6 @@ depends = ["bootstrap:install"]
 run = [{ task = "bootstrap:access" }]
 
 
-[tasks."handover"]
-hide = false
-dir = "{{ vars.ROOT_DIR }}"
-description = "Enable GitOps, transfer infrastructure ownership to OKE and stop original Kind"
-run = [
-  "mise run verify:tools",
-  "mise run verify:privacy",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} CHECKOUT={{ ((vars.CHECKOUT_PATH)) | quote }} mise run bootstrap:handover",
-]
-
 [tasks."qualify"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
@@ -124,14 +113,14 @@ run = [
   '''test -s '{{ vars.ENV_PATH }}/tamoss-release.yaml' || { printf '%s\n' "Selected environment has no TAMOSS release record" >&2; exit 1; }''',
   "mise run verify:tools",
   "mise run verify:privacy",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} CHECKOUT={{ ((vars.CHECKOUT_PATH)) | quote }} mise run bootstrap:qualify",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run bootstrap:qualify",
 ]
 
 [tasks."down"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Remove hardware and retire secrets, returning GitOps ownership when needed"
+description = "Remove workloads and OCI resources through Kind, then retire credentials"
 run = [
   "mise run verify:tools",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} CHECKOUT={{ ((vars.CHECKOUT_PATH)) | quote }} mise run bootstrap:down",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run bootstrap:down",
 ]

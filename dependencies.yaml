@@ -69,6 +69,9 @@ artifacts:
 - path: schemas/psql.oci.m.upbound.io_psqldbsystems.yaml
   url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/psql.oci.m.upbound.io_psqldbsystems.yaml
   sha256: 4857321b5cc166a64d356c3abdd325187ca0c099daace75cdcbfcb043dec236e
+- path: calico/LICENSE.md
+  url: https://raw.githubusercontent.com/projectcalico/calico/eb1cf57823a1dd8d25c48b82fd023ea9e3e17996/LICENSE.md
+  sha256: a6144479dad9ef50ace32255c853780fc14399ec11650910a7d61ec1e73efdb6
 - path: calico/calico-policy-only.yaml
   url: https://raw.githubusercontent.com/projectcalico/calico/eb1cf57823a1dd8d25c48b82fd023ea9e3e17996/manifests/calico-policy-only.yaml
   sha256: 0b09d96323cf250ad028450d2954fc0068ce4104545f1eab823f359a48eb69a3
@@ -81,10 +84,3 @@ artifacts:
 - path: schemas/identity.oci.m.upbound.io_usergroupmemberships.yaml
   url: https://raw.githubusercontent.com/oracle/crossplane-provider-oci/0f1ac07a93a50d7f8470dc1bbbef6d6f70bae0cf/package/crds/identity.oci.m.upbound.io_usergroupmemberships.yaml
   sha256: 210202ee78666b81d28a2078848ac9003329aca77bc49463378b8e298f7eda5a
-
-deploymentBundle:
-  url: oci://ghcr.io/dodwyer/tamoss-release-assets
-  digest: sha256:241acc5fe2d85822d9cb8c7f7db4bb8b22c2d24980fc600ea6b17fc63ccb90ff
-
-tests:
-  registryImage: docker.io/library/registry:3.1.2@sha256:38907510915c3f1604c7e83d6ab602ab3020d092f73bdaed8696773693ff768c

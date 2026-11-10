@@ -1,0 +1,4 @@
+repository: example/deployment
+url: ssh://git@github.com/example/deployment.git
+commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+private: true

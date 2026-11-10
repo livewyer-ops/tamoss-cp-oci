@@ -3,13 +3,16 @@ kind: Namespace
 metadata: {name: tamoss-infra}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
+kind: GitRepository
 metadata: {name: {{ .Values.sourceName }}, namespace: tamoss-infra}
 spec:
   interval: 1m
   url: {{ required "assets.url is required" .Values.assets.url | quote }}
   ref:
-    digest: {{ required "assets.digest is required" .Values.assets.digest | quote }}
+    commit: {{ required "assets.commit is required" .Values.assets.commit | quote }}
+{{- if .Values.assets.secretName }}
+  secretRef: {name: {{ .Values.assets.secretName }}}
+{{- end }}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
@@ -20,17 +23,3 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata: {name: external-secrets, namespace: tamoss-infra}
 spec: {interval: 1h, url: 'https://charts.external-secrets.io'}
-{{- range $name := list "packages" "environment" "secret-foundation" "bootstrap" "bootstrap-instance" "secrets" "runtime-access" "gitops-auth" }}
-{{- $chart := index $.Values.assets.charts $name }}
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata: {name: tamoss-chart-{{ $name }}, namespace: tamoss-infra}
-spec:
-  interval: 10m
-  url: {{ $chart.url | quote }}
-  ref: {digest: {{ $chart.digest | quote }}}
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
-{{- end }}

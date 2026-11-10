@@ -1,128 +1,123 @@
 apiVersion: v1
 kind: Namespace
-metadata: {name: flux-system}
----
-apiVersion: v1
-kind: Namespace
-metadata: {name: tamoss-infra}
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata: {name: infrastructure, namespace: tamoss-infra}
-spec:
-  interval: 1m
-  prune: false
-  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
-status:
-  observedGeneration: 1
-  lastAppliedRevision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-  conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: Current infrastructure revision, lastTransitionTime: '2026-01-01T00:00:00Z'}
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata: {name: runtime, namespace: tamoss-infra}
-spec:
-  interval: 1m
-  prune: false
-  sourceRef: {kind: OCIRepository, name: tamoss-product, namespace: flux-system}
-status:
-  observedGeneration: 1
-  lastAppliedRevision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-  conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: Current runtime revision, lastTransitionTime: '2026-01-01T00:00:00Z'}
+metadata:
+  name: tamoss-infra
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
-metadata: {name: flux-system, namespace: flux-system}
+metadata:
+  name: tamoss-bootstrap-product
+  namespace: tamoss-infra
 spec:
   interval: 1m
-  url: https://example.invalid/environment
-  ref: {branch: main}
+  url: https://github.com/example/fixture
+  ref:
+    commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 status:
   observedGeneration: 1
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Fixture
+    message: Fixture
+    lastTransitionTime: '2026-01-01T00:00:00Z'
   artifact:
-    path: fixture
-    url: http://fixture.invalid/artifact.tar.gz
     revision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    path: fixture
+    url: http://example.invalid/fixture
+    lastUpdateTime: '2026-01-01T00:00:00Z'
     digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    lastUpdateTime: '2026-11-04T11:00:00Z'
-  conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata: {name: flux-system, namespace: flux-system}
-spec:
-  interval: 1m
-  prune: false
-  path: ./
-  sourceRef: {kind: GitRepository, name: flux-system}
-status:
-  observedGeneration: 1
-  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata: {name: tamoss-product, namespace: flux-system}
+kind: HelmChart
+metadata:
+  name: tamoss-infra-tamoss-gitops
+  namespace: tamoss-infra
 spec:
   interval: 1m
-  url: oci://example.invalid/product
-  ref: {digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+  chart: ./charts/gitops
+  sourceRef:
+    kind: GitRepository
+    name: tamoss-bootstrap-product
 status:
   observedGeneration: 1
-  artifact:
-    path: fixture
-    url: http://fixture.invalid/artifact.tar.gz
-    revision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    digest: sha256:ccccccccccccccccccccccccccccccccccccccccaaaaaaaaaaaaaaaaaaaaaaaa
-    lastUpdateTime: '2026-11-04T11:00:00Z'
   conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata: {name: tamoss-chart-gitops, namespace: flux-system}
-spec:
-  interval: 1m
-  url: oci://example.invalid/gitops
-  ref: {digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
-status:
-  observedGeneration: 1
+  - type: Ready
+    status: 'True'
+    reason: Fixture
+    message: Fixture
+    lastTransitionTime: '2026-01-01T00:00:00Z'
+  observedSourceArtifactRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   artifact:
+    revision: 0.1.0+aaaa
     path: fixture
-    url: http://fixture.invalid/artifact.tar.gz
-    revision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    digest: sha256:ccccccccccccccccccccccccccccccccccccccccaaaaaaaaaaaaaaaaaaaaaaaa
-    lastUpdateTime: '2026-11-04T11:00:00Z'
-  conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
+    url: http://example.invalid/fixture
+    lastUpdateTime: '2026-01-01T00:00:00Z'
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
-metadata: {name: tamoss-gitops, namespace: tamoss-infra}
+metadata:
+  name: tamoss-gitops
+  namespace: tamoss-infra
 spec:
   interval: 1m
-  chartRef: {kind: OCIRepository, name: tamoss-chart-gitops, namespace: flux-system}
+  chart:
+    spec:
+      chart: ./charts/gitops
+      sourceRef:
+        kind: GitRepository
+        name: tamoss-bootstrap-product
 status:
   observedGeneration: 1
-  lastAttemptedRevision: 0.1.0+fixture
-  lastAttemptedRevisionDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
+  - type: Ready
+    status: 'True'
+    reason: Fixture
+    message: Fixture
+    lastTransitionTime: '2026-01-01T00:00:00Z'
+  lastAttemptedRevision: 0.1.0+aaaa
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
-metadata: {name: deployment-ready, namespace: flux-system}
+metadata:
+  name: runtime
+  namespace: tamoss-infra
 spec:
   interval: 1m
+  path: ./
   prune: false
-  path: ./deploy/gitops/readiness
-  sourceRef: {kind: OCIRepository, name: tamoss-product}
+  sourceRef:
+    kind: GitRepository
+    name: tamoss-bootstrap-product
 status:
   observedGeneration: 1
-  lastAppliedRevision: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   conditions:
-    - {type: Ready, status: 'True', reason: Fixture, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
+  - type: Ready
+    status: 'True'
+    reason: Fixture
+    message: Fixture
+    lastTransitionTime: '2026-01-01T00:00:00Z'
+  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: deployment-ready
+  namespace: tamoss-infra
+spec:
+  interval: 1m
+  path: ./
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: tamoss-bootstrap-product
+status:
+  observedGeneration: 1
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Fixture
+    message: Fixture
+    lastTransitionTime: '2026-01-01T00:00:00Z'
+  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

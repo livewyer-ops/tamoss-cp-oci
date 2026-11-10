@@ -1,7 +1,7 @@
 {{- if and .Values.files.pins .Values.files.environment }}
 {{- $e := (.Values.files.environment | fromYaml).spec -}}
 {{- $s := .Values.files.settings | fromYaml -}}
-tadoss: {enabled: false}
+tadoss: {enabled: {{ dig "tadoss" "enabled" false $s }}}
 deploymentId: {{ (.Values.files.identity | fromYaml).deploymentUID | quote }}
 region: {{ $e.region | quote }}
 databaseAdministrator: {{ $e.database.administrator | quote }}

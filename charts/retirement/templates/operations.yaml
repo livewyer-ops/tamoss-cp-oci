@@ -1,0 +1,67 @@
+{{- $operations := list -}}
+{{- with .Values.bucket }}
+{{- range .uploads }}
+{{- $operations = append $operations (dict "name" (printf "abort-%s" (sha256sum (index . "upload-id") | trunc 12)) "args" (list "os" "multipart" "abort" "--namespace-name" $.Values.bucket.namespace "--bucket-name" $.Values.bucket.name "--object-name" .object "--upload-id" (index . "upload-id") "--force")) -}}
+{{- end }}
+{{- range list "bulk-delete-versions" "bulk-delete" }}
+{{- $operations = append $operations (dict "name" . "args" (list "os" "object" . "--namespace-name" $.Values.bucket.namespace "--bucket-name" $.Values.bucket.name "--force")) -}}
+{{- end }}
+{{- end }}
+{{- range .Values.backups }}
+{{- $operations = append $operations (dict "name" (printf "backup-%s" (sha256sum .id | trunc 12)) "args" (list "psql" "backup" "delete" "--backup-id" .id "--force" "--wait-for-state" "SUCCEEDED" "--max-wait-seconds" "1200")) -}}
+{{- end }}
+{{- range .Values.secretDeletions }}
+{{- $operations = append $operations (dict "name" (printf "secret-%s" (sha256sum .id | trunc 12)) "args" (list "vault" "secret" "schedule-secret-deletion" "--secret-id" .id "--time-of-deletion" $.Values.deletionTime)) -}}
+{{- end }}
+{{- with .Values.storageKey }}
+{{- $operations = append $operations (dict "name" "storage-key" "args" (list "iam" "customer-secret-key" "delete" "--user-id" .userId "--customer-secret-key-id" .keyId "--force")) -}}
+{{- end }}
+{{- range $operations }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: retire-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-weight: {{ ternary "2" (ternary "1" "0" (eq .name "bulk-delete")) (eq .name "bulk-delete-versions") | quote }}
+spec:
+  activeDeadlineSeconds: 1300
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- include "operation-common.podSecurity" $ | nindent 8 }}
+      containers:
+        - name: retire
+          image: {{ required "OCI CLI image is required" $.Values.images.oci | quote }}
+          command: [oci]
+          args:
+{{ concat (list "--auth" "api_key" "--connection-timeout" "10" "--read-timeout" "30" "--max-retries" "0") .args | toYaml | indent 12 }}
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: OCI_CLI_REGION, value: {{ $.Values.oracle.region | quote }}}
+            - {name: OCI_CLI_KEY_FILE, value: /oci/privatekey}
+{{ range $key, $variable := dict "user" "OCI_CLI_USER" "tenancy" "OCI_CLI_TENANCY" "fingerprint" "OCI_CLI_FINGERPRINT" "passphrase" "OCI_CLI_PASSPHRASE" }}
+            - name: {{ $variable }}
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: {{ $key }}}}
+{{ end }}
+          resources:
+            {{- include "operation-common.resources" $ | nindent 12 }}
+          securityContext:
+            {{- include "operation-common.containerSecurity" $ | nindent 12 }}
+          volumeMounts:
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+            - {name: oci, mountPath: /oci, readOnly: true}
+      volumes:
+        {{- include "operation-common.volumes" $ | nindent 8 }}
+        - name: oci
+          secret:
+            secretName: oci-vault-bootstrap
+            defaultMode: 0440
+            items: [{key: privatekey, path: privatekey}]
+{{- end }}

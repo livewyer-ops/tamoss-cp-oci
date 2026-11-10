@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Render
-(length(resources[?metadata.namespace != 'flux-system'])): 0
-(sort(resources[?kind == 'ExternalSecret'].metadata.name)): [flux-system]
-(length(resources[?kind == 'Secret' || kind == 'Password' || kind == 'PushSecret'])): 0
-(resources[?kind == 'SecretStore'] | [0].spec.provider.oracle.principalType): Workload

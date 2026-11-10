@@ -149,24 +149,3 @@ run = [
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' config view --minify -o json | yq -p=json -e '.clusters[0].cluster.server == load("{{ vars.ENV_DIR }}/identity.yaml").remoteServer and .clusters[0].cluster."insecure-skip-tls-verify" != true and .clusters[0].cluster."certificate-authority-data" != null and .users[0].user.exec.command == "oci" and ([.users[0].user.exec.args[]] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").clusterID]))' > /dev/null''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' --request-timeout=30s get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").remoteUID' > /dev/null''',
 ]
-
-["identity:runtime-composite"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-quiet = true
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o json > '{{ vars.ENV_DIR }}/runtime-composite.json'",
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:assert-runtime-composite",
-  '''yq -i '.runtimeCompositeUID = load("{{ vars.ENV_DIR }}/runtime-composite.json").metadata.uid' {{ vars.ENV_DIR }}/identity.yaml''',
-]
-env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
-
-["identity:assert-runtime-composite"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''yq -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | [.metadata.uid != $i.compositeUID, (.metadata.uid == $i.runtimeCompositeUID or $i.runtimeCompositeUID == null), .metadata.deletionTimestamp == null, .metadata.annotations."tamoss.livewyer.io/deployment-id" == $i.deploymentUID, .spec.adoption.deploymentId == $i.deploymentUID, .spec.adoption.creationCompositeUID == $i.creationCompositeUID, .spec.region == $i.environment.region, .spec.compartmentId == $i.environment.compartmentId, .spec.storage.namespace == $i.environment.storage.namespace, .spec.storage.bucket == $i.environment.storage.bucket, .spec.providerConfigName == $i.environment.providerConfigName] | all' '{{ vars.ENV_DIR }}/runtime-composite.json' > /dev/null''',
-]

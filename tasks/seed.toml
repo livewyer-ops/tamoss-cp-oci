@@ -2,19 +2,17 @@
 hide = true
 run = [
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:management",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomizations -l tamoss.livewyer.io/remote-bootstrap=true -o json > '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json'",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomizations,helmreleases -l 'tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o json > '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json'",
   '''yq -e '[.items[] | .metadata.labels."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null''',
 ]
+env.TASKV_DEPLOYMENT = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'
 
 ["bootstrap:remote-guard"]
 hide = true
 run = [
-  '''yq -e '.deploymentReady != true and .handoverComplete != true and .teardownStarted != true and .returnComplete != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\n' "Completed, transferred or retiring environments cannot be seeded" >&2; exit 1; }''',
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-observe",
-  '''yq -e '[(.items | length == 4), (.items[] | [.spec.suspend != true, .metadata.deletionTimestamp == null, .spec.kubeConfig.secretRef.name == "oke-bootstrap-access", .spec.prune == false, .spec.deletionPolicy == "Orphan"] | all)] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null || { printf '%s\n' "Remote bootstrap is missing or retired; never recreate its authority" >&2; exit 1; }''',
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:observe",
-  '''yq -e '.spec.released == false and (.status.credentialsEstablished // .spec.credentialsEstablished) == true and .status.bootstrapReady == true and .status.observedGeneration == .metadata.generation' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null || { printf '%s\n' "Bootstrap must be current, ready, unreleased and have established credentials" >&2; exit 1; }''',
-  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ROOT_DIR }}/deploy/contracts/credentials-established.yaml' --timeout=300s",
+  '''yq -e '.teardownComplete != true and .remoteAccessRetired != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null''',
+  { task = "identity:management" },
+  { task = "bootstrap:remote-rbac" },
 ]
 
 ["bootstrap:remote-rbac"]
@@ -32,7 +30,7 @@ hide = true
 run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-rbac.yaml'",
   """umask 077
-kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=1h -o json > '{{ vars.ENV_DIR }}/remote-token.json'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=24h -o json > '{{ vars.ENV_DIR }}/remote-token.json'
 helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/remote-access.yaml --set-file files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.remoteConfig='{{ vars.ENV_DIR }}/remote.kubeconfig',files.remoteToken='{{ vars.ENV_DIR }}/remote-token.json' > '{{ vars.ENV_DIR }}/remote-access.yaml'
 kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-access.yaml'""",
 ]
@@ -45,21 +43,16 @@ run = [
   "rm -f '{{ vars.ENV_DIR }}/remote-token.json' '{{ vars.ENV_DIR }}/remote-access.yaml' '{{ vars.ENV_DIR }}/remote-access-observed.json'",
 ]
 
-["bootstrap:remote-stop:apply"]
-hide = true
-skip_if = '''yq -e '.items | length == 0' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null'''
-run = [
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch -f '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' --type=merge -p '{"spec":{"suspend":true}}' ''',
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/kustomize-controller --replicas=0",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system wait pod -l app=kustomize-controller --for=delete --timeout=180s",
-]
-
 ["bootstrap:remote-stop"]
 hide = true
 run = [
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-observe",
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-stop:apply",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=0",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system wait pod -l 'app in (kustomize-controller,helm-controller)' --for=delete --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomizations,helmreleases -l 'tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o json > '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json'",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' patch -f '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' --type=merge -p '{"spec":{"suspend":true}}' ''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=1",
 ]
+env.TASKV_DEPLOYMENT = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'
 
 ["bootstrap:remote-revoke:apply"]
 hide = true
@@ -72,25 +65,12 @@ run = [
 ["bootstrap:remote-revoke"]
 hide = true
 run = [
+  "yq -i '.remoteAccessRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-observe",
   '''yq -e '[.items[] | .spec.suspend == true] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null || { printf '%s\n' "Suspend remote bootstrap before revoking its access" >&2; exit 1; }''',
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-revoke:apply",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-access:cleanup",
-]
-
-["bootstrap:remote-retire"]
-hide = true
-run = [
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-stop",
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-revoke",
-]
-
-["bootstrap:remote-retired"]
-hide = true
-run = [
-  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-observe",
-  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw test --skip-delete --test-dir '{{ vars.ROOT_DIR }}/deploy/bootstrap/retired' --assert-timeout=30s",
 ]
 
 ["bootstrap:render"]
@@ -100,3 +80,16 @@ run = [
   "helm template inputs '{{ vars.ROOT_DIR }}/charts/deployment-inputs' --show-only templates/bootstrap.yaml --set-file files.assets='{{ vars.ENV_DIR }}/assets.lock.yaml',files.environment='{{ vars.ENV_DIR }}/environment.yaml',files.foundation='{{ vars.ENV_DIR }}/foundation.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.settings='{{ vars.ENV_DIR }}/settings.yaml',files.dependencies='{{ vars.ROOT_DIR }}/dependencies.yaml' > '{{ vars.ENV_DIR }}/bootstrap.yaml'",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run management:render",
 ]
+
+["bootstrap:remote-access:renew"]
+hide = true
+description = "Renew Kind access to the recorded OKE cluster"
+run = [
+  { task = "bootstrap:remote-guard" },
+  "mise run bootstrap:remote-access:issue",
+]
+
+["bootstrap:remote-access:renew-for-cleanup"]
+hide = true
+skip_if = '''yq -e '.applicationRemoved == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || yq -e '[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null'''
+run = [{ task = "bootstrap:remote-access:renew" }]

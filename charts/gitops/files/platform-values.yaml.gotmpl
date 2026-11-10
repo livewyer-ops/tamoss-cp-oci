@@ -100,6 +100,10 @@ authentikChart:
         readOnly: true
   server:
     replicas: 2
+    livenessProbe:
+      timeoutSeconds: 30
+    readinessProbe:
+      timeoutSeconds: 30
     lifecycle:
       preStop:
         sleep:

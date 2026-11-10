@@ -72,7 +72,8 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = '''yq -e '.keys | length == 0' '{{ vars.ENV_DIR }}/s3-key-observed.json' > /dev/null'''
 run = [
-  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key delete --user-id "$(yq -r .data.USER_ID '{{ vars.ENV_DIR }}/storage-identity.json')" --customer-secret-key-id "$(yq -r .keyId '{{ vars.ENV_DIR }}/s3-key-observed.json')" --force''',
+  '''yq -n '{"storageKey": {"userId": load("{{ vars.ENV_DIR }}/storage-identity.json").data.USER_ID, "keyId": load("{{ vars.ENV_DIR }}/s3-key-observed.json").keyId}}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
 ]
 
 ["storage:recover"]

@@ -1,49 +1,25 @@
 ["assets:fetch"]
 hide = true
 run = [
-  "rm -rf '{{ vars.RELEASE_DIR }}'",
-  "install -d -m 700 '{{ vars.RELEASE_DIR }}'",
-  '''flux pull artifact '{{ env.TASKV_URL }}@{{ env.TASKV_DIGEST }}' --output '{{ vars.RELEASE_DIR }}' --timeout=120s''',
+  "test -z \"$(git status --porcelain)\" || { echo 'Deploy a clean, committed and pushed checkout.' >&2; exit 1; }",
+  "install -d -m 700 '{{ vars.ENV_DIR }}' '{{ vars.RELEASE_DIR }}'",
+  '''ORIGIN="$(git remote get-url origin)" COMMIT="$(git rev-parse HEAD)" yq -n -e -o=json 'select(strenv(ORIGIN) | test("^(git@github.com:|https://github.com/|ssh://git@github.com/)")) | {"repository": (strenv(ORIGIN) | sub("^git@github.com:"; "") | sub("^https://github.com/"; "") | sub("^ssh://git@github.com/"; "") | sub("[.]git$"; "")), "commit": strenv(COMMIT), "private": (load("{{ vars.ENV_DIR }}/values.yaml").source.private != false)} | select(.repository | test("^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")) | .url = ((select(.private) | "ssh://git@github.com/" + .repository + ".git") // ("https://github.com/" + .repository + ".git"))' > '{{ vars.ENV_DIR }}/source.json'''',
+  '''git fetch --no-tags origin "$(yq -r .commit '{{ vars.ENV_DIR }}/source.json')"''',
+  "git archive --format=tar HEAD | tar --extract --no-same-owner --directory '{{ vars.RELEASE_DIR }}'",
+  '''yq -n '{"product": {"commit": load("{{ vars.ENV_DIR }}/source.json").commit, "url": ("https://github.com/" + load("{{ vars.ENV_DIR }}/source.json").repository)}}' > '{{ vars.RELEASE_DIR }}/build.yaml'''',
 ]
-env.TASKV_URL = '''{{ read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") | get(key="deploymentBundle") | get(key="url") }}'''
-env.TASKV_DIGEST = '''{{ read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") | get(key="deploymentBundle") | get(key="digest") }}'''
 
 ["assets:verify"]
 hide = true
 run = [
-  '''yq -e '.kind == "ConfigMap" and .metadata.name == "tamoss-assets" and .data.schemaVersion == "3" and (.data.bundleURL | test("^oci://")) and (.data.bundleDigest | test("^sha256:[a-f0-9]{64}$")) and (.data.manifestSha256 | test("^[a-f0-9]{64}$"))' '{{ env.TASKV_LOCK }}' > /dev/null''',
-  "rm -rf '{{ vars.ENV_DIR }}/assets-verification'",
-  "install -d -m 700 '{{ vars.ENV_DIR }}/assets-verification'",
-  "flux pull artifact '{{ env.TASKV_URL }}@{{ env.TASKV_DIGEST }}' --output '{{ vars.ENV_DIR }}/assets-verification' --timeout=60s",
-  "cd '{{ vars.ENV_DIR }}/assets-verification' && printf '%s  SHA256SUMS\\n' {{ env.TASKV_MANIFEST | quote }} | sha256sum --check --status && sha256sum --check --status SHA256SUMS",
-  '''yq -e '.product.commit == load("{{ env.TASKV_LOCK }}").data.productCommit and .manifestSha256 == load("{{ env.TASKV_LOCK }}").data.manifestSha256 and (.charts | sort_keys(..) | to_json(0)) == (load("{{ env.TASKV_LOCK }}").data."values.yaml" | from_yaml | .assets.charts | sort_keys(..) | to_json(0))' '{{ vars.ENV_DIR }}/assets-verification/release.yaml' > /dev/null''',
-  '''yq -e '.data as $d | ($d."values.yaml" | from_yaml) as $v | [$v.assets.url == $d.bundleURL, $v.assets.digest == $d.bundleDigest, $v.assets.charts."gitops-bootstrap".url == $d.bootstrapChartURL, $v.assets.charts."gitops-bootstrap".digest == $d.bootstrapChartDigest, $v.dependencies.externalSecrets.version == $d.externalSecretsVersion, (($v.externalSecrets | sort_keys(..) | to_json(0)) == ($d.externalSecretsValues | from_yaml | sort_keys(..) | to_json(0))), $v.tadoss.enabled == null] as $checks | ($v | del(.assets) | sort_keys(..) | to_json(0)) as $selected | (load("{{ vars.ENV_DIR }}/assets-verification/pins.yaml") | del(.tadoss.enabled) | sort_keys(..) | to_json(0)) as $expected | ($checks + [$selected == $expected]) | all' '{{ env.TASKV_LOCK }}' > /dev/null''',
+  '''yq -e '.kind == "ConfigMap" and .metadata.name == "tamoss-assets" and .data.schemaVersion == "4" and (.data.productCommit | test("^[a-f0-9]{40}$")) and (.data."values.yaml" | from_yaml | .assets.commit) == .data.productCommit and .data.productCommit == load("{{ vars.ENV_DIR }}/source.json").commit and (.data."values.yaml" | from_yaml | .assets.url) == load("{{ vars.ENV_DIR }}/source.json").url and (.data."values.yaml" | from_yaml | del(.assets) | sort_keys(..) | to_json) == (load("{{ vars.RELEASE_DIR }}/pins.yaml") | del(.tadoss.enabled) | sort_keys(..) | to_json)' '{{ vars.ENV_DIR }}/assets.lock.yaml' > /dev/null''',
+  '''test "$(git rev-parse HEAD)" = "$(yq -r .data.productCommit '{{ vars.ENV_DIR }}/assets.lock.yaml')" || { echo 'Use the recorded deployment revision for this environment.' >&2; exit 1; }''',
 ]
-env.TASKV_LOCK = '''{{ env.ASSET_LOCK | default(value=vars.ENV_DIR ~ "/assets.lock.yaml") }}'''
-env.TASKV_URL = '''{{ read_yaml(path=env.TASKV_LOCK) | get(key="data") | get(key="bundleURL") }}'''
-env.TASKV_DIGEST = '''{{ read_yaml(path=env.TASKV_LOCK) | get(key="data") | get(key="bundleDigest") }}'''
-env.TASKV_MANIFEST = '''{{ read_yaml(path=env.TASKV_LOCK) | get(key="data") | get(key="manifestSha256") }}'''
 
 ["assets:restore-runtime"]
 hide = true
-dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "mise run assets:verify",
-  "yq '.data.\"values.yaml\" | from_yaml | .release | {\"tag\": .tag, \"releaseSha256\": .releaseSha256, \"sourceSha256\": .sourceSha256}' '{{ env.TASKV_LOCK }}' > '{{ vars.ENV_DIR }}/tamoss-release.current.yaml' ",
-  "mise run assets:restore-runtime:copy"
+  { task = "assets:verify" },
+  "cp '{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.current.yaml'",
+  "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:fetch",
 ]
-env.TASKV_LOCK = '''{{ env.ASSET_LOCK | default(value=vars.ENV_DIR ~ "/assets.lock.yaml") }}'''
-
-["assets:restore-runtime:copy"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "install -d -m 700 '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}'",
-  "cp '{{ env.TASKV_SOURCE }}upstream/tamoss/'* '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/'",
-  "printf '%s  %s\\n' \"$(yq -r .sourceSha256 '{{ vars.ENV_DIR }}/tamoss-release.current.yaml')\" '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}/source.tar.gz' | sha256sum --check --status",
-  "ASSETS='{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}' mise run tamoss:extract",
-  "ASSETS='{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}' mise run tamoss:entrypoints",
-  "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:metadata"
-]
-env.TASKV_KEY = "{{ read_yaml(path=vars.ENV_DIR ~ \"/tamoss-release.current.yaml\") | get(key=\"releaseSha256\") }}"
-env.TASKV_SOURCE = "{{ vars.ENV_DIR }}/assets-verification/"

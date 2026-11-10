@@ -20,12 +20,16 @@ metadata: {name: tamoss-platform}
 ---
 apiVersion: v1
 kind: Namespace
-metadata: {name: crossplane-system}
----
-apiVersion: v1
-kind: Namespace
 metadata: {name: cert-manager}
 ---
 apiVersion: v1
 kind: Namespace
 metadata: {name: traefik}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: tads}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: tadoss-system}

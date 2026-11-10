@@ -13,11 +13,8 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
-  '''yq -e '.tadoss.enabled == false' {{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/values.yaml || { printf '%s\n' "Capture shared infrastructure before enabling TADOSS" >&2; exit 1; }''',
   "mise run tadoss:baseline:apply",
 ]
-env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
 
 ["tadoss:tls:protected:protected"]
 hide = true
@@ -101,7 +98,6 @@ dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:credentials",
   "install -m 600 /dev/null '{{ vars.ENV_DIR }}/tadoss-http-secrets.env'",
   "cp '{{ vars.ENV_DIR }}/http-secrets.env' '{{ vars.ENV_DIR }}/tadoss-http-secrets.env'",
@@ -127,12 +123,10 @@ yq -r '.items[].metadata.uid' '{{ vars.ENV_DIR }}/reports/tadoss-pods-{{ item }}
 {% if item != "" %}
 diff -u '{{ vars.ENV_DIR }}/tadoss-inventory-before/{{ item }}' '{{ vars.ENV_DIR }}/tadoss-inventory-after/{{ item }}'
 {% endif %}{% endfor %}''',
-  "docker ps --filter 'label=io.x-k8s.kind.cluster={{ env.TASKV_KIND_NAME }}' --format '{% raw %}{{.ID}}{% endraw %}' | wc -l | xargs test 0 -eq",
 ]
 env.TASKV_DEPLOYMENT = '''{% if env.DEPLOYMENT is defined %}{{ env.DEPLOYMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .deploymentUID " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
 env.TASKV_DOMAIN = '''{% if env.DOMAIN is defined %}{{ env.DOMAIN }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.publicIp | sub(\"\\\\.\"; \"-\") + \".sslip.io\"' " ~ (vars.ENV_DIR) ~ "/outputs.json") }}{% endif %}'''
 env.TASKV_INVENTORY_NAMES = '''{% if env.INVENTORY_NAMES is defined %}{{ env.INVENTORY_NAMES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "find " ~ ((vars.ENV_DIR) | quote) ~ "/tadoss-inventory-before -maxdepth 1 -name \"*.ids\" -printf \"%f\\n\" | sort") }}{% endif %}'''
-env.TASKV_KIND_NAME = '''{% if env.KIND_NAME is defined %}{{ env.KIND_NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"tamoss-cp-\" + .environment.name' " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
 env.TASKV_SCHEMA_ID = '''{% if env.SCHEMA_ID is defined %}{{ env.SCHEMA_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "cat /proc/sys/kernel/random/uuid") }}{% endif %}'''
 env.TASKV_TRACK_ID = '''{% if env.TRACK_ID is defined %}{{ env.TRACK_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "cat /proc/sys/kernel/random/uuid") }}{% endif %}'''
 depends_post = ["tadoss:qualify:cleanup"]
@@ -143,7 +137,6 @@ dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
   "rm -f '{{ vars.ENV_DIR }}/api-token' '{{ vars.ENV_DIR }}/api.curl' '{{ vars.ENV_DIR }}/targets.jsonl' '{{ vars.ENV_DIR }}/http-secrets.env' '{{ vars.ENV_DIR }}/tadoss-http-secrets.env' '{{ vars.ENV_DIR }}/tadoss-segments.json'",
 ]
 
@@ -153,23 +146,18 @@ dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''test -n {{ vars.CHECKOUT | quote }} || { printf '%s\n' "Missing required input: CHECKOUT" >&2; exit 1; }''',
-  '''yq -e '.tadoss.enabled == true' {{ vars.CHECKOUT }}/{{ env.TASKV_PATH_IN_GIT }}/values.yaml || { printf '%s\n' "Enable TADOSS in the environment repository before qualification" >&2; exit 1; }''',
-  '''test -f '{{ vars.ENV_DIR }}/tadoss-inventory-before/.complete' || { printf '%s\n' "Capture the infrastructure baseline before enabling TADOSS" >&2; exit 1; }''',
-  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} CHECKOUT={{ ((vars.CHECKOUT)) | quote }} mise run bootstrap:ready",
-  "docker ps --all --filter 'label=io.x-k8s.kind.cluster={{ env.TASKV_KIND_NAME }}' --format '{% raw %}{{.ID}}{% endraw %}' | wc -l | xargs test 0 -lt",
-  "docker ps --filter 'label=io.x-k8s.kind.cluster={{ env.TASKV_KIND_NAME }}' --format '{% raw %}{{.ID}}{% endraw %}' | wc -l | xargs test 0 -eq",
-  "git -C {{ (vars.CHECKOUT) | quote }} rev-parse HEAD > '{{ vars.ENV_DIR }}/reports/tadoss-git-revision'",
+  '''yq -e '.tadoss.enabled == true' '{{ vars.ENV_DIR }}/settings.yaml' || { printf '%s\n' "Set tadoss.enabled before deploying this environment" >&2; exit 1; }''',
+  '''test -f '{{ vars.ENV_DIR }}/tadoss-inventory-before/.complete' || { printf '%s\n' "Capture the infrastructure baseline before qualification" >&2; exit 1; }''',
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:ready",
+  "yq -r .data.productCommit '{{ vars.ENV_DIR }}/assets.lock.yaml' > '{{ vars.ENV_DIR }}/reports/tadoss-git-revision'",
   "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --test-dir tests/tadoss-live --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name tadoss-runtime",
-  "LOCK={{ env.TASKV_LOCK | quote }} KEY={{ env.TASKV_KEY | quote }} ASSETS={{ env.TASKV_ASSETS | quote }} CACHE={{ env.TASKV_CACHE | quote }} PATH_IN_GIT={{ env.TASKV_PATH_IN_GIT | quote }} DEPLOYMENT={{ env.TASKV_DEPLOYMENT | quote }} DOMAIN={{ env.TASKV_DOMAIN | quote }} KIND_NAME={{ env.TASKV_KIND_NAME | quote }} SCHEMA_ID={{ env.TASKV_SCHEMA_ID | quote }} TRACK_ID={{ env.TASKV_TRACK_ID | quote }} INVENTORY_NAMES={{ env.TASKV_INVENTORY_NAMES | quote }} mise run tadoss:qualify:protected",
+  "LOCK={{ env.TASKV_LOCK | quote }} KEY={{ env.TASKV_KEY | quote }} ASSETS={{ env.TASKV_ASSETS | quote }} CACHE={{ env.TASKV_CACHE | quote }} DEPLOYMENT={{ env.TASKV_DEPLOYMENT | quote }} DOMAIN={{ env.TASKV_DOMAIN | quote }} SCHEMA_ID={{ env.TASKV_SCHEMA_ID | quote }} TRACK_ID={{ env.TASKV_TRACK_ID | quote }} INVENTORY_NAMES={{ env.TASKV_INVENTORY_NAMES | quote }} mise run tadoss:qualify:protected",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
 env.TASKV_DEPLOYMENT = '''{% if env.DEPLOYMENT is defined %}{{ env.DEPLOYMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .deploymentUID " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
 env.TASKV_DOMAIN = '''{% if env.DOMAIN is defined %}{{ env.DOMAIN }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.publicIp | sub(\"\\\\.\"; \"-\") + \".sslip.io\"' " ~ (vars.ENV_DIR) ~ "/outputs.json") }}{% endif %}'''
 env.TASKV_INVENTORY_NAMES = '''{% if env.INVENTORY_NAMES is defined %}{{ env.INVENTORY_NAMES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "find " ~ ((vars.ENV_DIR) | quote) ~ "/tadoss-inventory-before -maxdepth 1 -name \"*.ids\" -printf \"%f\\n\" | sort") }}{% endif %}'''
-env.TASKV_KIND_NAME = '''{% if env.KIND_NAME is defined %}{{ env.KIND_NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"tamoss-cp-\" + .environment.name' " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
 env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
-env.TASKV_PATH_IN_GIT = '''{% if env.PATH_IN_GIT is defined %}{{ env.PATH_IN_GIT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .path " ~ (vars.ENV_DIR) ~ "/gitops.yaml") }}{% endif %}'''
 env.TASKV_SCHEMA_ID = '''{% if env.SCHEMA_ID is defined %}{{ env.SCHEMA_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "cat /proc/sys/kernel/random/uuid") }}{% endif %}'''
 env.TASKV_TRACK_ID = '''{% if env.TRACK_ID is defined %}{{ env.TRACK_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "cat /proc/sys/kernel/random/uuid") }}{% endif %}'''
 env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
@@ -201,8 +189,8 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = '''((CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd tadosses.tadoss.livewyer.io --ignore-not-found -o name)" && test -z "$CRD") || (RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tads get tadoss/tadoss --ignore-not-found -o name)" && test -z "$RESOURCE"))'''
 run = [
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tads patch tadoss/tadoss --type=merge -p '{"spec":{"deletionProtection":false}}'''',
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tads delete tadoss/tadoss --ignore-not-found --cascade=foreground --wait=true --timeout=300s",
+  '''yq -n '{"workloads": [{"namespace": "tads", "resource": "tadosses.tadoss.livewyer.io", "name": "tadoss"}]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
 ]
 
 ["tadoss:remove-instance"]

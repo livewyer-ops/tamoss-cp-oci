@@ -1,19 +1,3 @@
-["test:oke-bootstrap:render"]
-hide = true
-run = [
-  "mkdir -p .local/tmp/check/remote-render/flux-manifests",
-  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.environment=environments/example/environment.yaml,files.seedEnvironment=environments/example/environment.yaml,files.assets=tests/assets/lock.yaml,files.externalSecrets=deploy/secrets/controller-values.yaml,files.dependencies=dependencies.yaml > .local/tmp/check/remote-render/controllers.yaml",
-  '''yq 'select(.kind == "Kustomization" and .metadata.name == "oke-flux")' .local/tmp/check/remote-render/controllers.yaml > .local/tmp/check/remote-render/flux.yaml''',
-  '''flux pull artifact "oci://ghcr.io/fluxcd/flux-manifests@$(yq -r .flux.manifestsDigest dependencies.yaml)" --output .local/tmp/check/remote-render/flux-manifests --timeout=60s''',
-  "flux build kustomization oke-flux -n tamoss-infra --dry-run --in-memory-build --path .local/tmp/check/remote-render/flux-manifests --kustomization-file .local/tmp/check/remote-render/flux.yaml > .local/tmp/check/remote-render/installed.yaml",
-  '''yq eval-all -e '[select(.kind == "Deployment") | .metadata.name] | sort | join(",") == "helm-controller,kustomize-controller,notification-controller,source-controller"' .local/tmp/check/remote-render/installed.yaml''',
-  '''yq eval-all -e '[select(.kind == "Deployment") | .metadata.labels."app.kubernetes.io/version" == strenv(TASKV_FLUX_VERSION)] | all' .local/tmp/check/remote-render/installed.yaml''',
-  '''yq eval-all -e '[select(.kind == "Job" and .metadata.name == "oke-bootstrap")] | length == 0' '{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap/native.yaml'''',
-  '''yq -e 'select(.kind == "CompositeResourceDefinition") | .spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.remoteBootstrap == null' '{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap/api.yaml'''',
-]
-
-env.TASKV_FLUX_VERSION = '''{{ exec(command="yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR | quote) ~ "/mise.toml") }}'''
-
 ["test:oke-bootstrap:retirement"]
 hide = true
 run = [
@@ -45,10 +29,11 @@ depends_post = ["test:oke-bootstrap:cleanup"]
 ["test:oke-bootstrap:cleanup"]
 hide = true
 run = [
+  "kubectl -n tamoss-infra delete helmrelease seed-proof --ignore-not-found --timeout=60s",
+  "kubectl -n tamoss-infra delete secret oke-bootstrap-access proof-values --ignore-not-found",
+  "kubectl -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=1",
+  "kubectl -n tamoss-infra delete kustomization oke-workload oke-ready --ignore-not-found --timeout=60s",
   "kind delete cluster --name '{{ env.TARGET }}'",
-  "kubectl -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
-  "kubectl -n flux-system scale deployment/kustomize-controller --replicas=1",
-  "kubectl -n tamoss-infra delete kustomization oke-flux oke-eso oke-seed oke-ready --ignore-not-found --timeout=60s",
   "rm -f '{{ env.DIRECTORY }}/target.kubeconfig' '{{ env.DIRECTORY }}/management.kubeconfig' '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.pending.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig' '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' '{{ env.DIRECTORY }}/remote-token.json' '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
 ]
 
@@ -66,20 +51,8 @@ run = [
   '''yq -i '.clusters[0].cluster.server = ("https://" + (load_str("{{ env.DIRECTORY }}/target-address") | trim) + ":6443")' '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
   "ENV_DIR={{ env.DIRECTORY | quote }} CLUSTER_ID=ocid1.cluster.oc1.fixture mise run cloud:remote:record",
   "cp '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig'",
-  "mkdir -p '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote' '{{ env.DIRECTORY }}/product/deploy/gitops' '{{ env.DIRECTORY }}/release/charts'",
+  "mkdir -p '{{ env.DIRECTORY }}/release/charts'",
   "cp -a charts/deployment-inputs '{{ env.DIRECTORY }}/release/charts/'",
-  "cp -a deploy/gitops/readiness '{{ env.DIRECTORY }}/product/deploy/gitops/'",
-  "cp deploy/bootstrap/remote/*.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/'",
-  "cp -a deploy/bootstrap/eso '{{ env.DIRECTORY }}/product/deploy/bootstrap/'",
-  '''yq '.data.externalSecretsVersion = load("dependencies.yaml").externalSecrets.version | .data.externalSecretsValues = load_str("deploy/secrets/controller-values.yaml")' tests/assets/lock.yaml > '{{ env.DIRECTORY }}/assets.lock.yaml' ''',
-  "cp tests/oke-bootstrap/deployment.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/proof.yaml'",
-  "cp .local/tmp/check/oci/proof/source.yaml '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/proof-source.yaml'",
-  '''yq -i '.resources += ["proof.yaml", "proof-source.yaml"]' '{{ env.DIRECTORY }}/product/deploy/bootstrap/remote/kustomization.yaml'''',
-  "tar -czf '{{ env.DIRECTORY }}/product.tar.gz' -C '{{ env.DIRECTORY }}/product' .",
-  "helm template inputs charts/deployment-inputs -f tests/oke-bootstrap/inputs.yaml --show-only templates/remote.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.environment='{{ env.DIRECTORY }}/environment.yaml',files.seedEnvironment='{{ env.DIRECTORY }}/environment.yaml',files.assets='{{ env.DIRECTORY }}/assets.lock.yaml',files.externalSecrets=deploy/secrets/controller-values.yaml,files.dependencies=dependencies.yaml > '{{ env.DIRECTORY }}/remote-bootstrap.yaml'",
-  "helm template management charts/management -f tests/assets/values.yaml -f .local/tmp/check/flux-bootstrap/values.yaml --show-only templates/readiness.yaml --set instance.metadata.name=host-seed,sourceName=oke-bootstrap-fixture > '{{ env.DIRECTORY }}/bootstrap-ready.yaml'",
-  '''yq -i 'with(select(.kind == "Kustomization" and .metadata.name != "oke-flux"); .spec.sourceRef.name = "oke-bootstrap-fixture") | with(select(.metadata.name == "oke-seed"); .spec.patches += [{"target": {"kind": "HelmRelease|Kustomization", "name": "tamoss-gitops-bootstrap|platform-defaults|infrastructure|runtime|infrastructure-controllers"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}, {"target": {"kind": "OCIRepository", "name": "tamoss-product|tamoss-chart-gitops-bootstrap"}, "patch": "- op: add\n  path: /spec/suspend\n  value: true"}])' '{{ env.DIRECTORY }}/remote-bootstrap.yaml'''',
-  "tar -czf '{{ env.DIRECTORY }}/seed-proof.tar.gz' -C tests/oke-bootstrap chart handover readiness",
   '''yq -n '{"vaultId": "ocid1.vault.oc1.fixture"}' > '{{ env.DIRECTORY }}/foundation-record.yaml'''',
 ]
 env.OCI_CLI_CONFIG_FILE = "{{ vars.ROOT_DIR }}/tests/lifecycle/oci-config"

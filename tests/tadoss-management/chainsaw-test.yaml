@@ -39,6 +39,10 @@ spec:
             env: *env
             args: ['$TEST_KUBECONFIG', '$ENV_DIR/remote.kubeconfig']
         - command:
+            entrypoint: mise
+            env: *env
+            args: [run, 'test:tadoss:prepare-retirement']
+        - command:
             entrypoint: kubectl
             env: *env
             args: [apply, --server-side, -f, '$PROJECT_ROOT/.local/tmp/check/tadoss-instance-render.yaml']

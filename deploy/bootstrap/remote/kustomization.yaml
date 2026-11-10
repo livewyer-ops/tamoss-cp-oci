@@ -1,21 +1,3 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: [namespaces.yaml, sources.yaml, releases.yaml, assets.lock.yaml]
-configurations: [kustomizeconfig.yaml]
-configMapGenerator:
-  - name: tamoss-gitops-values
-    namespace: tamoss-infra
-    literals: ['values.yaml={}']
-  - name: infrastructure-intent
-    namespace: tamoss-infra
-    literals: ['environment.yaml={}']
-generatorOptions:
-  annotations:
-    kustomize.toolkit.fluxcd.io/substitute: disabled
-  labels:
-    reconcile.fluxcd.io/watch: Enabled
-replacements:
-  - source: {kind: ConfigMap, name: infrastructure-intent, fieldPath: data.environment\.yaml}
-    targets:
-      - select: {kind: Kustomization, name: infrastructure}
-        fieldPaths: [spec.patches.0.patch]
+resources: [namespaces.yaml, operator-pdb.yaml]

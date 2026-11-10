@@ -10,49 +10,23 @@ namespace, its own `tadoss` database and role, and a separate OAuth application.
 TAMOSS stores media in Object Storage; TADOSS stores timed metadata and references
 the media source through a `tams://` identifier. TADOSS needs no object store.
 
-## Release access
+## Enable for a fresh demo
 
-Published upstream release assets are public and downloaded without authentication.
-Public bundle publication and metadata verification use `GITHUB_TOKEN`.
-The workflow verifies anonymous consumption; OKE needs no registry credential.
+The [release lock](release.yaml) selects published upstream assets by checksum
+and digest. Flux in Kind pulls the operator's OCI artifact directly. It builds
+this repository's integration charts from the selected Git commit.
 
-Downloads have size/time limits and must match the committed checksums. The
-public `tadoss-release-assets` bundle contains only unchanged published assets
-and a static Kustomize entrypoint. CI copies its digest-pinned contents into
-the deployment bundle, which Flux consumes. No local
-credentials, source checkout or private notes are included.
-Select `tadoss` in the release publishing workflow's application input to publish
-that bundle; the existing TAMOSS bundle can retain its verified digest.
-
-## Prepare bootstrap
-
-Use the [GitOps workflow](../gitops/README.md). The product's
-[release lock](release.yaml) selects the published public TADOSS bundle.
-Publication includes it alongside TAMOSS, even while TADOSS is disabled. Both
-upstream bundles are public; Flux reads deployment artifacts anonymously.
-
-Bootstrap prepares persisted TADOSS database and OAuth credentials in Vault and
-restricts their readers to this environment's cluster and service accounts.
-The initial Git export includes `tadoss.enabled: false`; `assets.lock.yaml` holds
-the release pins.
-No TADOSS workloads or logical database are created until enablement. Older
-environments require those bootstrap prerequisites before Kind is stopped.
-
-## Enable through Git
-
-After `mise run handover` completes the ownership transfer and Kind stop, change the environment
-repository's existing `clusters/<environment>/values.yaml`:
+Before `mise run up`, set the private deployment's `values.yaml`:
 
 ```yaml
 tadoss:
   enabled: true
 ```
 
-Change only that field and retain `assets.lock.yaml`. Commit and push to the
-configured branch. Flux then delivers credentials,
-initialises the separate database, configures Authentik, installs the released
-operator and reconciles the multi-server instance. Reconciliation uses the
-existing ingress address at `https://tads.<hyphenated-public-IP>.sslip.io`.
+Crossplane and External Secrets prepare the database and OAuth credentials in
+Vault. Kind's Flux installs the separate database/role, Authentik configuration,
+released operator and instance on OKE. The API uses
+`https://tads.<hyphenated-public-IP>.sslip.io`.
 
 Use the separate `tadoss-<deployment-id>` OAuth client with Authentik's
 `/application/o/token/` endpoint and `client_credentials` grant. Request the
@@ -64,7 +38,7 @@ Enter `mise exec -- bash`, then inspect native controller status. These examples
 use `.local/environment`; substitute your deployment directory if different.
 
 ```bash
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n auth get kustomizations
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tads get tadoss,pods,ingress,certificate
 ```
 
@@ -100,18 +74,14 @@ The internal GitOps qualification uses Hurl to create a schema, track and timed
 events linked to the actual TAMOSS ingest source and segment time range. It
 checks anonymous and insufficient-scope rejection, retained events after pod
 replacement and continued media access. Replacement is verified by comparing
-pod UIDs before and after deletion. Kind must exist and remain stopped.
-Capture its infrastructure baseline before the enablement commit; qualification
-compares the OCI resource IDs afterwards and records the applied Git revision.
-These checks passed on OCI with unchanged infrastructure IDs and Kind stopped.
-Git enablement converged without a host reconciliation request. The OAuth Job
-completed on its first attempt, with all four Authentik pod UIDs unchanged and
-zero restarts. TADOSS's four application pods also started with zero restarts.
+pod UIDs before and after deletion. Keep Kind running. Capture an infrastructure
+baseline with `tadoss:baseline` before qualification; the checks compare OCI IDs
+afterwards and record the selected Git commit. Historical checks used the former
+ownership-transfer flow; fresh cloud qualification of this flow remains pending.
 These checks require an authorised live environment; local passes alone do not
 establish them.
 
-Use the [GitOps teardown](../gitops/README.md) to return ownership to the original
-Kind. It finalises TADOSS while its operator remains available, then removes
+Use [teardown through Kind](../gitops/README.md) to finalise TADOSS while its operator remains available, then remove
 application controllers and shared infrastructure. External database data remains
 until the OCI database system is deleted. The Vault/key retain their recorded
 owner under the existing foundation policy.

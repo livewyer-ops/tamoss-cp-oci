@@ -4,6 +4,8 @@
   "additionalProperties": false,
   "required": ["name", "compartmentId", "contactEmail", "adminCidrs"],
   "properties": {
+    "source": {"type": "object", "additionalProperties": false, "properties": {"private": {"type": "boolean"}}},
+    "tadoss": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}}},
     "oci": {"type": "object"},
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,21}[a-z0-9]$"},
     "compartmentId": {"type": "string", "pattern": "^ocid1\\.compartment\\.", "not": {"pattern": "REPLACE|example"}},

@@ -1,3 +1,7 @@
+source:
+  private: true
+tadoss:
+  enabled: false
 compartmentId: ocid1.compartment.oc1..REPLACE
 contactEmail: operator@example.invalid
 adminCidrs: [203.0.113.10/32]

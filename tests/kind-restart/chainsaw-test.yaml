@@ -4,6 +4,7 @@ metadata: {name: original-kind-restart}
 spec:
   timeouts:
     exec: 5m
+    cleanup: 2m
   steps:
     - name: restart the original cluster twice without changing its credentials
       try:

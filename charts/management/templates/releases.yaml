@@ -39,7 +39,11 @@ spec:
       version: {{ .version | quote }}
       sourceRef: {kind: HelmRepository, name: {{ .repository }}, namespace: tamoss-infra}
 {{ else }}
-  chartRef: {kind: OCIRepository, name: tamoss-chart-{{ .chart }}, namespace: tamoss-infra}
+  chart:
+    spec:
+      chart: ./charts/{{ .chart }}
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: {{ $.Values.sourceName }}, namespace: tamoss-infra}
 {{ end }}
   values:
 {{ .values | toYaml | indent 4 }}

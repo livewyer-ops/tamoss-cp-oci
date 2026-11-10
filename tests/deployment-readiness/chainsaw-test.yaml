@@ -1,186 +1,268 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
-metadata: {name: deployment-readiness-contract}
+metadata:
+  name: deployment-readiness-contract
 spec:
-  timeouts: {exec: 30s}
+  timeouts:
+    exec: 30s
   steps:
-    - name: accept current controller observations
-      try:
-        - apply:
-            file: resources.yaml
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - command: &check
-            entrypoint: chainsaw
-            env:
-              - {name: PROJECT_ROOT, value: ($values.root)}
-            args: [test, --namespace, flux-system, --skip-delete, --test-dir, "$PROJECT_ROOT/deploy/gitops/readiness-check,$PROJECT_ROOT/deploy/gitops/sync-check", --assert-timeout, 1s, --set-string, revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
-    - name: wait for the first source and applied revisions
-      try:
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
-              metadata: {name: flux-system, namespace: flux-system}
-              status: {artifact: null}
-        - command: &waiting
-            <<: *check
-            check:
-              ($error != null): true
-              (contains($stdout, 'Internal error')): false
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: flux-system, namespace: flux-system}
-              status: {lastAppliedRevision: null}
-        - command: *waiting
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-product, namespace: flux-system}
-              status: {artifact: null}
-        - command: *waiting
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - command: *check
-    - name: reject old Git observations and recover after the source succeeds
-      try:
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
-              metadata: {name: flux-system, namespace: flux-system}
-              status:
-                artifact: {revision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}
-        - command:
-            <<: *check
-            check:
-              ($error != null): true
-              (contains($stdout, 'observe the selected environment revision')): true
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - command: *check
-    - name: reject missing revisions and stale infrastructure observations before promotion completes
-      try:
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: infrastructure, namespace: tamoss-infra}
-              status: {lastAppliedRevision: null}
-        - command: *waiting
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: infrastructure, namespace: tamoss-infra}
-              status:
-                lastAppliedRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-        - command: *waiting
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: infrastructure, namespace: tamoss-infra}
-              status: {observedGeneration: 0}
-        - command: *waiting
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - command: *check
-    - name: reject a stale runtime revision
-      try:
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: runtime, namespace: tamoss-infra}
-              status:
-                lastAppliedRevision: 'main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-        - command:
-            <<: *check
-            check: {($error != null): true}
-        - patch:
-            file: resources.yaml
-            subresource: status
-        - command: *check
-    - name: reject a new values generation with an old Ready condition
-      try:
-        - patch:
-            resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: tamoss-gitops, namespace: tamoss-infra}
-              spec:
-                valuesFrom:
-                  - {kind: ConfigMap, name: changed-values}
-        - command:
-            <<: *check
-            check: {($error != null): true}
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: tamoss-gitops, namespace: tamoss-infra}
-              status:
-                observedGeneration: (x_k8s_get($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra', 'tamoss-gitops').metadata.generation)
-        - command: *check
-    - name: reject stale chart content even when the release is healthy
-      try:
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-chart-gitops, namespace: flux-system}
-              status:
-                artifact: {revision: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-        - command:
-            <<: *check
-            check: {($error != null): true}
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-chart-gitops, namespace: flux-system}
-              status:
-                artifact: {revision: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
-        - command: *check
-    - name: reject failed source access despite an existing artifact
-      try:
-        - patch:
-            subresource: status
-            resource:
-              apiVersion: source.toolkit.fluxcd.io/v1
-              kind: GitRepository
-              metadata: {name: flux-system, namespace: flux-system}
-              status:
-                conditions:
-                  - {type: Ready, status: 'False', reason: AuthenticationFailed, message: fixture, lastTransitionTime: '2026-11-04T11:00:00Z'}
-        - command:
-            <<: *check
-            check: {($error != null): true}
+  - name: accept current controller observations
+    try:
+    - apply:
+        file: resources.yaml
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: &id003
+        entrypoint: chainsaw
+        env: &id001
+        - name: PROJECT_ROOT
+          value: ($values.root)
+        args: &id002
+        - test
+        - --namespace
+        - tamoss-infra
+        - --skip-delete
+        - --test-dir
+        - $PROJECT_ROOT/deploy/gitops/readiness-check
+        - --assert-timeout
+        - 1s
+  - name: reject tamoss-bootstrap-product artifact None
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: GitRepository
+          metadata: &id004
+            name: tamoss-bootstrap-product
+            namespace: tamoss-infra
+          status:
+            artifact: null
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: 'reject tamoss-bootstrap-product artifact {''revision'': ''main@s'
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: GitRepository
+          metadata: *id004
+          status:
+            artifact:
+              revision: main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject tamoss-bootstrap-product observedGeneration 0
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: GitRepository
+          metadata: *id004
+          status:
+            observedGeneration: 0
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject tamoss-infra-tamoss-gitops observedSourceArtifactRevision main@sha1:bbbbbbbbbb
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: &id005
+            name: tamoss-infra-tamoss-gitops
+            namespace: tamoss-infra
+          status:
+            observedSourceArtifactRevision: main@sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject tamoss-infra-tamoss-gitops observedGeneration 0
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: HelmChart
+          metadata: *id005
+          status:
+            observedGeneration: 0
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject tamoss-gitops lastAttemptedRevision 0.0.0
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: helm.toolkit.fluxcd.io/v2
+          kind: HelmRelease
+          metadata: &id006
+            name: tamoss-gitops
+            namespace: tamoss-infra
+          status:
+            lastAttemptedRevision: 0.0.0
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject tamoss-gitops observedGeneration 0
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: helm.toolkit.fluxcd.io/v2
+          kind: HelmRelease
+          metadata: *id006
+          status:
+            observedGeneration: 0
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject runtime lastAppliedRevision None
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata:
+            name: runtime
+            namespace: tamoss-infra
+          status:
+            lastAppliedRevision: null
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject deployment-ready observedGeneration 0
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata: &id007
+            name: deployment-ready
+            namespace: tamoss-infra
+          status:
+            observedGeneration: 0
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: 'reject deployment-ready conditions [{''type'': ''Ready'', '''
+    try:
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata: *id007
+          status:
+            conditions:
+            - type: Ready
+              status: 'False'
+              reason: Fixture
+              message: Fixture
+              lastTransitionTime: '2026-01-01T00:00:00Z'
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+    - patch:
+        file: resources.yaml
+        subresource: status
+    - command: *id003
+  - name: reject suspended resources despite current ready status
+    try:
+    - patch:
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata: *id007
+          spec:
+            suspend: true
+    - patch:
+        subresource: status
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata: *id007
+          status:
+            observedGeneration: 2
+    - command:
+        entrypoint: chainsaw
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true

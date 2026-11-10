@@ -293,7 +293,7 @@ data:
 {{- $databaseId := dig "database" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- $publicIp := dig "public-ip" "resource" "status" "atProvider" "ipAddress" "" $observed -}}
 {{- $loadBalancerSubnet := dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
-{{- if and $adoption (or $runtime (and $databaseId $publicIp $loadBalancerSubnet)) }}
+{{- if or $runtime (and $databaseId $publicIp $loadBalancerSubnet) }}
 ---
 apiVersion: v1
 kind: ConfigMap

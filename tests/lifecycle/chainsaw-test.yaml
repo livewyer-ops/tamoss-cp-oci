@@ -50,7 +50,7 @@ spec:
             entrypoint: env
             env: *paths
             args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=bootstrap:remove-operator", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-            check: {($error != null): true}
+            check: {($error == null): true}
         - command:
             entrypoint: env
             env: *paths
@@ -75,58 +75,6 @@ spec:
             entrypoint: mv
             env: *paths
             args: [$CHECK_DIRECTORY/remote.saved.kubeconfig, $CHECK_DIRECTORY/remote.kubeconfig]
-    - name: freeze a partial seed before the application release exists
-      try:
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare-partial-runtime"]
-        - command:
-            <<: *absentApplication
-            check: {($error != null): true}
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:freeze-runtime"]
-        - assert:
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: flux-system, namespace: flux-system}
-              spec: {suspend: true}
-      finally:
-        - delete:
-            ref: {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: flux-system, namespace: flux-system}
-        - command:
-            entrypoint: yq
-            env: *paths
-            args: [-i, '[]', $CHECK_DIRECTORY/owned-current.yaml]
-    - name: retain application cleanup when no environment Git root exists
-      try:
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "RESOURCE_NAME=runtime", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare-partial-runtime"]
-        - command:
-            <<: *absentApplication
-            check: {($error != null): true}
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:freeze-runtime"]
-        - assert:
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: runtime, namespace: flux-system}
-              spec: {suspend: true}
-      finally:
-        - delete:
-            ref: {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: runtime, namespace: flux-system}
-        - command:
-            entrypoint: yq
-            env: *paths
-            args: [-i, '[]', $CHECK_DIRECTORY/owned-current.yaml]
     - name: reject stale local configuration after write authority is relinquished
       try:
         - apply:

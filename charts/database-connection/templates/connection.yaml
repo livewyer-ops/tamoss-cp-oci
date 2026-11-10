@@ -64,21 +64,30 @@ spec:
           command: [/bin/sh, -ec]
           args:
             - >-
-              oci --auth oke_workload_identity --region "$OCI_RESOURCE_PRINCIPAL_REGION"
+              oci --auth api_key --region "$OCI_CLI_REGION"
               --connection-timeout 10 --read-timeout 30 --max-retries 0
               psql connection-details get --db-system-id "$DATABASE_ID"
               > /work/connection.json
           env:
             - {name: DATABASE_ID, value: {{ .Values.databaseId | quote }}}
-            - {name: OCI_RESOURCE_PRINCIPAL_VERSION, value: '2.2'}
-            - {name: OCI_RESOURCE_PRINCIPAL_REGION, value: {{ .Values.region | quote }}}
-            - {name: OCI_RESOURCE_PRINCIPAL_WORKLOAD_IDENTITY, value: '1'}
+            - {name: HOME, value: /tmp}
+            - {name: OCI_CLI_REGION, value: {{ .Values.region | quote }}}
+            - {name: OCI_CLI_KEY_FILE, value: /oci/privatekey}
+            - name: OCI_CLI_USER
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: user}}
+            - name: OCI_CLI_TENANCY
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: tenancy}}
+            - name: OCI_CLI_FINGERPRINT
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: fingerprint}}
+            - name: OCI_CLI_PASSPHRASE
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: passphrase}}
           resources: &resources
             {{- include "operation-common.resources" . | nindent 12 }}
           securityContext: &security
             {{- include "operation-common.containerSecurity" . | nindent 12 }}
-          volumeMounts: &mounts
+          volumeMounts:
             {{- include "operation-common.mounts" . | nindent 12 }}
+            - {name: oci, mountPath: /oci, readOnly: true}
         - name: validate
           image: {{ .Values.images.yq | quote }}
           command: [yq]
@@ -100,7 +109,8 @@ spec:
             - {name: CONNECTION_REVISION, value: {{ $revision | quote }}}
           resources: *resources
           securityContext: *security
-          volumeMounts: *mounts
+          volumeMounts: &mounts
+            {{- include "operation-common.mounts" . | nindent 12 }}
       containers:
         - name: publish
           image: {{ .Values.images.kubectl | quote }}
@@ -111,3 +121,8 @@ spec:
           volumeMounts: *mounts
       volumes:
         {{- include "operation-common.volumes" . | nindent 8 }}
+        - name: oci
+          secret:
+            secretName: oci-vault-bootstrap
+            defaultMode: 0440
+            items: [{key: privatekey, path: privatekey}]

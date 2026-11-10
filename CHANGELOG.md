@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Keep Flux and Crossplane in Kind through deployment and teardown. Flux deploys
+  the platform and applications remotely to OKE.
+- Read this repository at a pushed Git commit and build chart directories with
+  Flux. Remove custom deployment bundle/chart publication and ownership handover.
+- Add removable read-only SSH deploy-key authentication for the private repository;
+  public deployments use anonymous HTTPS.
+- Run database metadata lookup and retirement operations in Kind. Retain and renew
+  OKE access until remote cleanup finishes.
+- Select optional TADOSS before a fresh deployment. Existing deployments must use
+  their recorded installer revision for operations and cleanup.
+- Allow Authentik server health checks 30 seconds, matching worker probes, to
+  avoid premature restarts during database activity.
+
+
+### Earlier development
+
+These notes record earlier implementations superseded by the Kind-owned Git flow above.
+
 - Fresh deployments consume public OCI manifest bundles and packaged Helm charts
   by digest. Removed the private asset bucket, its reader IAM and credential
   delivery, upload, publication and retirement tasks. Existing bucket deployments

@@ -1,6 +1,7 @@
 {{- if .Values.oci }}
 acmeEmail: {{ .Values.acmeEmail | default .Values.contactEmail | quote }}
 adminEmail: {{ .Values.adminEmail | default .Values.contactEmail | quote }}
+tadoss: {enabled: {{ .Values.tadoss.enabled }}}
 storageIdentity:
   domainId: {{ .Values.storageIdentity.domainId | quote }}
   idcsEndpoint: {{ .Values.storageIdentity.idcsEndpoint | trimSuffix "/" | quote }}

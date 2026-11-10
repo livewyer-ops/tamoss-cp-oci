@@ -1,0 +1,18 @@
+deploymentId: ''
+oracle:
+  region: ''
+  vault: ''
+  compartment: ''
+  auth:
+    user: ''
+    tenancy: ''
+images:
+  oci: ''
+  yq: ''
+
+verifySecrets: true
+bucket: {}
+backups: []
+secretDeletions: []
+storageKey: {}
+workloads: []

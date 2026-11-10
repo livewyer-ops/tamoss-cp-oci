@@ -3,53 +3,30 @@ kind: Test
 metadata: {name: deployment-ready}
 spec:
   steps:
-    - name: observe infrastructure and runtime revisions before accepting existing releases
-      try:
-        - assert:
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: infrastructure, namespace: tamoss-infra}
-              (spec.suspend != `true`): true
-              (status.observedGeneration == metadata.generation): true
-              status:
-                (lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
-                (conditions[?type == 'Ready'] | [0].status): 'True'
-        - assert:
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: runtime, namespace: tamoss-infra}
-              (spec.suspend != `true`): true
-              (status.observedGeneration == metadata.generation): true
-              status:
-                (lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
-                (conditions[?type == 'Ready'] | [0].status): 'True'
-    - name: observe the selected product and its chart
+    - name: observe the selected Git commit
       try:
         - assert:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-product, namespace: flux-system}
-              (status.artifact.revision == spec.ref.digest): true
+              kind: GitRepository
+              metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
               (length(status.artifact.revision || '') > `0`): true
+              (ends_with(status.artifact.revision || '', spec.ref.commit)): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: observe the chart built from that commit
+      try:
         - assert:
             resource:
               apiVersion: source.toolkit.fluxcd.io/v1
-              kind: OCIRepository
-              metadata: {name: tamoss-chart-gitops, namespace: flux-system}
-              (spec.suspend != `true`): true
+              kind: HelmChart
+              metadata: {name: tamoss-infra-tamoss-gitops, namespace: tamoss-infra}
               (status.observedGeneration == metadata.generation): true
-              (status.artifact.revision == spec.ref.digest): true
+              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
-    - name: observe the current values and rendered workload health
-      try:
         - assert:
             resource:
               apiVersion: helm.toolkit.fluxcd.io/v2
@@ -57,16 +34,28 @@ spec:
               metadata: {name: tamoss-gitops, namespace: tamoss-infra}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (status.lastAttemptedRevisionDigest == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-chart-gitops').spec.ref.digest): true
+              (status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra', 'tamoss-infra-tamoss-gitops').status.artifact.revision): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: observe the current runtime and remote workload health
+      try:
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: runtime, namespace: tamoss-infra}
+              (spec.suspend != `true`): true
+              (status.observedGeneration == metadata.generation): true
+              (status.lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
               kind: Kustomization
-              metadata: {name: deployment-ready, namespace: flux-system}
+              metadata: {name: deployment-ready, namespace: tamoss-infra}
               (spec.suspend != `true`): true
               (status.observedGeneration == metadata.generation): true
-              (status.lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'OCIRepository', 'flux-system', 'tamoss-product').status.artifact.revision): true
+              (status.lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'

@@ -1,4 +1,0 @@
-apiVersion: v2
-name: tamoss-gitops-bootstrap
-version: 0.1.0
-description: Flux-managed infrastructure controllers and Vault delivery

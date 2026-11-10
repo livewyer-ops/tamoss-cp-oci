@@ -73,7 +73,7 @@
 {{- end -}}
 {{- if hasKey $p "vaultAuth" -}}
 {{- $policies := dig "runtimePolicies" "items" (list) (.extraResources | default dict) -}}
-{{- $accessReady = and $accessReady (eq (len $policies) 10) -}}
+{{- $accessReady = and $accessReady (eq (len $policies) 3) -}}
 {{- range $policies -}}
 {{- $ready := false -}}{{- $synced := false -}}
 {{- range (dig "status" "conditions" (list) .resource) -}}
@@ -157,6 +157,7 @@ metadata:
     gotemplating.fn.crossplane.io/ready: 'True'
 data:
   VAULT_ID: {{ $vault | quote }}
+  DEPLOYMENT_ID: {{ $p.deploymentId | quote }}
 {{- end }}
 {{- if and $vault $key (or $storageIdentityReady $secretRelease (not (hasKey $p "storageCredentials"))) }}
 ---
@@ -178,7 +179,11 @@ spec:
   upgrade:
     disableWaitForJobs: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chartRef: {kind: OCIRepository, name: tamoss-chart-secrets}
+  chart:
+    spec:
+      chart: ./charts/secrets
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   values:
 {{ $secretDefaults | toYaml | indent 4 }}
     deploymentId: {{ $p.deploymentId | quote }}
@@ -220,7 +225,11 @@ spec:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   upgrade:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chartRef: {kind: OCIRepository, name: tamoss-chart-runtime-access}
+  chart:
+    spec:
+      chart: ./charts/runtime-access
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   values:
     deploymentId: {{ $p.deploymentId | quote }}
     compartmentId: {{ $p.environment.compartmentId | quote }}
@@ -228,7 +237,6 @@ spec:
     clusterId: {{ $cluster | quote }}
     vaultId: {{ $vault | quote }}
     bucket: {{ $p.environment.storage.bucket | quote }}
-    providerWrites: false
 {{- end }}
 {{- end }}
 {{- if $bindingInput }}

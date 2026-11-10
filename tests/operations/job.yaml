@@ -11,7 +11,6 @@ spec:
         (runAsUser > `0`): true
         seccompProfile: {type: RuntimeDefault}
       (length(containers) > `0`): true
-      (length(initContainers) > `0`): true
       (length([initContainers, containers][] | [?securityContext.readOnlyRootFilesystem == `true` && securityContext.allowPrivilegeEscalation == `false` && contains(securityContext.capabilities.drop, 'ALL')]) == length([initContainers, containers][])): true
       (length([initContainers, containers][] | [?resources.requests.cpu && resources.requests.memory && resources.limits.memory]) == length([initContainers, containers][])): true
       (length([initContainers, containers][] | [?contains(image, '@sha256:')]) == length([initContainers, containers][])): true

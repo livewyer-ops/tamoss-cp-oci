@@ -4,7 +4,7 @@ skip_if = "test -s '{{ vars.ENV_DIR }}/values.yaml'"
 run = [
   "test ! -e '{{ vars.ENV_DIR }}/identity.yaml' || { echo 'Retain the existing deployment directory; use a fresh ENV_DIR for setup.' >&2; exit 1; }",
   "install -d -m 700 '{{ vars.ENV_DIR }}'",
-  "install -m 600 environments/example/values.yaml environments/example/gitops.yaml '{{ vars.ENV_DIR }}/'",
+  "install -m 600 environments/example/values.yaml '{{ vars.ENV_DIR }}/'",
   "echo 'Complete {{ vars.ENV_DIR }}/values.yaml and configure your OCI profile, then run mise run up.'",
 ]
 
@@ -33,6 +33,6 @@ depends = ["setup:resolve"]
 run = [
   { task = "setup:render" },
   "cp '{{ vars.ENV_DIR }}/setup-render/setup/templates/'*.yaml '{{ vars.ENV_DIR }}/'",
-  "helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/asset-lock.yaml --set-file files.releaseMetadata='{{ vars.RELEASE_DIR }}/release.yaml',files.pins='{{ vars.RELEASE_DIR }}/pins.yaml' --set-string releaseURL={{ read_yaml(path=vars.ROOT_DIR ~ \"/dependencies.yaml\") | get(key=\"deploymentBundle\") | get(key=\"url\") | quote }},releaseDigest={{ read_yaml(path=vars.ROOT_DIR ~ \"/dependencies.yaml\") | get(key=\"deploymentBundle\") | get(key=\"digest\") | quote }} > '{{ vars.ENV_DIR }}/assets.lock.yaml'",
+  "helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/asset-lock.yaml --set-file files.source='{{ vars.ENV_DIR }}/source.json',files.pins='{{ vars.RELEASE_DIR }}/pins.yaml' > '{{ vars.ENV_DIR }}/assets.lock.yaml'",
   "cp '{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
 ]

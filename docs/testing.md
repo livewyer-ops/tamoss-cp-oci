@@ -19,8 +19,8 @@ mise run check
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
 | Operational Jobs | Shared retry bounds, security, image and temporary-storage contract for the remaining Jobs; rejection of missing deadlines and unsafe container permissions |
-| Remote OKE seed | Shared seed/export rendering, Flux distribution component selection and repeated retirement after cluster deletion; two-cluster credential, convergence and retirement checks run in the management suite |
-| Handover flow | Public command wiring and production mise sequencing with local substitutes for external actions; deployment without transfer, interrupted IAM/Git/shutdown, pending promotion commits, failed readiness and repeats without restarting Kind |
+| Remote OKE deployment | Git source rendering, local values and substitutions, and remote token expiry/renewal/revocation against disposable clusters |
+| Installation flow | Fresh-install command sequencing, refusal to reuse an existing deployment, failure propagation and credential-export cleanup; Git source selection, public authentication bypass and dependency-lock validation |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
 The check builds the container for the selected release's unchanged browser tests.
@@ -40,16 +40,17 @@ include partial installs and retention of state when the cloud audit fails.
 Flux also packages the operational charts from a source archive without generated
 dependency packages, verifying that the shared Helm library resolves from source.
 
-The OKE bootstrap test adds a second disposable Kind cluster. The host establishes
-a real Kubernetes ServiceAccount token through the production credential tasks.
-Kind's Flux installs the pinned distribution on the target and applies the shared
-seed after the host process exits. Product source transport is a local fixture;
-remote reconciliation and authentication use the real controllers and API servers.
-The suite checks identity/TLS rejection, replay, partial-install cleanup and
-retirement across controller restart. It waits for a real ten-minute token to
-expire before verifying renewal and remote Flux changes after retirement.
-Kind's certificate supplies initial administrator access in this fixture; it does
-not qualify OCI user authentication, OKE token lifetime or cloud IAM propagation.
+The remote deployment test adds a second disposable Kind cluster. Production
+credential tasks establish a real ServiceAccount token. Flux in the management
+cluster reads an authenticated local SSH Git fixture and applies a Helm release
+and Kustomize workload remotely. Values and substitutions stay in the management
+cluster. The test checks TLS/identity rejection, actual ten-minute token expiry,
+renewal, revocation and suspended declarations across controller restart.
+The target has no Flux installation. Kind's certificate supplies administrator
+access in the fixture; this does not qualify OCI authentication or OKE token caps.
+The local Git fixture requires `sshd` on the host and a free port 22422 reachable
+from the disposable Kind network. Its forced command permits read-only access to
+the test repository; cleanup stops that server and removes its temporary keys.
 
 Authentik startup checks use the selected release's chart and image with an
 external PostgreSQL database and verified TLS. They require bounded OAuth setup
@@ -60,8 +61,8 @@ Bootstrap checks use the real Crossplane and ESO controllers with fixture child
 compositions that create no cloud resources. They cover dependency readiness,
 controller restart with unchanged child identities, rejection of a replaced root,
 preservation of current settings after release, teardown retaining Kind ownership
-before handover and the pause before deletion.
-Flux installs the Kind controller releases from a local chart artefact. Further
+and the pause before deletion.
+Flux installs the Kind controller releases from the authenticated Git fixture. Further
 checks cover chart failure/recovery, controller-derived secret/IAM releases,
 irreversible credential retirement and a suspended instance across controller
 restarts and original Kind stop/start. Fixture sources and a Kubernetes secret backend replace GitHub and OCI Vault;
@@ -71,9 +72,7 @@ External Secrets uses a local Kubernetes backend; the database connection Job
 uses fixture retrieval. Tests cover persisted-value reuse and refresh, missing
 secrets, denied access, stale connection data and release-record handling. Native
 Job tests exercise asynchronous secret retirement, deadlines and failed retrieval;
-Kind restart checks preserve the kubeconfig and reject a mismatched identity. Git
-publication checks cover repeat pushes, interrupted promotion and unrelated edits. These
-checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
+Kind restart checks preserve the kubeconfig and reject a mismatched identity. These checks do not establish OCI authentication, real Vault rotation or a TAMOSS upgrade.
 
 S3 checks run the production credential Job with only OCI requests substituted.
 They verify empty-input blocking, creation claims, interrupted-response replay
@@ -85,14 +84,7 @@ keys, resume after deletion and reject uncertain creation outcomes. Composition
 checks keep bootstrap authority active until the creation Job and its Pods are
 gone. These local checks do not establish live OCI IAM propagation or API outcomes.
 
-Binding-delivery checks submit Flux consumers before the snapshot exists, then
-observe ESO persistence, delivery and Crossplane convergence without forcing
-reconciliation. They reject changed bindings and retain the persisted record when
-its PushSecret is removed. Credential tests verify that ESO adopts a seeded Git
-Secret without replacing its UID. SSH deploy-key checks also retain the original
-bytes when staging input changes and recover the Secret after input retirement.
-
-Readiness checks wait for initial source revisions, reject stale infrastructure/runtime product and chart
+Readiness checks wait for initial source revisions and reject stale runtime source and chart
 observations and old Ready conditions after a values change. Real Flux checks
 cover delayed dependencies and recovery without forced reconciliation.
 Media-fixture preparation belongs to `qualify`;
@@ -132,10 +124,10 @@ ownership-verified manual cleanup before the OCI audit can pass.
 ## Deployed qualification
 
 Requires a running deployment, its original environment directory, credentials
-and, after handover, the matching published environment Git checkout:
+and the matching product source revision:
 
 ```bash
-ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run qualify
+ENV_DIR=.local/environment mise run qualify
 ```
 
 **Qualification changes the environment.** It deletes its previous IngestRun and
@@ -164,10 +156,16 @@ evidence and continue independent checks as appropriate. Follow
 
 ## Verified coverage and limits
 
-The reduced installer consumes a CI deployment bundle, uses Crossplane-owned
-credential completion and waits on Flux readiness. Its local render and contract
-coverage does not qualify the complete OCI lifecycle. The cloud results below
-predate this installer change and must not be treated as proof of it.
+The current flow consumes this repository through Git, keeps Flux and Crossplane
+in Kind and deploys to OKE remotely. Local controller checks cover authenticated
+Git delivery, native chart packaging, remote values, token expiry/renewal and
+revocation. These checks do not qualify the complete OCI lifecycle. All cloud
+results below predate this architecture and describe historical behaviour.
+
+The local suites have passed across focused runs. A clean uninterrupted management
+run remains outstanding: an intermittent Authentik blueprint-import failure was
+observed, although the subsequent cold-start and recovery checks passed with no
+pod restarts. Its cause remains unconfirmed.
 
 Setup contracts exercise private initialisation, profile inheritance, explicit
 OCI settings, credential exclusion from render inputs, invalid configuration and
@@ -214,7 +212,3 @@ or that earlier intermittent ACME connection timeouts are resolved.
 | Recovery and other failure modes | Managed-database failover and browser logout-button interaction remain untested; regional recovery and management-state restoration are not established |
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
-
-The direct OCI chart contract requires fresh qualification. Historical bucket-based
-deployment results do not qualify it. Local management checks publish the current
-charts to a disposable registry and exercise Flux digest consumption in Kind.

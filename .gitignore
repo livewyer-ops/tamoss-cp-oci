@@ -3,5 +3,5 @@
 /CLAUDE.md
 /mise.local.toml
 /charts/database-connection/charts/
-/charts/secret-retirement/charts/
+/charts/retirement/charts/
 /charts/secrets/charts/

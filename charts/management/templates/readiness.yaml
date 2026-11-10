@@ -7,7 +7,7 @@ spec:
   retryInterval: 30s
   timeout: 30m
   prune: false
-  sourceRef: {kind: OCIRepository, name: {{ $.Values.sourceName }}}
+  sourceRef: {kind: GitRepository, name: {{ $.Values.sourceName }}}
   path: ./deploy/gitops/readiness
   healthChecks:
     - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossBootstrap, name: {{ .metadata.name }}, namespace: tamoss-infra}

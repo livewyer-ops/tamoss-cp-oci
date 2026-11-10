@@ -1,0 +1,28 @@
+["bootstrap:finish"]
+hide = true
+run = [
+  "cp '{{ vars.ENV_DIR }}/fresh-identity.yaml' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "POINT=during-install mise run test:install:checkpoint",
+  "yq -e '.unhealthy != true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "yq -i '.provisions += 1 | .observations += 1 | .deploymentReady = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+]
+
+
+["bootstrap:access"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -i '.accessReads += 1' '{{ vars.ENV_DIR }}/identity.yaml'",
+]
+
+
+["test:install:checkpoint"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test '{{ env.TASKV_STOP_AT }}' != '{{ env.TASKV_POINT }}' || { printf '%s\n' "Injected interruption at {{ env.TASKV_POINT }}" >&2; exit 1; }''',
+  "true",
+]
+env.TASKV_POINT = '''{{ env.POINT | default(value="") }}'''
+env.TASKV_STOP_AT = '''{{ env.STOP_AT | default(value="") }}'''
+

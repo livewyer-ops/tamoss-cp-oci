@@ -1,0 +1,5 @@
+["retirement:run"]
+hide = true
+run = [
+  "TAMOSS_ENV_DIR='{{ vars.ENV_DIR }}' helmfile --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -f deploy/secrets/operations-helmfile.yaml.gotmpl sync",
+]

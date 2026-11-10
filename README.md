@@ -12,33 +12,27 @@ for HA deployments and qualification environments.
 
 | Component | Configuration |
 | --- | --- |
-| Management | Kind owns infrastructure until optional GitOps handover to OKE; retain original Kind for teardown |
+| Management | Flux and Crossplane in Kind own deployment and teardown |
 | Kubernetes | OKE with three workers and explicit failure-domain placement |
 | Application | Replicated TAMOSS API, worker, UI and Console API |
 | PostgreSQL | Two OCI database nodes; separate TAMOSS and Authentik databases, with verified TLS |
 | Media storage | Private OCI Object Storage bucket through its S3-compatible endpoint |
 | Public access | OCI load balancer, replicated ingress and Authentik, trusted HTTPS |
-| Release assets | Public OCI manifest bundle and Helm charts, pinned by digest |
+| Release assets | This repository at a pushed commit, official charts and pinned upstream artifacts |
 
 The environment uses billable resources. Worker-drain checks have passed;
 managed-database failover and regional recovery are outside the verified
 coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
 
-[GitOps integration](deploy/gitops/README.md) transfers ongoing operations to
-Flux, Crossplane and External Secrets on OKE. Deployment definitions are published
-as [OCI release artifacts](deploy/assets/README.md) consumed directly by Flux.
-Flux reads those artifacts; an optional client Git repository selects configuration
-and asset releases. The earlier bucket-based deployment, SSH handover and Git-enabled
-TADOSS passed assisted OCI testing with Kind stopped during operations. The reduced
-installer has local coverage only; its fresh OCI lifecycle, release
-upgrades and credential rotation remain unqualified.
+[Deployment from Git](deploy/gitops/README.md) follows Host -> Kind -> OKE.
+Flux in Kind reads this repository and manages OKE remotely. Crossplane provisions
+OCI resources from Kind. The host supplies OKE access; no second Flux or Crossplane
+stack is installed in OKE. A removable read-only deploy key allows private Git
+access. The new flow has local coverage; fresh OCI deployment and teardown remain
+unqualified.
 
 [Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
-through the environment Git repository, using the same platform services. Live
-checks passed with Kind stopped: authenticated metadata linked to ingested media,
-persistence after pod replacement and unchanged OCI infrastructure. The OAuth
-Job completed on its first attempt without replacing Authentik pods; see the
-[qualification limits](docs/testing.md#verified-coverage-and-limits).
+using the same platform. Enable it in the private settings before deployment.
 
 ## Quickstart
 
@@ -61,25 +55,14 @@ Then deploy:
 mise run up
 ```
 
-The quick deployment requires no GitHub account or environment repository. Flux
-reconciles the pinned OCI release with the supplied configuration. Kind
-retains infrastructure ownership; TAMOSS runs on OKE. `up` prints the URLs and
-location of protected initial login details.
+Use a clean, committed and pushed checkout. While this repository is private,
+[authenticate GitHub CLI](deploy/gitops/README.md#private-repository-authentication)
+on the host before `up`. Flux receives a dedicated read-only deploy key. `up`
+prints application URLs and the location of private initial login details.
 
 Each `up` requires a fresh deployment directory. After an interrupted installation,
 follow [failed-deployment cleanup](docs/operations.md#clean-up-a-failed-deployment)
-before starting again.
-
-To demonstrate GitOps, configure the optional GitHub owner in `gitops.yaml`:
-
-```bash
-mise exec -- gh auth login --hostname github.com --git-protocol https
-mise run handover
-```
-
-Handover publishes the existing configuration to a private repository, establishes
-a read-only SSH deploy key, transfers infrastructure ownership to OKE and stops
-original Kind. Then enable [TADOSS through Git](deploy/tadoss/README.md#enable-through-git).
+before starting again. Keep Kind running throughout the demo.
 
 Qualification replaces its test media and drains one worker. Follow the
 [access instructions](docs/getting-started.md#access) to sign in and inspect the
@@ -95,12 +78,10 @@ ingest result. Keep the original Kind and environment directory until cleanup.
 | `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |
 | `mise run check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
 | `mise run up` | Create a fresh deployment with public TLS ready; Kind retains infrastructure ownership. |
-| `mise run handover` | Attach GitOps, transfer infrastructure ownership to OKE and stop original Kind. |
 | `mise run qualify` | Test ingest, access, network isolation and a worker drain. |
-| `mise run down` | Return ownership if needed, delete hardware and retire deployment credentials. |
+| `mise run down` | Delete workloads and infrastructure through Kind, then retire credentials. |
 
-`ENV_DIR` selects the private deployment directory; `CHECKOUT` selects its environment
-Git checkout (default `.local/gitops`). Storage checks have separate
+`ENV_DIR` selects the private deployment directory. Storage checks have separate
 inputs; see [Testing](docs/testing.md#oci-storage-check).
 The environment stays running until explicitly removed with `mise run down`.
 **Teardown deletes application data**, including the owned bucket and database
@@ -114,4 +95,4 @@ backups. See [teardown and retention](docs/operations.md#destroy-the-environment
 - [Architecture](docs/architecture.md): ownership, configuration, HA and storage.
 - [Changelog](CHANGELOG.md): command and compatibility changes.
 - [TAMOSS integration](deploy/tamoss/README.md): immutable assets and release selection.
-- [GitOps integration](deploy/gitops/README.md): repositories, secret delivery and ownership transfer.
+- [GitOps integration](deploy/gitops/README.md): execution context, chart sources and private Git access.

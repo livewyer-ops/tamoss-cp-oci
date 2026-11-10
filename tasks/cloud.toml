@@ -301,13 +301,8 @@ run = [
   '''test -n {{ env.TASKV_BUCKET | quote }} || { printf '%s\n' "Missing required input: BUCKET" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: NAMESPACE" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
-  '''{% for item in read_json(path=vars.ENV_DIR ~ "/uploads.json") | get(key="data") %}
-{{ env.TASKV_OCI }} os multipart abort --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --object-name {{ (item.object) | quote }} --upload-id {{ (item["upload-id"]) | quote }} --force
-{% endfor %}''',
-  '''{% for item in read_json(path=vars.ENV_DIR ~ "/versions.json") | get(key="data") %}
-{{ env.TASKV_OCI }} os object delete --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --name {{ (item.name) | quote }} --version-id {{ (item["version-id"]) | quote }} --force
-{% endfor %}''',
-  "{{ env.TASKV_OCI }} os object bulk-delete --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --bucket-name {{ (env.TASKV_BUCKET) | quote }} --force > {{ vars.ENV_DIR }}/object-deletion.json",
+  '''yq -n '{"bucket": {"name": "{{ env.TASKV_BUCKET }}", "namespace": "{{ env.TASKV_NAMESPACE }}", "uploads": load("{{ vars.ENV_DIR }}/uploads.json").data}}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
 ]
 env.TASKV_BUCKET = '''{{ env.BUCKET | default(value="") }}'''
 env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
@@ -339,10 +334,8 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
-  '''{% for item in read_json(path=vars.ENV_DIR ~ "/backups.json") | get(key="data") | get(key="items") %}
-{% if item["lifecycle-state"] != "DELETED" and item["db-system-id"] in read_file(path=vars.ENV_DIR ~ "/database-ids.txt") | split(pat="\n") %}
-{{ env.TASKV_OCI }} psql backup delete --backup-id {{ (item.id) | quote }} --force --wait-for-state SUCCEEDED --max-wait-seconds 1200
-{% endif %}{% endfor %}''',
+  '''yq -n '{"backups": [load("{{ vars.ENV_DIR }}/backups.json").data.items[] | select(."lifecycle-state" != "DELETED") | select(."db-system-id" as $id | load_str("{{ vars.ENV_DIR }}/database-ids.txt") | split("\n") | contains([$id]))]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
 ]
 env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
 env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
@@ -462,10 +455,8 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
-  '''{% for item in read_json(path=vars.ENV_DIR ~ "/environment-secrets.json") %}
-{% if item["lifecycle-state"] == "ACTIVE" %}
-{{ env.TASKV_OCI }} vault secret schedule-secret-deletion --secret-id {{ (item.id) | quote }} --time-of-deletion {{ (env.TASKV_DELETION_TIME) | quote }} > /dev/null
-{% endif %}{% endfor %}''',
+  '''yq -n '{"deletionTime": "{{ env.TASKV_DELETION_TIME }}", "secretDeletions": [load("{{ vars.ENV_DIR }}/environment-secrets.json")[] | select(."lifecycle-state" == "ACTIVE")]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
   "TAMOSS_ENV_DIR='{{ vars.ENV_DIR }}' helmfile --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -f deploy/secrets/retirement-helmfile.yaml.gotmpl sync",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:secret-inventory",
   '''yq -e '[.[] | (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all' {{ vars.ENV_DIR }}/environment-secrets.json > /dev/null''',

@@ -6,18 +6,17 @@ Run lifecycle commands from the repository root with `mise run`. For the native
 diagnostic commands below, enter a tool-enabled shell with `mise exec -- bash`;
 `exit` returns to your previous shell. Examples use
 `.local/environment`; substitute your original environment directory throughout.
-Quick deployments keep Kind as the infrastructure writer. After GitOps handover,
-use the matching environment Git checkout (`CHECKOUT`, default `.local/gitops`);
-Kind stays stopped while OKE owns ongoing reconciliation.
+Kind owns infrastructure and Flux reconciliation throughout the demo. Keep it
+running until teardown has verified cleanup. Retain the deployed Git revision.
 
 ## Inspect the installation
 
 ```bash
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o json |
   yq '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get tamossenvironments
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get managed
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n flux-system get kustomization deployment-ready
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossenvironments
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get managed
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomization deployment-ready
 kubectl --kubeconfig .local/environment/remote.kubeconfig get nodes
 kubectl --kubeconfig .local/environment/remote.kubeconfig get pods -A
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss,storagebackends,ingestruns
@@ -63,16 +62,14 @@ Commands print their active stage. Inspect the corresponding controller or resou
 
 | Stage or symptom | Check |
 | --- | --- |
-| Preparation failure | Placeholder settings, OCI discovery, deployment bundle access and recorded-input consistency |
-| Crossplane providers unavailable | Provider health and events: Kind during bootstrap, OKE after handover |
-| Bootstrap installation stalled | Kind `tamoss-infra` OCIRepository and HelmRelease conditions; Flux source/Helm controller logs |
+| Preparation failure | Required settings, OCI profile, pushed Git revision and repository access |
+| Crossplane providers unavailable | Provider health and events in Kind |
+| Bootstrap installation stalled | Kind `tamoss-infra` GitRepository and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
-| OKE Flux seed failed | Kind `tamoss-infra` Kustomizations `oke-flux`, `oke-eso` and `oke-seed`; inspect source and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
-| Adoption waiting | OKE `tamoss-infra/adoption-bindings` ExternalSecret and Kustomization; compare persisted identity with the original Kind records |
-| Runtime waiting | OKE `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
+| Remote deployment failed | Kind `tamoss-infra` Kustomizations `runtime` and `deployment-ready`; inspect source, OKE access and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
+| Runtime waiting | Kind `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | IAM `PolicyAlreadyExists` with no external-name | Follow [policy binding recovery](#recover-a-policy-binding) using the original managed resource and a verified OCI policy |
-| Asset-reader membership retirement fails | Retain the environment records. Retirement removes the recorded member through the Identity Domains group API and verifies that no memberships remain. Check the recorded domain, exact user/group binding and scoped permissions before retrying `down`; unrelated memberships must be resolved by their owner |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
 | Database bootstrap failure | `auth/tamoss-database-init` Job, database hostname/CA and Secret references |
 | Pending certificate | Certificate events, public DNS and ports 80/443 |
@@ -80,8 +77,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Teardown stopped | Recorded ownership, live deletion conditions and direct OCI inventory; retain Kind and credentials |
 
 ```bash
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n crossplane-system get pods
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get events --sort-by=.lastTimestamp
+kubectl --kubeconfig .local/environment/management.kubeconfig -n crossplane-system get pods
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get events --sort-by=.lastTimestamp
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n auth describe job tamoss-database-init
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams describe tamoss tamoss
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams describe ingestrun qualification
@@ -169,7 +166,7 @@ operation; the common chart does not choose retry policy or manage the workflow.
 | --- | --- |
 | Kind `tamoss-infra/s3-credentials` | Native reconciliation consumes a staged or persisted response. A claimed attempt is never automatically repeated. Preserve the receipt and use [failed-deployment cleanup](#clean-up-a-failed-deployment) if installation fails. |
 | Kind remote bootstrap | An interrupted installation requires teardown. Retain the original Kind and records; `down` stops remote bootstrap and revokes its access. |
-| OKE `auth/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
+| Kind `tamoss-infra/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
 | Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
 
 Do not delete identity receipts or clear finalisers to bypass a failed operation.
@@ -209,41 +206,29 @@ through the account administrator; retain Kind and the ownership record if an
 identity has been deleted. Do not replace the record or enable `Create` to bypass
 that failure.
 
-## Convergence and handover
+## Convergence and access renewal
 
-`mise run up` completes deployment with Kind running and owning infrastructure; OKE
-Crossplane observes the same resources. `mise run handover` attaches the environment
-repository, persists its SSH deploy key, checks readiness and transfers ownership before
-stopping Kind. Flux already manages applications in both states.
+`mise run up` accepts a fresh deployment directory. Flux and Crossplane keep
+reconciling in Kind after the host command exits. Kind's `deployment-ready`
+Kustomization checks remote application health; the host also checks the selected
+Git commit, chart revision and current controller generations.
+
+Kind uses a bounded ServiceAccount token to manage OKE. The API server controls
+its actual expiry. Inspect the expiry annotation without printing credentials:
 
 ```bash
-ENV_DIR=.local/environment mise run up
-ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run handover
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get secret oke-bootstrap-access -o go-template='{{index .metadata.annotations "tamoss.livewyer.io/token-expires"}}{{"\n"}}'
 ```
 
-`up` rejects an existing deployment; use the access instructions to inspect it.
-Repeating completed `handover` observes readiness once without restarting Kind or
-publishing another commit. `qualify` works in either state. `down` also supports
-cleanup before handover and after an interrupted transfer.
-Retain the matching installer source with the private records. Handover renders
-from the verified customer release; its assets do not come from a later product
-checkout.
+Renew access with the retained host OCI profile and the recorded cluster identity:
 
-| Stage after remote seeding | Native actions |
-| --- | --- |
-| Initial convergence (`up`) | Wait for Kind's bootstrap and remote deployment health checks, then retire the temporary OKE bootstrap access |
-| Attach Git | Create/connect a private repository, publish the shared configuration, run native Flux bootstrap and persist its deploy key through Vault/ESO |
-| Begin transfer | Verify the published deployment revision and health; an unpublished ownership-only change is allowed on retry |
-| Verify adoption | Read and compare both control planes' resource identities and configuration |
-| Quiesce Kind | Freeze the instance HelmRelease, release and pause the bootstrap, set infrastructure to Observe, and wait for managed resources to acknowledge their pause |
-| Enable OKE ownership | Refresh both inventories, verify Kind has stopped writing, enable runtime IAM writes, and commit/push the promotion to the environment repository |
-| Verify promotion | Observe the published environment revision, product revision, chart generation and deployment health through Chainsaw |
-| Complete handover | Refresh both inventories, verify ownership and OKE managed-resource readiness, stop the original Kind containers, and record completion |
+```bash
+ENV_DIR=.local/environment mise run bootstrap:remote-access:renew
+```
 
-The inventory comparisons occur before quiescing, before enabling OKE writes and
-before stopping Kind. Readiness observations do not trigger Flux reconciliation.
-A failed promotion observation leaves handover incomplete and preserves the state for retry.
-Teardown retains its binding-delivery waits because the bootstrap is paused then.
+Qualification and teardown renew it before use. There is no automatic host token
+renewal. Expiry pauses remote reconciliation; it does not remove running workloads.
+Revoked or fully torn-down deployments refuse renewal.
 
 ## Interrupted host preparation
 
@@ -269,12 +254,11 @@ ENV_DIR=.local/environment mise run down
 Confirm cleanup after teardown before choosing a fresh `ENV_DIR` and running `setup` for another attempt.
 Keep the original inputs and private records until cleanup is verified.
 Use the [access instructions](getting-started.md#access) to inspect a running
-deployment and `qualify` to test it. Ownership transfer still resumes through
-`handover`; interrupted teardown still resumes through `down`.
+deployment and `qualify` to test it. Interrupted teardown resumes through `down`.
 
 Flux and Crossplane continue reconciling if mise exits. Keep `up` running through
-readiness and credential retirement. An expired bootstrap token or interrupted
-installation requires cleanup; rerunning `up` cannot renew access or finish it.
+the OKE access submission. Renew expired access explicitly if inspecting controller
+convergence; rerunning `up` cannot resume an installation.
 
 If preparation failed before Kind accepted the seed, follow
 [preparation cleanup](#interrupted-host-preparation) before starting again.
@@ -284,9 +268,8 @@ Preserve `bootstrap.yaml`, `management-values.yaml`, kubeconfigs and the environ
 identity through verified teardown. Run one lifecycle command per environment at
 a time. Do not manually unpause a released root during operations or deletion.
 
-Keep `tamoss-bootstrap-instance` suspended after handover. Restarting Kind must
-not reinstall its original bootstrap intent. Teardown refreshes controller/API
-releases from current Git while leaving that instance suspended.
+During teardown, the instance HelmRelease is frozen and the bootstrap root is
+released and paused before deleting its children. Keep it paused if cleanup fails.
 
 Native OCI requests, Flux installation and readiness observations have bounded
 timeouts. A failure stops the command and preserves the environment for diagnosis.
@@ -295,10 +278,10 @@ remote controllers with their native tools:
 
 ```bash
 mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossbootstrap
-mise exec -- flux --kubeconfig .local/environment/remote.kubeconfig get all --all-namespaces
+mise exec -- flux --kubeconfig .local/environment/management.kubeconfig get all --all-namespaces
 ```
 
-Remote Flux bootstrap applies to new environments. Existing environments must retain their
+This Kind-owned flow applies to new environments. Existing environments must retain their
 recorded product commit for operations and teardown; bootstrap state is not migrated.
 
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
@@ -307,13 +290,10 @@ environment explicitly with `down` when it is no longer needed.
 
 ## Release selection
 
-Initial deployment records the pinned public bundle and chart digests. After handover, Git owns selection through `assets.lock.yaml`. `qualify` verifies and records the current selection
-while preserving the initial release record. `down` returns current Git/live
-configuration to Kind for deletion.
-
-Follow the [release-change procedure](../deploy/gitops/README.md#release-changes).
-A supported upgrade still needs live qualification. A Git revert alone does not
-establish that database migrations can be reversed.
+Deployment records the repository commit and pinned upstream dependencies in
+`assets.lock.yaml`. Retain the matching source checkout for operations and teardown.
+Commit and push source changes before creating a fresh demo. Upgrades of an
+existing deployment and migration from earlier ownership models remain unqualified.
 
 ## Native OCI CLI
 
@@ -379,19 +359,16 @@ invoice or a live resource inventory.
 **Destruction deletes managed application data**, including media, the database
 and its backups. Keep the original environment directory and credentials.
 
-Use the retained installer and private environment records. For a Git-owned
-deployment, teardown verifies the selected client release before rendering
-ownership-return declarations.
+Use the retained installer and private environment records:
 
 ```bash
-ENV_DIR=.local/environment CHECKOUT=.local/gitops mise run down
+ENV_DIR=.local/environment mise run down
 ```
 
-`down` starts the original Kind and waits for API readiness before checking its
-identity. Quick deployments already have Kind ownership and skip Git operations.
-For Git-owned deployments, it verifies the published checkout, freezes Flux,
-quiesces OKE providers and revokes their write grants. Current Git configuration
-and exact Vault bindings return to Kind before it receives deletion authority.
+`down` verifies the original Kind identity, suspends runtime reconciliation and
+releases the bootstrap's authority to recreate children. It renews remote access
+and removes applications through Kind while the OKE API is available. Remote
+access is revoked after workload cleanup.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
 releases and the load balancer, empties the owned bucket (including versions and
@@ -401,7 +378,7 @@ compartment contains no workload resources.
 
 | Deleted | Retained |
 | --- | --- |
-| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, private environment Git configuration and local records |
+| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, source Git repository and local records |
 
 After the cloud audit, teardown revokes the deployment's S3 key, verifies its
 absence, deletes the generated storage policy, membership, group and user through Crossplane,
@@ -417,7 +394,8 @@ temporary IAM prerequisites using [account retirement](../deploy/oci/README.md#r
 Keep access until deletion is confirmed. Retain the foundation's compartment and
 owner access; local exported credentials remain your responsibility.
 
-Published release artifacts remain in the registry for recovery.
+The source repository and upstream release artifacts remain available. The
+per-deployment Git deploy key is revoked before Kind is removed.
 
 ### Interrupted teardown
 
@@ -433,20 +411,16 @@ it does not infer that a partially started environment is empty.
 
 ## Retained management state
 
-`handover` stops original Kind after verified transfer. Keep those containers and the
-private identity records intact; do not create a replacement cluster with the
-same name. `down` starts and verifies the original cluster automatically. A
-failed API readiness or identity check stops the operation without deleting it.
+Keep the original Kind containers and private identity records intact. If Kind
+has stopped, `down` starts and verifies that cluster; it does not create a replacement
+with the same name. A failed API or identity check stops cleanup.
 
-For manual inspection, identify the original containers:
+For inspection:
 
 ```bash
 MANAGEMENT_NAME="tamoss-cp-$(yq -r .metadata.name .local/environment/environment.yaml)"
 docker ps -a --filter "label=io.x-k8s.kind.cluster=$MANAGEMENT_NAME"
 ```
-
-Keep Kind's non-writing configuration after handover. Operational changes belong
-in Git and reconcile on OKE while Kind is stopped.
 
 ## Manual cleanup after management state loss
 
