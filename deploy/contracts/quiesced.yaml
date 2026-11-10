@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: TransferInventory
-(length(resources)): 23
-(length(resources[?spec.managementPolicies != `["Observe"]`])): 0
-(length(resources[?metadata.annotations."crossplane.io/paused" != 'true'])): 0
-(length(resources[?status.conditions[?type == 'Synced' && reason == 'ReconcilePaused'] | length(@) == `1`])): 23
-(length(resources[].status.conditions[?type == 'AsyncOperation' && status != 'True'][])): 0

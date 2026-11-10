@@ -3,16 +3,8 @@
 {{- $n := $xr.metadata.name -}}
 {{- $ns := $xr.metadata.namespace -}}
 {{- $observed := .observed.resources | default dict -}}
-{{- $adoption := $p.adoption | default dict -}}
-{{- $bindings := $adoption.externalNames | default dict -}}
 {{- $deploymentId := index ($xr.metadata.annotations | default dict) "tamoss.livewyer.io/deployment-id" | default "render-only" -}}
-{{- if and $adoption (ne $deploymentId $adoption.deploymentId) -}}
-  {{- fail "Adoption deployment identity does not match the composite annotation" -}}
-{{- end -}}
-{{- if and $adoption (ne (index $bindings "bucket") (printf "n/%s/b/%s" $p.storage.namespace $p.storage.bucket)) -}}
-  {{- fail "Bucket external name must match the declared namespace and bucket" -}}
-{{- end -}}
-{{- $creationUID := $adoption.creationCompositeUID | default ($xr.metadata.uid | default "render-only") -}}
+{{- $creationUID := $xr.metadata.uid | default "render-only" -}}
 {{- $policies := $p.managementPolicies | default (list "*") -}}
 {{- $tags := dict "tamoss-environment" $n "tamoss-deployment-id" $deploymentId "tamoss-composite-uid" $creationUID "tamoss-owner" $p.owner -}}
 {{- $resources := dict -}}
@@ -32,9 +24,9 @@
 
 {{/* Resolve IDs inside atomic lists here: the provider's reference resolver can
      remove previously owned lists. Retain values through transient status loss. */}}
-{{- $internetId := dig "internet" "resource" "status" "atProvider" "id" (index $bindings "internet" | default "") $observed -}}
-{{- $natId := dig "nat" "resource" "status" "atProvider" "id" (index $bindings "nat" | default "") $observed -}}
-{{- $serviceId := dig "service" "resource" "status" "atProvider" "id" (index $bindings "service" | default "") $observed -}}
+{{- $internetId := dig "internet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $natId := dig "nat" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $serviceId := dig "service" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- $publicRules := dig "public-routes" "resource" "spec" "forProvider" "routeRules" (list) $observed -}}
 {{- $privateRules := dig "private-routes" "resource" "spec" "forProvider" "routeRules" (list) $observed -}}
 {{- if $internetId -}}
@@ -77,8 +69,8 @@
   {{- $edges = append $edges (list $security $subnet) -}}
 {{- end -}}
 
-{{- $apiId := dig "api-subnet" "resource" "status" "atProvider" "id" (index $bindings "api-subnet" | default "") $observed -}}
-{{- $lbId := dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" (index $bindings "loadBalancer-subnet" | default "") $observed -}}
+{{- $apiId := dig "api-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $lbId := dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- $oldEndpoint := dig "cluster" "resource" "spec" "forProvider" "endpointConfig" (list) $observed -}}
 {{- $oldOptions := dig "cluster" "resource" "spec" "forProvider" "options" (list) $observed -}}
 {{- if and (not $apiId) $oldEndpoint -}}
@@ -99,8 +91,8 @@
 
 {{/* The provider lacks podSubnetId references. Delay the first node pool until
      it is known, then retain its resolved ID through transient status loss. */}}
-{{- $podId := dig "pods-subnet" "resource" "status" "atProvider" "id" (index $bindings "pods-subnet" | default "") $observed -}}
-{{- $workersId := dig "workers-subnet" "resource" "status" "atProvider" "id" (index $bindings "workers-subnet" | default "") $observed -}}
+{{- $podId := dig "pods-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $workersId := dig "workers-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- range $i, $placement := $p.oke.placements -}}
   {{- $key := printf "worker-%d" $i -}}
   {{- $oldConfig := dig $key "resource" "spec" "forProvider" "nodeConfigDetails" (list) $observed -}}
@@ -132,7 +124,7 @@
 {{- if not $p.database.regionalStorage -}}
   {{- $_ := set $storage "availabilityDomain" $p.database.availabilityDomain -}}
 {{- end -}}
-{{- $databaseSubnetId := dig "database-subnet" "resource" "status" "atProvider" "id" (index $bindings "database-subnet" | default "") $observed -}}
+{{- $databaseSubnetId := dig "database-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- $oldNetwork := dig "database" "resource" "spec" "forProvider" "networkDetails" (list) $observed -}}
 {{- if and (not $databaseSubnetId) $oldNetwork -}}
   {{- $databaseSubnetId = (index $oldNetwork 0).subnetId | default "" -}}
@@ -148,20 +140,6 @@
 {{- $_ := set $resources "bucket" (dict "apiVersion" "objectstorage.oci.m.upbound.io/v1alpha1" "kind" "Bucket" "parameters" (dict "name" $p.storage.bucket "namespace" $p.storage.namespace "accessType" "NoPublicAccess" "versioning" "Disabled" "storageTier" "Standard")) -}}
 {{- $_ := set $resources "public-ip" (dict "apiVersion" $net "kind" "PublicIp" "parameters" (dict "lifetime" "RESERVED")) -}}
 
-{{/* Check the complete binding set before emitting any desired resource. */}}
-{{- if $adoption -}}
-  {{- if ne (len $bindings) (len $resources) -}}{{- fail "Adoption requires the complete external-name binding set" -}}{{- end -}}
-  {{- range $key, $_ := $resources -}}
-    {{- if not (index $bindings $key) -}}{{- fail (printf "Missing adoption binding for %s" $key) -}}{{- end -}}
-    {{- $oldName := dig $key "resource" "metadata" "annotations" "crossplane.io/external-name" "" $observed -}}
-    {{- if and $oldName (ne $oldName (index $bindings $key)) -}}{{- fail (printf "Observed external name differs from adoption binding for %s" $key) -}}{{- end -}}
-    {{- $oldTags := dig $key "resource" "spec" "forProvider" "freeformTags" (dict) $observed -}}
-    {{- range $tag := list "tamoss-deployment-id" "tamoss-composite-uid" -}}
-      {{- if and (index $oldTags $tag) (ne (index $oldTags $tag) (index $tags $tag)) -}}{{- fail (printf "Observed ownership tag differs for %s" $key) -}}{{- end -}}
-    {{- end -}}
-  {{- end -}}
-{{- end -}}
-
 {{- range $key, $resource := $resources }}
 {{- if or (not (hasKey $resource "emit")) $resource.emit }}
 ---
@@ -172,9 +150,7 @@ metadata:
   namespace: {{ $ns }}
   annotations:
     {{ setResourceNameAnnotation $key }}
-{{- if $adoption }}
-    crossplane.io/external-name: {{ index $bindings $key | quote }}
-{{- else if eq $key "database" }}
+{{- if eq $key "database" }}
 {{/* Retain the provider's observed ID when late initialisation cannot persist its annotation. */}}
 {{- $databaseName := dig $key "resource" "metadata" "annotations" "crossplane.io/external-name" "" $observed | default (dig $key "resource" "status" "atProvider" "id" "" $observed) }}
 {{- if $databaseName }}
@@ -256,7 +232,7 @@ spec:
 {{- $complete = and $complete $ready (ne $externalName "") -}}
 {{- $_ := set $externalNames $key $externalName -}}
 {{- end -}}
-{{- if and (not $adoption) (or $snapshot $complete) }}
+{{- if or $snapshot $complete }}
 {{- $record := dict "deploymentId" $deploymentId "creationCompositeUID" $creationUID "externalNames" $externalNames -}}
 {{- $data := dict "SCHEMA_VERSION" (b64enc "1") "DEPLOYMENT_ID" (b64enc $deploymentId) "CREATION_COMPOSITE_UID" (b64enc $creationUID) "ADOPTION_YAML" (b64enc (toYaml $record)) -}}
 {{- range $key, $value := $externalNames -}}
@@ -316,7 +292,7 @@ apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 status:
   bootstrapReady: {{ $bootstrapReady }}
-  bindingsReady: {{ or (not (empty $snapshot)) (and (not $adoption) $complete) }}
+  bindingsReady: {{ or (not (empty $snapshot)) $complete }}
   outputs:
     clusterId: {{ dig "cluster" "resource" "status" "atProvider" "id" "" $observed | quote }}
     databaseId: {{ dig "database" "resource" "status" "atProvider" "id" "" $observed | quote }}

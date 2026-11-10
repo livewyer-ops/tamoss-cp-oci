@@ -33,6 +33,6 @@ env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ ex
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run transfer:start-kind",
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run management:start-kind",
 ]
 env.TASKV_DIRECTORY = '''{{ env.DIRECTORY | default(value="") }}'''

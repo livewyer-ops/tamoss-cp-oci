@@ -194,7 +194,6 @@ run = [
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete usage.protection.crossplane.io/"$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')"-storage-credentials --ignore-not-found --wait=true --timeout=120s''',
   "mise run storage:delete-managed",
   "mise run storage:audit",
-  "yq -i '.storageIdentityRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
 ]
 
 ["storage:delete-managed"]

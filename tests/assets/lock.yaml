@@ -79,8 +79,6 @@ data:
       functions:
         auto-ready: v0.7.1
         go-templating: v0.13.1
-      okeWorkloadIdentity:
-        region: ""
       providerVersion: v2.0.0
       services: false
     release:

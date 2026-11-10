@@ -14,6 +14,9 @@
   their recorded installer revision for operations and cleanup.
 - Allow Authentik server health checks 30 seconds, matching worker probes, to
   avoid premature restarts during database activity.
+- Remove the environment adoption inputs, remote workload-identity provider
+  option, unused contracts and checks left from the ownership-handover design.
+  `TamossEnvironment` no longer accepts `spec.adoption` or `Observe,Delete`.
 
 
 ### Earlier development
