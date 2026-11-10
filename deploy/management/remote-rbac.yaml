@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: tamoss-bootstrap}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: oke-bootstrap, namespace: tamoss-bootstrap}
+automountServiceAccountToken: false
+---
+# Installing Flux's cluster RBAC requires temporary administrative access.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: tamoss-oke-bootstrap}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+subjects:
+  - {kind: ServiceAccount, name: oke-bootstrap, namespace: tamoss-bootstrap}

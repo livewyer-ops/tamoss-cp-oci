@@ -106,7 +106,7 @@ API allowlist. The name defaults to `media-demo`; choose another unused `name`
 for a separate environment. Names have 3–23 lowercase letters, digits or hyphens,
 starting with a letter and ending with a letter or digit.
 
-The [defaults](../charts/setup/values.yaml) supply HA capacity, network ranges,
+The [defaults](../charts/management/values.yaml) supply HA capacity, network ranges,
 PostgreSQL settings and the OKE version. Owner, ACME contact and
 administrator email use `contactEmail`. The Vault foundation defaults to
 `<name>-vault`. Set `tadoss.enabled: true` before deployment to include TADOSS.
@@ -144,7 +144,7 @@ storage:
 ```
 
 Network, worker placement/image, sizing and database overrides are validated
-against the [setup schema](../charts/setup/values.schema.json) and environment API.
+against the [settings schema](../charts/management/values.schema.json) and environment API.
 Keep subnets inside the selected VCN. Reuse an owned Vault/key through
 `foundation.name` and recorded `foundation.adoption` fields; a matching name is
 not proof of ownership.
@@ -155,10 +155,10 @@ before a fresh deployment; local chart directories require no registry publicati
 | Generated output | Location under `.local/environment/` |
 | --- | --- |
 | Deployment input | `values.yaml` |
-| Resolved product, infrastructure and settings | `product.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
-| Initial deployment configuration | `seed-render/`, `remote-bootstrap.yaml` |
-| Selected Git commit and dependency pins | `assets.lock.yaml` |
-| Temporary protected OCI profile and render inputs | `discovery/` files, removed after seeding Kind |
+| Host facts: deployment identity, OCI profile identifiers and Git source | `deployment.yaml`, `source.json` |
+| Kind seed overlay | `kustomization.yaml`, `source.yaml`, `release.yaml` |
+| Local copies of the resources Kind derives | `bootstrap.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
+| Temporary protected OCI signing material | `discovery/` files, removed after seeding Kind |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
 | Qualification cloud outputs | `outputs.json`, written by `qualify`; live outputs are in Kind's `TamossEnvironment.status.outputs` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |

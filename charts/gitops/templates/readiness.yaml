@@ -42,7 +42,7 @@ spec:
 {{ range list "bootstrap-ready" "runtime" "oke-prerequisites" "application-ready" "credentials" "database-connection" "database-ca" "platform" "calico" "tamoss-operator" "tamoss" }}
     - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: tamoss-infra}
 {{ end }}
-{{ range list "crossplane" "oci-family" "oci-services" "tamoss-environment-api" "external-secrets" "oke-external-secrets" "tamoss-gitops" "cert-manager" "traefik" "authentik-bootstrap" "tamoss-database-connection" "tamoss-database-init" "authentik" "tamoss-platform-config" "tamoss-secrets-auth" "tamoss-secrets-tams" }}
+{{ range list "crossplane" "oci-family" "oci-services" "tamoss-bootstrap-api" "external-secrets" "oke-external-secrets" "tamoss-gitops" "cert-manager" "traefik" "authentik-bootstrap" "tamoss-database-connection" "tamoss-database-init" "authentik" "tamoss-platform-config" "tamoss-secrets-auth" "tamoss-secrets-tams" }}
     - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: {{ . }}, namespace: tamoss-infra}
 {{ end }}
 {{ if .Values.tadoss.enabled }}

@@ -1,4 +1,5 @@
-{{- with .Values.instance }}
+{{- if or .Values.instance .Values.deploymentId }}
+{{- with include "management.instance" . | fromYaml }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,8 +27,6 @@ spec:
     strategy: {name: RetryOnFailure, retryInterval: 30s}
   dependsOn:
     - name: tamoss-bootstrap-api
-    - name: tamoss-environment-api
-    - name: tamoss-secret-foundation-api
     - name: oci-services
     - name: external-secrets
   chart:
@@ -37,4 +36,5 @@ spec:
       sourceRef: {kind: GitRepository, name: {{ $.Values.sourceName }}, namespace: tamoss-infra}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-bootstrap-instance}
+{{- end }}
 {{- end }}

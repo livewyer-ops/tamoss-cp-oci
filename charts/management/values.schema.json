@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name"
+  ],
+  "properties": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "private": {
+          "type": "boolean"
+        }
+      }
+    },
+    "tadoss": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "release": {
+          "type": "object"
+        }
+      }
+    },
+    "oci": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string"
+        },
+        "tenancy": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,21}[a-z0-9]$"
+    },
+    "compartmentId": {
+      "type": "string"
+    },
+    "contactEmail": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "acmeEmail": {
+      "type": "string"
+    },
+    "adminEmail": {
+      "type": "string"
+    },
+    "adminCidrs": {
+      "type": "array"
+    },
+    "network": {
+      "type": "object"
+    },
+    "oke": {
+      "type": "object"
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "shape": {
+          "type": "string"
+        },
+        "ocpus": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memoryGiB": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "administrator": {
+          "type": "string"
+        },
+        "regionalStorage": {
+          "type": "boolean"
+        },
+        "availabilityDomain": {
+          "type": "string"
+        },
+        "backupRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 35
+        }
+      }
+    },
+    "storage": {
+      "type": "object"
+    },
+    "storageIdentity": {
+      "type": "object"
+    },
+    "foundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "adoption": {
+          "type": "object"
+        }
+      }
+    },
+    "deploymentId": {
+      "type": "string",
+      "pattern": "^$|^[a-f0-9]{32}$"
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "secretName": {
+          "type": "string"
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object"
+    },
+    "packages": {
+      "type": "object"
+    },
+    "externalSecrets": {
+      "type": "object"
+    },
+    "connectionImages": {
+      "type": "object"
+    },
+    "release": {
+      "type": "object"
+    },
+    "instance": {
+      "type": "object"
+    },
+    "global": {
+      "type": "object"
+    },
+    "sourceName": {
+      "type": "string"
+    }
+  },
+  "if": {
+    "required": [
+      "deploymentId"
+    ],
+    "properties": {
+      "deploymentId": {
+        "minLength": 1
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "compartmentId",
+      "contactEmail",
+      "adminCidrs"
+    ],
+    "properties": {
+      "compartmentId": {
+        "type": "string",
+        "pattern": "^ocid1\\.compartment\\.",
+        "not": {
+          "pattern": "REPLACE|example"
+        }
+      },
+      "contactEmail": {
+        "type": "string",
+        "format": "email"
+      },
+      "adminCidrs": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 8,
+        "items": {
+          "type": "string",
+          "pattern": "^[0-9.]+/([1-9]|[12][0-9]|3[0-2])$"
+        }
+      },
+      "network": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ociServiceId",
+          "ociServiceCidr"
+        ],
+        "properties": {
+          "ociServiceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ociServiceCidr": {
+            "type": "string",
+            "minLength": 1
+          },
+          "vcn": {
+            "type": "string"
+          },
+          "api": {
+            "type": "string"
+          },
+          "workers": {
+            "type": "string"
+          },
+          "pods": {
+            "type": "string"
+          },
+          "database": {
+            "type": "string"
+          },
+          "loadBalancer": {
+            "type": "string"
+          },
+          "services": {
+            "type": "string"
+          }
+        }
+      },
+      "oke": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "imageId",
+          "placements"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^v1\\.36\\.[0-9]+$"
+          },
+          "imageId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "shape": {
+            "type": "string"
+          },
+          "ocpus": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "memoryGiB": {
+            "type": "integer",
+            "minimum": 16
+          },
+          "placements": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "availabilityDomain",
+                "faultDomain"
+              ],
+              "properties": {
+                "availabilityDomain": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "faultDomain": {
+                  "enum": [
+                    "FAULT-DOMAIN-1",
+                    "FAULT-DOMAIN-2",
+                    "FAULT-DOMAIN-3"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "storage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "namespace"
+        ],
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bucket": {
+            "type": "string"
+          }
+        }
+      },
+      "storageIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domainId",
+          "idcsEndpoint"
+        ],
+        "properties": {
+          "domainId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idcsEndpoint": {
+            "type": "string",
+            "pattern": "^https://[^/]+/?$"
+          }
+        }
+      }
+    }
+  }
+}

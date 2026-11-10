@@ -138,25 +138,8 @@ spec:
         - '!'
         - -e
         - $DIRECTORY/git-key-id
-  - name: verify source and dependency selection
+  - name: require the recorded deployment revision
     try:
-    - command:
-        entrypoint: helm
-        env: *id001
-        args:
-        - template
-        - inputs
-        - $PROJECT_ROOT/charts/deployment-inputs
-        - --set-file
-        - files.source=$DIRECTORY/source.json,files.pins=$DIRECTORY/release/pins.yaml
-        - --output-dir
-        - $DIRECTORY/render
-    - command:
-        entrypoint: cp
-        env: *id001
-        args:
-        - $DIRECTORY/render/deployment-inputs/templates/asset-lock.yaml
-        - $DIRECTORY/assets.lock.yaml
     - command:
         entrypoint: env
         env: *id001
@@ -172,8 +155,8 @@ spec:
         env: *id001
         args:
         - -i
-        - .release.tag = "changed"
-        - $DIRECTORY/release/pins.yaml
+        - .commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        - $DIRECTORY/source.json
     - command:
         entrypoint: env
         env: *id001

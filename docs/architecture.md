@@ -70,8 +70,12 @@ step. Teardown retains its ownership checks and can be retried.
 
 ## Configuration flow
 
-Private `values.yaml` and the OCI profile seed Kind. This repository supplies the
-chart directories and manifests at a pinned Git commit. `pins.yaml` selects official
+The host applies one Kustomize overlay to Kind: the Git source, the
+`tamoss-management` HelmRelease, a ConfigMap generated from private `values.yaml`
+and Secrets generated from the OCI profile. Flux installs the
+[management chart](../charts/management/) from Git with those values; the chart
+declares the controllers, the Crossplane APIs and the `TamossBootstrap` root.
+This repository supplies the chart directories and manifests at a pinned Git commit. `pins.yaml` selects official
 chart versions and upstream package/image digests. Unchanged upstream defaults,
 helper charts and instance manifests are checked in and compared with their pinned
 releases during local checks. See [source details](../deploy/gitops/README.md#sources-and-charts).

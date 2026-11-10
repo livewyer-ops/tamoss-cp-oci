@@ -53,8 +53,6 @@ run = [
   '''yq -i '.clusters[0].cluster.server = ("https://" + (load_str("{{ env.DIRECTORY }}/target-address") | trim) + ":6443")' '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
   "ENV_DIR={{ env.DIRECTORY | quote }} CLUSTER_ID=ocid1.cluster.oc1.fixture mise run cloud:remote:record",
   "cp '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig'",
-  "mkdir -p '{{ env.DIRECTORY }}/release/charts'",
-  "cp -a charts/deployment-inputs '{{ env.DIRECTORY }}/release/charts/'",
   '''yq -n '{"vaultId": "ocid1.vault.oc1.fixture"}' > '{{ env.DIRECTORY }}/foundation-record.yaml'''',
 ]
 env.OCI_CLI_CONFIG_FILE = "{{ vars.ROOT_DIR }}/tests/lifecycle/oci-config"
@@ -105,7 +103,7 @@ run = [
   "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-token.json'",
   "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-access.yaml'",
   "kubectl --kubeconfig '{{ env.DIRECTORY }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=10m -o json > '{{ env.DIRECTORY }}/remote-token.json'",
-  "helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/remote-access.yaml --set-file files.identity='{{ env.DIRECTORY }}/identity.yaml',files.remoteConfig='{{ env.DIRECTORY }}/remote.kubeconfig',files.remoteToken='{{ env.DIRECTORY }}/remote-token.json' > '{{ env.DIRECTORY }}/remote-access.yaml'",
+  "ENV_DIR='{{ env.DIRECTORY }}' mise run bootstrap:remote-access:render",
   "kubectl --kubeconfig '{{ env.DIRECTORY }}/management.kubeconfig' apply --server-side -f '{{ env.DIRECTORY }}/remote-access.yaml'",
   "install -m 600 '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
   "mise run test:oke-bootstrap:capture-access",

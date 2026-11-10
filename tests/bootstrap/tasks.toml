@@ -3,7 +3,7 @@
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''helm template bootstrap '{{ vars.ROOT }}/charts/bootstrap' --set-file environmentDefinition='{{ vars.ROOT }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT }}/deploy/secrets/bootstrap-values.yaml' | yq 'select(.kind == "Composition")' > '{{ env.TASKV_DIRECTORY }}/native-composition.yaml'''',
+  '''helm template bootstrap '{{ vars.ROOT }}/charts/bootstrap' | yq 'select(.kind == "Composition" and .metadata.name == "tamoss-bootstrap")' > '{{ env.TASKV_DIRECTORY }}/native-composition.yaml'''',
   '''yq '.spec.vaultAuth = {"user": "ocid1.user.oc1.fixture", "tenancy": "ocid1.tenancy.oc1.fixture"}' {{ env.TASKV_DIRECTORY }}/root.yaml > {{ env.TASKV_DIRECTORY }}/native-root.yaml''',
   '''yq 'with(select(.kind == "TamossEnvironment"); .status.outputs.clusterId = "ocid1.cluster.oc1.fixture")' '{{ env.TASKV_DIRECTORY }}/ready-observed.yaml' > '{{ env.TASKV_DIRECTORY }}/native-observed.yaml'''',
   "crossplane composition render '{{ env.TASKV_DIRECTORY }}/native-root.yaml' '{{ env.TASKV_DIRECTORY }}/native-composition.yaml' '{{ vars.ROOT }}/.local/tmp/check/functions.yaml' --include-full-xr --observed-resources='{{ env.TASKV_DIRECTORY }}/native-observed.yaml' --required-resources='{{ vars.ROOT }}/tests/bootstrap/credentials.yaml' --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/native.yaml'",
@@ -62,7 +62,7 @@ env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% el
 ["test:bootstrap:deliver-all"]
 hide = true
 run = [
-  '''yq '.deliveries | map({"key": ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-" + .name), "value": ({"accesskey": "fixture-only", "secretkey": "fixture-only", "accessKey": "fixture-only", "secretKey": "fixture-only"} | to_json(0))}) | {"apiVersion": "external-secrets.io/v1", "kind": "SecretStore", "metadata": {"name": "tamoss-vault", "namespace": "tamoss-infra"}, "spec": {"provider": {"fake": {"data": .}}}}' deploy/secrets/bootstrap-values.yaml > .local/tmp/check/bootstrap/fake-store.yaml''',
+  '''yq '.deliveries | map({"key": ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-" + .name), "value": ({"accesskey": "fixture-only", "secretkey": "fixture-only", "accessKey": "fixture-only", "secretKey": "fixture-only"} | to_json(0))}) | {"apiVersion": "external-secrets.io/v1", "kind": "SecretStore", "metadata": {"name": "tamoss-vault", "namespace": "tamoss-infra"}, "spec": {"provider": {"fake": {"data": .}}}}' charts/bootstrap/secret-values.yaml > .local/tmp/check/bootstrap/fake-store.yaml''',
   "kubectl apply -f .local/tmp/check/bootstrap/fake-store.yaml",
   '''yq 'select(.kind == "ExternalSecret")' .local/tmp/check/bootstrap/native-deliveries.yaml | kubectl apply -f -''',
 ]
@@ -123,9 +123,9 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p '{{ env.TASKV_DIRECTORY }}'",
-  "helm lint '{{ vars.ROOT }}/charts/bootstrap' --set-file environmentDefinition='{{ vars.ROOT }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT }}/charts/secret-foundation/definition.yaml'",
-  "helm template bootstrap '{{ vars.ROOT }}/charts/bootstrap' --set-file environmentDefinition='{{ vars.ROOT }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT }}/charts/secret-foundation/definition.yaml' > '{{ env.TASKV_DIRECTORY }}/api.yaml'",
-  '''yq 'select(.kind == "Composition")' {{ env.TASKV_DIRECTORY }}/api.yaml > {{ env.TASKV_DIRECTORY }}/composition.yaml''',
+  "helm lint '{{ vars.ROOT }}/charts/bootstrap'",
+  "helm template bootstrap '{{ vars.ROOT }}/charts/bootstrap' > '{{ env.TASKV_DIRECTORY }}/api.yaml'",
+  '''yq 'select(.kind == "Composition" and .metadata.name == "tamoss-bootstrap")' {{ env.TASKV_DIRECTORY }}/api.yaml > {{ env.TASKV_DIRECTORY }}/composition.yaml''',
   '''yq -n 'load("{{ vars.ROOT }}/environments/example/environment.yaml") as $e | {"apiVersion": "tamoss.livewyer.io/v1alpha1", "kind": "TamossBootstrap", "metadata": {"name": "bootstrap-check", "namespace": "tamoss-infra"}, "spec": {"deploymentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "released": false, "foundationName": "bootstrap-check", "foundation": load("{{ vars.ROOT }}/environments/example/foundation.yaml").spec, "environment": ($e.spec * {"managementPolicies": ["*"]})}}' > '{{ env.TASKV_DIRECTORY }}/root.yaml'''',
   "crossplane resource validate '{{ env.TASKV_DIRECTORY }}/api.yaml' '{{ env.TASKV_DIRECTORY }}/root.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT }}/.local/tmp/check/crossplane' --error-on-missing-schemas",
   "crossplane composition render '{{ env.TASKV_DIRECTORY }}/root.yaml' '{{ env.TASKV_DIRECTORY }}/composition.yaml' '{{ vars.ROOT }}/.local/tmp/check/functions.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_DIRECTORY }}/initial.yaml'",
@@ -155,16 +155,9 @@ hide = true
 run = [
   "mise run test:setup:fixture",
   "mise run test:setup:render",
-  "cp '{{ env.DIRECTORY }}/setup-render/setup/templates/'*.yaml '{{ env.DIRECTORY }}/'",
-  '''yq -n '{"deploymentUID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "oci":{"user":"ocid1.user.oc1.fixture", "tenancy":"ocid1.tenancy.oc1.fixture"}}' > '{{ env.DIRECTORY }}/identity.yaml'''',
-  "cp tests/assets/lock.yaml '{{ env.DIRECTORY }}/assets.lock.yaml'",
   "test ! -e '{{ env.DIRECTORY }}/management.kubeconfig'",
-  "mise run bootstrap:render",
   "crossplane resource validate '.local/tmp/check/bootstrap/api.yaml' '{{ env.DIRECTORY }}/bootstrap.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='.local/tmp/check/crossplane' --error-on-missing-schemas",
-  '''yq -e '.spec.credentialsEstablished == false and .spec.remoteBootstrap == null and .spec.storageCredentials.domainId == "ocid1.domain.oc1.fixture" and .spec.vaultAuth.user == "ocid1.user.oc1.fixture"' '{{ env.DIRECTORY }}/bootstrap.yaml'''',
-  '''yq -i '.credentialsEstablished = true' '{{ env.DIRECTORY }}/identity.yaml'''',
-  "mise run bootstrap:render",
-  '''yq -e '.credentialsEstablished == true and .instance.spec.credentialsEstablished == true and .instance.spec.deploymentId == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' '{{ env.DIRECTORY }}/management-values.yaml'''',
+  '''yq -e '(.spec.deploymentId | test("^[a-f0-9]{32}$")) and .spec.credentialsEstablished == false and .spec.remoteBootstrap == null and .spec.storageCredentials.domainId == "ocid1.domain.oc1.fixture" and .spec.vaultAuth.user == "ocid1.user.oc1.fixture"' '{{ env.DIRECTORY }}/bootstrap.yaml'''',
 ]
 env.DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
 env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
@@ -173,23 +166,23 @@ env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
 hide = true
 run = [
   "DIRECTORY='{{ env.TASKV_DIRECTORY }}' mise run test:setup:fixture",
-  "RELEASE_LOCK=deploy/tamoss/release.yaml OUTPUT='{{ env.TASKV_DIRECTORY }}/pins.yaml' mise run gitops:pins",
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --dry-run setup:resolve",
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:render",
-  "cp '{{ env.TASKV_DIRECTORY }}/setup-render/setup/templates/'*.yaml '{{ env.TASKV_DIRECTORY }}/'",
-  "helm template inputs charts/deployment-inputs --show-only templates/asset-lock.yaml --set-file files.source=tests/source/source.yaml,files.pins='{{ env.TASKV_DIRECTORY }}/pins.yaml' > '{{ env.TASKV_DIRECTORY }}/assets.lock.yaml'",
-  '''yq -e '[.data.schemaVersion == "4", .data.productCommit == load("tests/source/source.yaml").commit, (.data."values.yaml" | from_yaml | .assets.url) == load("tests/source/source.yaml").url, (.data."values.yaml" | from_yaml | .assets.secretName) == "deployment-git", ((.data."values.yaml" | from_yaml).tadoss.enabled == null)] | all' '{{ env.TASKV_DIRECTORY }}/assets.lock.yaml' ''',
-  "helm template inputs charts/deployment-inputs --set-file files.foundation='{{ env.TASKV_DIRECTORY }}/foundation.yaml',files.environment='{{ env.TASKV_DIRECTORY }}/environment.yaml',files.identity='{{ env.TASKV_DIRECTORY }}/identity.yaml',files.settings='{{ env.TASKV_DIRECTORY }}/settings.yaml',files.product='{{ env.TASKV_DIRECTORY }}/product.yaml',files.assets='{{ env.TASKV_DIRECTORY }}/assets.lock.yaml',files.pins='{{ env.TASKV_DIRECTORY }}/pins.yaml',files.dependencies=dependencies.yaml,files.packages=charts/packages/values.yaml,files.externalSecrets=deploy/secrets/controller-values.yaml,files.environmentDefinition=charts/environment/definition.yaml,files.ociProfile='{{ env.TASKV_DIRECTORY }}/discovery/profile.yaml' --output-dir '{{ env.TASKV_DIRECTORY }}/render'",
-  "helm template management charts/management -f '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/management.yaml' --set-file environmentDefinition=charts/environment/definition.yaml,foundationDefinition=charts/secret-foundation/definition.yaml,secretBootstrapFile=deploy/secrets/bootstrap-values.yaml > '{{ env.TASKV_DIRECTORY }}/management.yaml'",
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:overlay",
+  "helm template management charts/management -f pins.yaml -f '{{ env.TASKV_DIRECTORY }}/values.yaml' -f '{{ env.TASKV_DIRECTORY }}/deployment.yaml' > '{{ env.TASKV_DIRECTORY }}/management.yaml'",
   '''yq -e 'select(.metadata.name == "bootstrap-ready") | .spec.healthChecks[0].name == "setup-test" and (.spec.healthCheckExprs[0].current | contains("status.observedGeneration == metadata.generation"))' '{{ env.TASKV_DIRECTORY }}/management.yaml'''',
-  '''yq eval-all -e '[select(.kind == "Kustomization") | .metadata.name] | sort | join(",") == "platform-defaults,runtime"' '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/remote.yaml'''',
-  '''yq -e 'select(.metadata.name == "runtime") | .spec.healthChecks[0].name == "tamoss-gitops" and .spec.kubeConfig == null' '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/remote.yaml'''',
-  '''yq eval-all -e '[select(.metadata.name == "oci-api-key") | .stringData.credentials | from_json] | [length == 1, .[0].private_key == load_str("tests/setup/signing-key"), .[0].private_key_password == "fixture-passphrase", .[0].user_ocid == "ocid1.user.oc1.fixture"] | all' '{{ env.TASKV_DIRECTORY }}/render/deployment-inputs/templates/seed-secrets.yaml'''',
-  '''yq '.private = false | .url = "https://github.com/example/deployment.git"' tests/source/source.yaml > '{{ env.TASKV_DIRECTORY }}/public-source.yaml' ''',
-  "helm template inputs charts/deployment-inputs --show-only templates/asset-lock.yaml --set-file files.source='{{ env.TASKV_DIRECTORY }}/public-source.yaml',files.pins='{{ env.TASKV_DIRECTORY }}/pins.yaml' > '{{ env.TASKV_DIRECTORY }}/public-lock.yaml'",
-  '''yq '.data."values.yaml" | from_yaml' '{{ env.TASKV_DIRECTORY }}/public-lock.yaml' > '{{ env.TASKV_DIRECTORY }}/public-values.yaml' ''',
-  "helm template management charts/management -f '{{ env.TASKV_DIRECTORY }}/public-values.yaml' --show-only templates/source.yaml > '{{ env.TASKV_DIRECTORY }}/public-render.yaml'",
-  '''yq -e 'select(.kind == "GitRepository") | .spec.url == "https://github.com/example/deployment.git" and .spec.secretRef == null' '{{ env.TASKV_DIRECTORY }}/public-render.yaml' ''',
+  '''yq eval-all -e '[select(.kind == "Kustomization") | .metadata.name] | sort | join(",") == "bootstrap-ready,platform-defaults,runtime"' '{{ env.TASKV_DIRECTORY }}/management.yaml'''',
+  '''yq -e 'select(.metadata.name == "runtime") | .spec.healthChecks[0].name == "tamoss-gitops" and .spec.kubeConfig == null' '{{ env.TASKV_DIRECTORY }}/management.yaml'''',
+  '''yq -e 'select(.metadata.name == "tamoss-assets") | .data."values.yaml" | from_yaml | [.assets.url == load("tests/source/source.yaml").url, .assets.commit == load("tests/source/source.yaml").commit, .assets.secretName == "deployment-git", .tadoss.enabled == null, .release.tag == load("pins.yaml").release.tag] | all' '{{ env.TASKV_DIRECTORY }}/management.yaml'''',
+  "kubectl kustomize '{{ env.TASKV_DIRECTORY }}' > '{{ env.TASKV_DIRECTORY }}/seed.yaml'",
+  '''yq eval-all -e '[select(.metadata.name == "oci-api-key") | .data.credentials | @base64d | from_json] | [length == 1, .[0].private_key == load_str("tests/setup/signing-key"), .[0].private_key_password == "fixture-passphrase", .[0].user_ocid == "ocid1.user.oc1.fixture"] | all' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
+  '''yq -e 'select(.metadata.name == "oci-vault-bootstrap") | [(.data.privatekey | @base64d) == load_str("tests/setup/signing-key"), (.data.passphrase | @base64d) == "fixture-passphrase", (.data.user | @base64d) == "ocid1.user.oc1.fixture", (.data.tenancy | @base64d) == "ocid1.tenancy.oc1.fixture", (.data.fingerprint | @base64d) == "fixture"] | all' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
+  '''yq -e 'select(.kind == "ConfigMap") | .metadata.name == "tamoss-deployment" and .metadata.namespace == "tamoss-infra" and (.data."values.yaml" | from_yaml | .name) == "setup-test" and (.data."deployment.yaml" | from_yaml | .assets.secretName) == "deployment-git"' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
+  '''yq -e 'select(.kind == "HelmRelease") | .metadata.namespace == "tamoss-infra" and .spec.chart.spec.valuesFiles[1] == "./pins.yaml" and (.spec.valuesFrom | length) == 2' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
+  '''yq -e 'select(.kind == "GitRepository") | .metadata.namespace == "tamoss-infra" and .spec.url == load("tests/source/source.yaml").url and .spec.secretRef.name == "deployment-git"' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
+  '''yq -i '.assets.secretName = "" | .assets.url = "https://github.com/example/deployment.git"' '{{ env.TASKV_DIRECTORY }}/deployment.yaml'''',
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:overlay",
+  '''yq -e '.spec.url == "https://github.com/example/deployment.git" and .spec.secretRef == null' '{{ env.TASKV_DIRECTORY }}/source.yaml'''',
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/seed-inputs'
 

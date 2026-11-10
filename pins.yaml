@@ -1,5 +1,5 @@
 ---
-# Source: deployment-inputs/templates/pins.yaml
+# Source: pins/templates/pins.yaml
 tadoss:
   enabled: false
   release:

@@ -284,8 +284,8 @@ environment explicitly with `down` when it is no longer needed.
 
 ## Release selection
 
-Deployment records the repository commit and pinned upstream dependencies in
-`assets.lock.yaml`. Retain the matching source checkout for operations and teardown.
+Deployment records the repository commit in `source.json`; `pins.yaml` at that
+commit selects the upstream dependencies. Retain the matching source checkout for operations and teardown.
 Commit and push source changes before creating a fresh demo. Upgrades of an
 existing deployment and migration from earlier ownership models remain unqualified.
 
