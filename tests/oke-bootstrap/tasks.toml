@@ -41,6 +41,8 @@ run = [
 hide = true
 run = [
   '''cp "$KUBECONFIG" '{{ env.DIRECTORY }}/management.kubeconfig'''',
+  # Earlier suites in the shared Kind leave a loopback access Secret behind.
+  "kubectl -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
   '''yq '.metadata.name = "host-seed" | .metadata.namespace = "tamoss-infra" | .metadata.annotations."crossplane.io/paused" = "true" | .spec.credentialsEstablished = true' '.local/tmp/check/bootstrap/native-root.yaml' > '{{ env.DIRECTORY }}/bootstrap.yaml'''',
   '''yq '{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": {"name": .metadata.name, "namespace": .metadata.namespace}, "spec": .spec.environment}' '{{ env.DIRECTORY }}/bootstrap.yaml' > '{{ env.DIRECTORY }}/environment.yaml'''',
   "ENV_DIR={{ env.DIRECTORY | quote }} mise run identity:observe-inputs",
