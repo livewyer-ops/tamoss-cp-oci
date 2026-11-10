@@ -32,7 +32,7 @@ run = [
 helm template management '{{ vars.ROOT_DIR }}/charts/management' -f '{{ vars.ROOT_DIR }}/pins.yaml' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/deployment.yaml' --show-only templates/instance.yaml | yq 'select(.kind == "ConfigMap") | .data."values.yaml" | from_yaml | .bootstrap' > '{{ vars.ENV_DIR }}/bootstrap.yaml'
 yq '{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": .metadata, "spec": .spec.environment}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/environment.yaml'
 yq '{"apiVersion": .apiVersion, "kind": "SecretFoundation", "metadata": {"name": .spec.foundationName, "namespace": .metadata.namespace}, "spec": .spec.foundation}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/foundation.yaml'
-yq '{"tadoss": {"enabled": (load("{{ vars.ENV_DIR }}/values.yaml").tadoss.enabled // false)}, "storageIdentity": (.spec.storageCredentials | del(.images))}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/settings.yaml'
+yq 'load("{{ vars.ENV_DIR }}/values.yaml") as $v | {"acmeEmail": ($v.acmeEmail // $v.contactEmail), "adminEmail": ($v.adminEmail // $v.contactEmail), "tadoss": {"enabled": ($v.tadoss.enabled // false)}, "storageIdentity": (.spec.storageCredentials | del(.images))}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/settings.yaml'
 ''',
 ]
 
