@@ -11,6 +11,9 @@ spec:
   releaseName: tadoss-config
   targetNamespace: auth
   storageNamespace: auth
+  # The chart also writes to the operator's namespace, which may not exist yet.
+  install: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  upgrade: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
   dependsOn:
     - {name: tamoss-secrets-auth, namespace: tamoss-infra}
     - {name: tamoss-database-init, namespace: tamoss-infra}
