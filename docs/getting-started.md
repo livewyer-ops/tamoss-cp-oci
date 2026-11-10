@@ -125,7 +125,7 @@ After current source/chart revisions and public TLS are ready, `up` prints URLs
 and writes initial login details to `.local/environment/access/ui-login.json`.
 OKE access remains available in Kind until workload cleanup finishes. See the
 [full process](../deploy/gitops/README.md#process-and-execution-context), including
-token expiry and renewal.
+how that access is issued and revoked.
 
 `up` accepts only a fresh deployment directory. Keep its inputs unchanged during
 installation. `mise run check` is a contributor validation command; it is not

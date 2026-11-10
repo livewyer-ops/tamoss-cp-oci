@@ -19,17 +19,17 @@ has completed. OKE runs External Secrets and the application controllers.
 | Install the platform | Flux in Kind -> OKE | Install External Secrets, ingress, certificates, Authentik and database initialisation. Chart values and substitutions are read in Kind; SQL Jobs run in OKE. |
 | Install the application | Flux in Kind -> OKE | Apply the upstream TAMOSS operator and the checked-in instance overlay; include TADOSS when enabled before deployment. |
 | Observe | Kind; host reads results | Check current source/chart revisions and remote workload health. Print application URLs and the location of private login details. |
-| Remove workloads | Kind -> OKE | Suspend deployment reconciliation, renew OKE access, run application finalisers and uninstall remote releases while their operators remain available. |
+| Remove workloads | Kind -> OKE | Suspend deployment reconciliation, run application finalisers and uninstall remote releases while their operators remain available. |
 | Remove infrastructure | Kind -> OCI | Empty owned storage, delete infrastructure and backups, retire credentials and schedule Vault secret deletion. Host reads OCI inventory to verify cleanup. |
 | Remove management | Host | Revoke the per-deployment Git key and delete Kind after the cleanup audit passes; retain local records and the Vault/key ownership record. |
 
 The host exception is OKE access: the pinned Crossplane OCI provider does not
-supply the renewable kubeconfig needed here. Stock Flux needs a self-contained
-kubeconfig and cannot run the OCI exec authentication plugin. The token request
-asks for 24 hours; the API server determines the actual expiry, recorded on the
-Kind Secret. `bootstrap:remote-access:renew` renews it against the recorded OKE
-identity. Qualification and teardown renew access before using it. There is no
-background host process to renew tokens automatically.
+supply the kubeconfig needed here. Stock Flux needs a self-contained kubeconfig
+and cannot run the OCI exec authentication plugin. The host creates a
+ServiceAccount token Secret on OKE and copies its token into the Kind Secret. The
+token does not expire: Kind already holds the OCI signing key, so an expiry would
+add renewal work without limiting Kind's authority. Teardown revokes the token by
+deleting its namespace after workload cleanup.
 
 ## Sources and charts
 

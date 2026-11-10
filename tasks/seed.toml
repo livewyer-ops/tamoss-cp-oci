@@ -30,7 +30,9 @@ hide = true
 run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-rbac.yaml'",
   """umask 077
-kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=24h -o json > '{{ vars.ENV_DIR }}/remote-token.json'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ROOT_DIR }}/deploy/management/remote-token.yaml'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap wait secret/oke-bootstrap-token --for=jsonpath='{.data.token}' --timeout=60s > /dev/null
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap get secret oke-bootstrap-token -o json > '{{ vars.ENV_DIR }}/remote-token.json'
 mise run bootstrap:remote-access:render
 kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-access.yaml'""",
 ]
@@ -41,7 +43,7 @@ hide = true
 quiet = true
 run = [
   '''umask 077
-yq -n -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | load("{{ vars.ENV_DIR }}/remote-token.json").status as $t | {"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": {"name": "oke-bootstrap-access", "namespace": "tamoss-infra", "labels": {"tamoss.livewyer.io/deployment-id": $i.deploymentUID}, "annotations": {"tamoss.livewyer.io/cluster-id": $i.clusterID, "tamoss.livewyer.io/cluster-uid": $i.remoteUID, "tamoss.livewyer.io/token-expires": ($t.expirationTimestamp | select(. != null))}}, "stringData": {"value.yaml": ({"apiVersion": "v1", "kind": "Config", "clusters": [{"name": "oke", "cluster": {"server": $i.remoteServer, "certificate-authority-data": (load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster."certificate-authority-data" | select(. != null))}}], "users": [{"name": "bootstrap", "user": {"token": ($t.token | select(. != null))}}], "contexts": [{"name": "oke", "context": {"cluster": "oke", "user": "bootstrap"}}], "current-context": "oke"} | to_yaml)}}' > '{{ vars.ENV_DIR }}/remote-access.yaml'''',
+yq -n -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | (load("{{ vars.ENV_DIR }}/remote-token.json").data.token | select(. != null) | @base64d) as $t | {"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": {"name": "oke-bootstrap-access", "namespace": "tamoss-infra", "labels": {"tamoss.livewyer.io/deployment-id": $i.deploymentUID}, "annotations": {"tamoss.livewyer.io/cluster-id": $i.clusterID, "tamoss.livewyer.io/cluster-uid": $i.remoteUID}}, "stringData": {"value.yaml": ({"apiVersion": "v1", "kind": "Config", "clusters": [{"name": "oke", "cluster": {"server": $i.remoteServer, "certificate-authority-data": (load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster."certificate-authority-data" | select(. != null))}}], "users": [{"name": "bootstrap", "user": {"token": $t}}], "contexts": [{"name": "oke", "context": {"cluster": "oke", "user": "bootstrap"}}], "current-context": "oke"} | to_yaml)}}' > '{{ vars.ENV_DIR }}/remote-access.yaml'''',
 ]
 
 ["bootstrap:remote-access:cleanup"]
@@ -82,15 +84,3 @@ run = [
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-access:cleanup",
 ]
 
-["bootstrap:remote-access:renew"]
-hide = true
-description = "Renew Kind access to the recorded OKE cluster"
-run = [
-  { task = "bootstrap:remote-guard" },
-  "mise run bootstrap:remote-access:issue",
-]
-
-["bootstrap:remote-access:renew-for-cleanup"]
-hide = true
-skip_if = '''yq -e '.applicationRemoved == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || yq -e '[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null'''
-run = [{ task = "bootstrap:remote-access:renew" }]

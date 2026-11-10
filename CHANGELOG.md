@@ -22,6 +22,8 @@
   `TamossBootstrap` root in-cluster. The host-only `setup`, `deployment-inputs`
   templates and the local release copy are removed; the three API charts install
   as one `tamoss-bootstrap-api` release.
+- Give Kind a non-expiring ServiceAccount token for OKE and remove
+  `bootstrap:remote-access:renew`. Teardown still revokes the token.
 - Stop recording infrastructure external names in Vault. Nothing consumed the
   snapshot; bootstrap readiness no longer waits for its readback.
 - Run the S3 credential Job with the pinned upstream OCI CLI and kubectl images.

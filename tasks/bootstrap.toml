@@ -208,7 +208,6 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:resources",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:observe-owned",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:remote",
-  "mise run bootstrap:remote-access:renew-for-cleanup",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-application",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-revoke",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:prepare-deletion",
@@ -251,7 +250,7 @@ run = [
 ["bootstrap:ready"]
 hide = true
 run = [
-  { task = "bootstrap:remote-access:renew" },
+  { task = "bootstrap:remote-guard" },
   { task = "bootstrap:local-ready" },
 ]
 

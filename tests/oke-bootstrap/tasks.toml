@@ -96,16 +96,3 @@ run = [
   "kubectl --kubeconfig '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' --request-timeout=10s get namespace kube-system -o name",
 ]
 
-["test:oke-bootstrap:short-access"]
-hide = true
-quiet = true
-run = [
-  "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-token.json'",
-  "install -m 600 /dev/null '{{ env.DIRECTORY }}/remote-access.yaml'",
-  "kubectl --kubeconfig '{{ env.DIRECTORY }}/remote.kubeconfig' -n tamoss-bootstrap create token oke-bootstrap --duration=10m -o json > '{{ env.DIRECTORY }}/remote-token.json'",
-  "ENV_DIR='{{ env.DIRECTORY }}' mise run bootstrap:remote-access:render",
-  "kubectl --kubeconfig '{{ env.DIRECTORY }}/management.kubeconfig' apply --server-side -f '{{ env.DIRECTORY }}/remote-access.yaml'",
-  "install -m 600 '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
-  "mise run test:oke-bootstrap:capture-access",
-]
-depends_post = ["bootstrap:remote-access:cleanup"]

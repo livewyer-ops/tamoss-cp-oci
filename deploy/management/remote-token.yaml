@@ -1,0 +1,9 @@
+# Kind already holds the OCI signing key, so an expiring token adds renewal work
+# without limiting what Kind can do. Deleting the namespace revokes this token.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oke-bootstrap-token
+  namespace: tamoss-bootstrap
+  annotations: {kubernetes.io/service-account.name: oke-bootstrap}
+type: kubernetes.io/service-account-token
