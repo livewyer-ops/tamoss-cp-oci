@@ -175,7 +175,7 @@ provisioner account and its API key, group and policy.
 | --- | --- |
 | Git delivery and readiness | Private SSH fetch, chart packaging from the selected commit and current-revision deployment readiness passed. Fresh `up` completed in approximately 26 minutes |
 | Execution context | Database metadata lookup completed in Kind; SQL initialisation ran in OKE. OKE contained no Flux or Crossplane deployment |
-| Remote access | The host issued a token with a recorded 24-hour expiry. Renewal passed; teardown removed the remote service account, binding and Kind access Secret after application removal |
+| Remote access | The host issued a non-expiring ServiceAccount token; teardown removed the remote service account, binding and Kind access Secret after application removal |
 | Storage and secrets | Generated storage credentials, Vault synchronisation, external PostgreSQL and S3 access passed |
 | TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, all five selected browser tests, replica placement and network policy passed |
 | Worker disruption | All 540 API/login-path requests succeeded across the worker drain; the worker was uncordoned and post-drain media reads passed |
