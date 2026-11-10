@@ -231,17 +231,24 @@ spec:
               kind: IngestRun
               metadata: {name: qualification, namespace: tams}
         - command: *remove
-    - name: runtime access cleanup distinguishes installed releases from failed discovery
+    - name: runtime access cleanup distinguishes remaining policies from failed discovery
       try:
         - apply:
             resource:
-              apiVersion: helm.toolkit.fluxcd.io/v2
-              kind: HelmRelease
-              metadata: {name: runtime-access, namespace: tamoss-infra}
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                name: runtime-access-fixture
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/paused: "true"}
               spec:
-                suspend: true
-                interval: 1m
-                chartRef: {kind: OCIRepository, name: tamoss-chart-runtime-access}
+                providerConfigRef: {kind: ProviderConfig, name: oci}
+                forProvider:
+                  compartmentId: ocid1.compartment.oc1..fixture
+                  name: runtime-access-fixture
+                  description: Fixture
+                  statements: ["Allow any-user to read secret-bundles in compartment id ocid1.compartment.oc1..fixture"]
         - command:
             entrypoint: env
             env: *paths
@@ -251,7 +258,7 @@ spec:
         - command: &removeRuntimeFixture
             entrypoint: kubectl
             env: *paths
-            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, delete, helmrelease/runtime-access, -n, tamoss-infra, --ignore-not-found]
+            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, delete, policy.identity.oci.m.upbound.io/runtime-access-fixture, -n, tamoss-infra, --ignore-not-found, --timeout=60s]
         - command: &runtimeStatus
             entrypoint: env
             env: *paths

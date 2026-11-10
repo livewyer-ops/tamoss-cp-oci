@@ -11,7 +11,6 @@
 {{- range (dig "status" "conditions" (list) $secretRelease) -}}
 {{- if and (eq .type "Ready") (eq .status "True") (not (dig "spec" "values" "initialise" true $secretRelease)) (eq (dig "status" "observedGeneration" 0 $secretRelease) (dig "metadata" "generation" -1 $secretRelease)) -}}{{- $storageRetired = true -}}{{- end -}}
 {{- end -}}
-{{- $accessRelease := (get .observed.resources "runtime-access" | default dict).resource | default dict -}}
 {{- $foundation := (get .observed.resources "foundation" | default dict).resource | default dict -}}
 {{- $environment := (get .observed.resources "environment" | default dict).resource | default dict -}}
 {{- if and $environment (ne (index $environment.metadata.annotations "tamoss.livewyer.io/deployment-id") $p.deploymentId) -}}
@@ -58,16 +57,13 @@
 {{- range (dig "status" "conditions" (list) $environment) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
 {{- end -}}
-{{- $accessReady := not (hasKey $p "vaultAuth") -}}
-{{- range (dig "status" "conditions" (list) $accessRelease) -}}
-{{- if and (eq .type "Ready") (eq .status "True") (eq (dig "status" "observedGeneration" 0 $accessRelease) ($accessRelease.metadata.generation | default 0)) -}}{{- $accessReady = true -}}{{- end -}}
-{{- end -}}
+{{- $runtimeSecrets := dict "auth" (list "database-admin" "tams-database" "tadoss-database" "tadoss-oauth") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
+{{- $accessReady := true -}}
 {{- if hasKey $p "vaultAuth" -}}
-{{- $policies := dig "runtimePolicies" "items" (list) (.extraResources | default dict) -}}
-{{- $accessReady = and $accessReady (eq (len $policies) 3) -}}
-{{- range $policies -}}
+{{- range $namespace, $names := $runtimeSecrets -}}
+{{- $policy := (get $.observed.resources (printf "runtime-policy-%s" $namespace) | default dict).resource | default dict -}}
 {{- $ready := false -}}{{- $synced := false -}}
-{{- range (dig "status" "conditions" (list) .resource) -}}
+{{- range (dig "status" "conditions" (list) $policy) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
 {{- if and (eq .type "Synced") (eq .status "True") -}}{{- $synced = true -}}{{- end -}}
 {{- end -}}
@@ -94,13 +90,6 @@ requirements:
       tamoss.livewyer.io/credential-operation: s3
       tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
 {{- end }}
-  runtimePolicies:
-    apiVersion: identity.oci.m.upbound.io/v1alpha1
-    kind: Policy
-    namespace: {{ $xr.metadata.namespace }}
-    matchLabels:
-      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
-      tamoss.livewyer.io/iam-role: runtime
   credentials:
     apiVersion: external-secrets.io/v1
     kind: ExternalSecret
@@ -187,37 +176,40 @@ spec:
           privatekey: {name: oci-vault-bootstrap, key: privatekey}
           fingerprint: {name: oci-vault-bootstrap, key: fingerprint}
 {{- end }}
-{{- $cluster := dig "status" "outputs" "clusterId" "" $environment | default (dig "spec" "values" "clusterId" "" $accessRelease) -}}
+{{- $cluster := dig "status" "outputs" "clusterId" "" $environment -}}
+{{- range $namespace, $names := $runtimeSecrets -}}
+{{- $policy := (get $.observed.resources (printf "runtime-policy-%s" $namespace) | default dict).resource | default dict -}}
+{{- $cluster = $cluster | default (dig "metadata" "annotations" "tamoss.livewyer.io/cluster-id" "" $policy) -}}
+{{- end -}}
 {{- if and $vault $cluster }}
+{{- if not (and (regexMatch "^ocid1\\.cluster\\.[a-zA-Z0-9.-]+$" $cluster) (regexMatch "^ocid1\\.vault\\.[a-zA-Z0-9.-]+$" $vault) (regexMatch "^ocid1\\.compartment\\.[a-zA-Z0-9.-]+$" $p.environment.compartmentId)) -}}
+{{- fail "Runtime policy inputs must be plain OCIDs" -}}
+{{- end }}
+{{- range $namespace, $names := $runtimeSecrets }}
 ---
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
 metadata:
-  name: runtime-access
+  name: {{ $p.deploymentId }}-secrets-{{ $namespace }}
   namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
   annotations:
-    {{ setResourceNameAnnotation "runtime-access" }}
-    gotemplating.fn.crossplane.io/ready: {{ $accessReady | toString | title | quote }}
+    {{ setResourceNameAnnotation (printf "runtime-policy-%s" $namespace) }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
 spec:
-  interval: 1m
-  timeout: 5m
-  releaseName: runtime-access
-  install:
-    strategy: {name: RetryOnFailure, retryInterval: 30s}
-  upgrade:
-    strategy: {name: RetryOnFailure, retryInterval: 30s}
-  chart:
-    spec:
-      chart: ./charts/runtime-access
-      reconcileStrategy: Revision
-      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
-  values:
-    deploymentId: {{ $p.deploymentId | quote }}
-    compartmentId: {{ $p.environment.compartmentId | quote }}
-    providerConfigName: {{ $p.environment.providerConfigName | quote }}
-    clusterId: {{ $cluster | quote }}
-    vaultId: {{ $vault | quote }}
-    bucket: {{ $p.environment.storage.bucket | quote }}
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-secrets-{{ $namespace }}
+    description: {{ printf "Read persisted credentials for %s" $namespace | quote }}
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+{{- range $names }}
+      - {{ printf "Allow any-user to read secret-bundles in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = '%s', request.principal.service_account = '%s', target.vault.id = '%s', target.secret.name = '%s-%s'}" $p.environment.compartmentId $cluster $namespace "tamoss-vault" $vault $p.deploymentId . | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if or $environment (not $p.released) }}

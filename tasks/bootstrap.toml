@@ -215,7 +215,6 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:delete-backups",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:audit",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-access",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --for=delete --timeout=300s",
   "mise run storage:retire",
   "mise run storage:delete-identity",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:secret-inventory",
@@ -233,9 +232,9 @@ env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(
 ["bootstrap:remove-access:apply"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
-skip_if = "(test -s '{{ vars.ENV_DIR }}/management.kubeconfig') && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get helmrelease/runtime-access --ignore-not-found -o json | yq -p=json -e 'length == 0')"
+skip_if = "(test -s '{{ vars.ENV_DIR }}/management.kubeconfig') && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime -o json | yq -p=json -e '.items | length == 0')"
 run = [
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete helmrelease/runtime-access --ignore-not-found --wait=true --timeout=600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete policy.identity.oci.m.upbound.io -l tamoss.livewyer.io/iam-role=runtime --ignore-not-found --wait=true --timeout=600s",
 ]
 
 ["bootstrap:remove-access"]

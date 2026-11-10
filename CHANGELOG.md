@@ -24,6 +24,8 @@
   as one `tamoss-bootstrap-api` release.
 - Give Kind a non-expiring ServiceAccount token for OKE and remove
   `bootstrap:remote-access:renew`. Teardown still revokes the token.
+- Compose the three runtime IAM policies directly in `TamossBootstrap` and remove
+  the `runtime-access` chart and its HelmRelease.
 - Stop recording infrastructure external names in Vault. Nothing consumed the
   snapshot; bootstrap readiness no longer waits for its readback.
 - Run the S3 credential Job with the pinned upstream OCI CLI and kubectl images.
