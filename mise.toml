@@ -37,8 +37,12 @@ OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependen
 [tasks."setup"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Prepare private deployment settings"
+description = "Discover OCI defaults and prepare private deployment settings"
 depends = ["setup:initialise"]
+run = [
+  { task = "setup:discover" },
+  "echo 'Complete compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml, review the discovered settings, then run mise run up.'",
+]
 
 [tasks."check"]
 hide = false

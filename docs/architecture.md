@@ -25,7 +25,7 @@ flowchart LR
 | Owner | Responsibility |
 | --- | --- |
 | Account administrator | Dedicated compartment, OCI profile, signing key and prerequisites |
-| Host | Start Kind, establish private Git access, issue OKE access, read audit results and remove Kind last |
+| Host | Discover setup defaults, start Kind, establish private Git access, issue OKE access, read audit results and remove Kind last |
 | Crossplane in Kind | Vault/key ownership, credentials, storage identity, networking, OKE/workers, PostgreSQL, bucket and reserved public IP |
 | Flux in Kind | Management and remote platform releases, overlays, application declarations and readiness |
 | OKE cloud controller | Load balancer created by the ingress Service |

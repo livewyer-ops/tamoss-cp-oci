@@ -21,6 +21,7 @@ mise run check
 | Operational Jobs | Shared retry bounds, security, image and temporary-storage contract for the remaining Jobs; rejection of missing deadlines and unsafe container permissions |
 | Remote OKE deployment | Git source, local values and substitutions, and access/retirement rendering contracts; controller checks run under `check:management` |
 | Installation flow | Fresh-install command sequencing, refusal to reuse an existing deployment, failure propagation and credential-export cleanup; Git source selection, public authentication bypass and dependency-lock validation |
+| Setup discovery | Fixture-backed OCI/IP lookups, image selection, domain placement, explicit overrides, failure preservation and refusal to change existing deployments |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
 The check builds the container for the selected release's unchanged browser tests.

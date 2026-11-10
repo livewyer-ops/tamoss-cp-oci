@@ -1,0 +1,11 @@
+{"data": {
+  "shapes": ["VM.Standard.E5.Flex"],
+  "sources": [
+    {"source-type": "IMAGE", "source-name": "Oracle-Linux-8.10-2026.11.01-0-OKE-1.36.0-999", "image-id": "ocid1.image.oc1.older"},
+    {"source-type": "IMAGE", "source-name": "Oracle-Linux-8.10-2026.11.02-0-OKE-1.36.0-1000", "image-id": "ocid1.image.oc1.fixture"},
+    {"source-type": "IMAGE", "source-name": "Oracle-Linux-8.10-2026.11.02-0-OKE-1.36.1-1001", "image-id": "ocid1.image.oc1.other-version"},
+    {"source-type": "IMAGE", "source-name": "Oracle-Linux-8.10-aarch64-2026.11.02-0-OKE-1.36.0-9999", "image-id": "ocid1.image.oc1.arm"},
+    {"source-type": "IMAGE", "source-name": "Oracle-Linux-8.10-Gen2-GPU-2026.11.02-0-OKE-1.36.0-9999", "image-id": "ocid1.image.oc1.gpu"},
+    {"source-type": "IMAGE", "source-name": "Oracle-Linux-8.10-2026.11.03-0", "image-id": "ocid1.image.oc1.platform"}
+  ]
+}}
