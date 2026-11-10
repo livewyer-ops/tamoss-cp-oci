@@ -35,7 +35,7 @@ spec:
         env: *id001
         args:
         - run
-        - test:oke-bootstrap:short-access
+        - test:oke-bootstrap:capture-access
   - name: reconcile Helm and Kustomize remotely with values held in Kind
     try:
     - assert:
@@ -127,52 +127,7 @@ spec:
         args:
         - $DIRECTORY/remote.saved.kubeconfig
         - $DIRECTORY/remote.kubeconfig
-  - name: observe actual token expiry and renew through the production task
-    try:
-    - assert:
-        resource:
-          apiVersion: kustomize.toolkit.fluxcd.io/v1
-          kind: Kustomization
-          metadata:
-            name: oke-workload
-            namespace: tamoss-infra
-          status:
-            (conditions[?type == 'Ready'] | [0].status): 'False'
-            (contains(conditions[?type == 'Ready'] | [0].message, 'credentials')): true
-        timeout: 14m
-    - command:
-        entrypoint: mise
-        env: *id001
-        args:
-        - run
-        - test:oke-bootstrap:retired-access
-        check:
-          ($error != null): true
-    - command:
-        entrypoint: mise
-        env: *id001
-        args:
-        - run
-        - bootstrap:remote-access:renew
-    - assert:
-        resource:
-          apiVersion: kustomize.toolkit.fluxcd.io/v1
-          kind: Kustomization
-          metadata:
-            name: oke-workload
-            namespace: tamoss-infra
-          (status.observedGeneration == metadata.generation): true
-          status: *id002
-    - assert:
-        resource:
-          apiVersion: kustomize.toolkit.fluxcd.io/v1
-          kind: Kustomization
-          metadata:
-            name: oke-ready
-            namespace: tamoss-infra
-          (status.observedGeneration == metadata.generation): true
-          status: *id002
-  - name: keep access renewable during teardown until workload cleanup finishes
+  - name: keep access usable during teardown until workload cleanup finishes
     try:
     - command:
         entrypoint: yq
@@ -186,7 +141,7 @@ spec:
         env: *id001
         args:
         - run
-        - bootstrap:remote-access:renew
+        - test:oke-bootstrap:seed
     - command:
         entrypoint: mise
         env: *id001
@@ -231,7 +186,7 @@ spec:
         env: *id001
         args:
         - run
-        - bootstrap:remote-access:renew
+        - test:oke-bootstrap:seed
         check:
           ($error != null): true
     - command:
@@ -342,6 +297,6 @@ spec:
         env: *id001
         args:
         - run
-        - bootstrap:remote-access:renew
+        - test:oke-bootstrap:seed
         check:
           ($error != null): true

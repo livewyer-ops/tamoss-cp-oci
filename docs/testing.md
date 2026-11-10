@@ -44,8 +44,8 @@ The remote deployment test adds a second disposable Kind cluster. Production
 credential tasks establish a real ServiceAccount token. Flux in the management
 cluster reads an authenticated local SSH Git fixture and applies a Helm release
 and Kustomize workload remotely. Values and substitutions stay in the management
-cluster. The test checks TLS/identity rejection, actual ten-minute token expiry,
-renewal, revocation and suspended declarations across controller restart.
+cluster. The test checks TLS/identity rejection, continued access during teardown,
+revocation and suspended declarations across controller restart.
 The target has no Flux installation. Kind's certificate supplies administrator
 access in the fixture; this does not qualify OCI authentication or OKE token caps.
 The local Git fixture requires `sshd` on the host and a free port 22422 reachable
@@ -190,8 +190,7 @@ underlying cause remains unconfirmed. Earlier local testing also observed an
 intermittent blueprint failure. The local suites have passed across focused runs;
 a clean uninterrupted management-suite run remains outstanding.
 
-Local controller checks additionally cover actual token expiry, rejected renewal
-after revocation, invalid cluster identity and interrupted retirement. Release
+Local controller checks additionally cover rejected access issue after revocation, invalid cluster identity and interrupted retirement. Release
 upgrades, credential rotation, managed-database failover, browser logout-button
 interaction, regional recovery and management-state restoration remain unqualified.
 Earlier OCI external-binding loss and intermittent ACME failures were not

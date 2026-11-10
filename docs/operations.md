@@ -151,8 +151,8 @@ kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra de
 ```
 
 The OCI kubeconfig on the host remains available for observation and teardown.
-Kind's separate ServiceAccount token expires at the time recorded on its Secret;
-the API server controls the actual lifetime. Do not manually resume retired
+Kind's separate ServiceAccount token stays valid until teardown deletes its
+namespace on OKE. Do not manually resume retired
 bootstrap declarations. `down` stops remote reconciliation before removing
 applications and revokes any remaining bootstrap access. A repeated teardown
 skips remote revocation once the current verified cloud inventory confirms that
@@ -200,29 +200,16 @@ through the account administrator; retain Kind and the ownership record if an
 identity has been deleted. Do not replace the record or enable `Create` to bypass
 that failure.
 
-## Convergence and access renewal
+## Convergence and OKE access
 
 `mise run up` accepts a fresh deployment directory. Flux and Crossplane keep
 reconciling in Kind after the host command exits. Kind's `deployment-ready`
 Kustomization checks remote application health; the host also checks the selected
 Git commit, chart revision and current controller generations.
 
-Kind uses a bounded ServiceAccount token to manage OKE. The API server controls
-its actual expiry. Inspect the expiry annotation without printing credentials:
-
-```bash
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get secret oke-bootstrap-access -o go-template='{{index .metadata.annotations "tamoss.livewyer.io/token-expires"}}{{"\n"}}'
-```
-
-Renew access with the retained host OCI profile and the recorded cluster identity:
-
-```bash
-ENV_DIR=.local/environment mise run bootstrap:remote-access:renew
-```
-
-Qualification and teardown renew it before use. There is no automatic host token
-renewal. Expiry pauses remote reconciliation; it does not remove running workloads.
-Revoked or fully torn-down deployments refuse renewal.
+Kind manages OKE with a ServiceAccount token that does not expire, so
+reconciliation continues without host involvement. `down` revokes it after
+workload cleanup. A revoked or fully torn-down deployment refuses a new token.
 
 ## Interrupted host preparation
 
@@ -251,8 +238,7 @@ Use the [access instructions](getting-started.md#access) to inspect a running
 deployment and `qualify` to test it. Interrupted teardown resumes through `down`.
 
 Flux and Crossplane continue reconciling if mise exits. Keep `up` running through
-the OKE access submission. Renew expired access explicitly if inspecting controller
-convergence; rerunning `up` cannot resume an installation.
+the OKE access submission; rerunning `up` cannot resume an installation.
 
 If preparation failed before Kind accepted the seed, follow
 [preparation cleanup](#interrupted-host-preparation) before starting again.
@@ -355,8 +341,7 @@ ENV_DIR=.local/environment mise run down
 ```
 
 `down` verifies the original Kind identity, suspends runtime reconciliation and
-releases the bootstrap's authority to recreate children. It renews remote access
-and removes applications through Kind while the OKE API is available. Remote
+releases the bootstrap's authority to recreate children. It removes applications through Kind while the OKE API is available. Remote
 access is revoked after workload cleanup.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
