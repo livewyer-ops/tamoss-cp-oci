@@ -1,5 +1,5 @@
-{{- $environment := (required "environmentDefinition is required" .Values.environmentDefinition | fromYaml).spec.versions | first -}}
-{{- $foundation := (required "foundationDefinition is required" .Values.foundationDefinition | fromYaml).spec.versions | first -}}
+{{- $environment := ((index .Subcharts "tamoss-environment").Files.Get "definition.yaml" | fromYaml).spec.versions | first -}}
+{{- $foundation := ((index .Subcharts "tamoss-secret-foundation").Files.Get "definition.yaml" | fromYaml).spec.versions | first -}}
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:

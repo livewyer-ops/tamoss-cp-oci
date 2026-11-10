@@ -28,7 +28,6 @@ ROOT_DIR = "{{config_root}}"
 PROJECT_ROOT = "{{config_root}}"
 ROOT = "{{config_root}}"
 ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR | absolute }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
-RELEASE_DIR = '{{ vars.ENV_DIR }}/release'
 STORAGE_DIR = '''{% if env.STORAGE_DIR | default(value="") %}{{ env.STORAGE_DIR }}{% else %}{{ config_root }}/.local/tmp/storage-check{% endif %}'''
 ENV_PATH = "{{vars.ENV_DIR | absolute}}"
 STORAGE_PATH = "{{vars.STORAGE_DIR | absolute}}"

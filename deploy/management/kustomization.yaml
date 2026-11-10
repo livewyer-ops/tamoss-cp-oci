@@ -1,3 +1,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: [management.yaml, remote-bootstrap.yaml, seed-secrets.yaml]
+namespace: tamoss-infra
+resources: [source.yaml, release.yaml]
+generatorOptions: {disableNameSuffixHash: true}
+configMapGenerator:
+  - name: tamoss-deployment
+    files: [values.yaml, deployment.yaml]
+    options: {labels: {reconcile.fluxcd.io/watch: Enabled}}
+secretGenerator:
+  - name: oci-api-key
+    files: [credentials=discovery/credentials.json]
+  - name: oci-vault-bootstrap
+    files: [privatekey=discovery/privatekey]
+    envs: [discovery/vault.env]

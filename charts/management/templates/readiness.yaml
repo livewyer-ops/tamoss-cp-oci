@@ -1,4 +1,5 @@
-{{- with .Values.instance }}
+{{- if or .Values.instance .Values.deploymentId }}
+{{- with include "management.instance" . | fromYaml }}
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: bootstrap-ready, namespace: tamoss-infra}
@@ -18,4 +19,5 @@ spec:
         has(status.observedGeneration) &&
         status.observedGeneration == metadata.generation &&
         has(status.bootstrapReady) && status.bootstrapReady
+{{- end }}
 {{- end }}

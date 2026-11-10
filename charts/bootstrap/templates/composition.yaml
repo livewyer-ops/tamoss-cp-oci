@@ -17,4 +17,4 @@ spec:
         source: Inline
         inline:
           template: |
-{{ .Files.Get "composition.gotmpl" | replace "__SECRET_VALUES__" (.Values.secretBootstrapFile | fromYaml | toJson | quote) | replace "__STORAGE_IDENTITY__" (.Files.Get "storage.gotmpl") | indent 12 }}
+{{ .Files.Get "composition.gotmpl" | replace "__SECRET_VALUES__" (.Files.Get "secret-values.yaml" | fromYaml | toJson | quote) | replace "__STORAGE_IDENTITY__" (.Files.Get "storage.gotmpl") | indent 12 }}

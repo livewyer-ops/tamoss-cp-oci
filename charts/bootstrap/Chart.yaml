@@ -3,3 +3,10 @@ name: tamoss-bootstrap
 description: Native foundation and infrastructure convergence in the original Kind
 type: application
 version: 0.1.0
+dependencies:
+  - name: tamoss-environment
+    version: 0.1.0
+    repository: file://../environment
+  - name: tamoss-secret-foundation
+    version: 0.1.0
+    repository: file://../secret-foundation

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: pins
+description: Generate the pins.yaml lock from dependency and release metadata
+version: 0.2.0
+type: application

@@ -13,8 +13,12 @@ hide = true
 depends = ["assets:fetch"]
 run = [
   "install -d -m 700 '{{ vars.ENV_DIR }}/discovery' '{{ vars.ENV_DIR }}/reports' '{{ vars.ENV_DIR }}/access'",
+  # Private signing material stays in discovery/ only until the seed is applied.
   '''umask 077
-OCI_PROFILE={{ env.TASKV_PROFILE | quote }} yq -p=ini '(. * (.[strenv(OCI_PROFILE)] // {})) | {"region": .region, "tenancy": .tenancy, "oci": {"region": .region, "tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "privateKey": load_str(.key_file), "privateKeyPassword": .pass_phrase}}' {{ env.TASKV_CONFIG | quote }} > '{{ vars.ENV_DIR }}/discovery/profile.yaml'''',
+OCI_PROFILE={{ env.TASKV_PROFILE | quote }} yq -p=ini -o=json '(. * (.[strenv(OCI_PROFILE)] // {})) | {"auth": "ApiKey", "tenancy_ocid": .tenancy, "user_ocid": .user, "fingerprint": .fingerprint, "region": .region, "private_key": load_str(.key_file), "private_key_password": (.pass_phrase // "")}' {{ env.TASKV_CONFIG | quote }} > '{{ vars.ENV_DIR }}/discovery/credentials.json'
+yq -p=json -r '.private_key | @base64' '{{ vars.ENV_DIR }}/discovery/credentials.json' | base64 -d > '{{ vars.ENV_DIR }}/discovery/privatekey'
+yq -p=json -o=yaml -r '"fingerprint=" + .fingerprint, "user=" + .user_ocid, "tenancy=" + .tenancy_ocid, "passphrase=" + .private_key_password' '{{ vars.ENV_DIR }}/discovery/credentials.json' > '{{ vars.ENV_DIR }}/discovery/vault.env'
+''',
 ]
 env.TASKV_CONFIG = '''{{ env.OCI_CONFIG | default(value=env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config")) }}'''
 env.TASKV_PROFILE = '''{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | default(value="DEFAULT")) }}'''
@@ -22,17 +26,38 @@ env.TASKV_PROFILE = '''{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | 
 ["setup:render"]
 hide = true
 run = [
+  # The same chart and values are installed in Kind by Flux; this render validates
+  # the settings early and keeps the local records teardown relies on.
   '''umask 077
-yq -n '{"oci": (load("{{ vars.ENV_DIR }}/discovery/profile.yaml").oci | pick(["region", "tenancy", "user", "fingerprint"])), "product": load("{{ vars.RELEASE_DIR }}/build.yaml").product, "bundles": {"tamoss": load("{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml").bundle, "tadoss": load("{{ vars.RELEASE_DIR }}/deploy/tadoss/release.yaml").bundle}}' > '{{ vars.ENV_DIR }}/discovery/values.yaml'
-helm template setup '{{ vars.RELEASE_DIR }}/charts/setup' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/discovery/values.yaml' --output-dir '{{ vars.ENV_DIR }}/setup-render'''',
+helm template management '{{ vars.ROOT_DIR }}/charts/management' -f '{{ vars.ROOT_DIR }}/pins.yaml' -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/deployment.yaml' --show-only templates/instance.yaml | yq 'select(.kind == "ConfigMap") | .data."values.yaml" | from_yaml | .bootstrap' > '{{ vars.ENV_DIR }}/bootstrap.yaml'
+yq '{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": .metadata, "spec": .spec.environment}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/environment.yaml'
+yq '{"apiVersion": .apiVersion, "kind": "SecretFoundation", "metadata": {"name": .spec.foundationName, "namespace": .metadata.namespace}, "spec": .spec.foundation}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/foundation.yaml'
+yq '{"tadoss": {"enabled": (load("{{ vars.ENV_DIR }}/values.yaml").tadoss.enabled // false)}, "storageIdentity": (.spec.storageCredentials | del(.images))}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/settings.yaml'
+''',
+]
+
+["setup:facts"]
+hide = true
+run = [
+  '''umask 077
+DEPLOYMENT="$(openssl rand -hex 16)" yq -n '{"deploymentId": strenv(DEPLOYMENT), "oci": (load("{{ vars.ENV_DIR }}/discovery/credentials.json") | {"region": .region, "tenancy": .tenancy_ocid, "user": .user_ocid, "fingerprint": .fingerprint}), "assets": (load("{{ vars.ENV_DIR }}/source.json") | {"url": .url, "commit": .commit, "secretName": ((select(.private) | "deployment-git") // "")})}' > '{{ vars.ENV_DIR }}/deployment.yaml'
+''',
+]
+
+["setup:overlay"]
+hide = true
+run = [
+  '''yq '.assets | {"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "GitRepository", "metadata": {"name": "tamoss-bootstrap-product"}, "spec": {"interval": "1m", "url": .url, "ref": {"commit": .commit}, "secretRef": {"name": .secretName}}} | del(.spec.secretRef | select(.name == ""))' '{{ vars.ENV_DIR }}/deployment.yaml' > '{{ vars.ENV_DIR }}/source.yaml'''',
+  "cp '{{ vars.ROOT_DIR }}/deploy/management/kustomization.yaml' '{{ vars.ROOT_DIR }}/deploy/management/release.yaml' '{{ vars.ENV_DIR }}/'",
 ]
 
 ["bootstrap:configuration"]
 hide = true
 depends = ["setup:resolve"]
 run = [
+  { task = "setup:facts" },
   { task = "setup:render" },
-  "cp '{{ vars.ENV_DIR }}/setup-render/setup/templates/'*.yaml '{{ vars.ENV_DIR }}/'",
-  "helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --show-only templates/asset-lock.yaml --set-file files.source='{{ vars.ENV_DIR }}/source.json',files.pins='{{ vars.RELEASE_DIR }}/pins.yaml' > '{{ vars.ENV_DIR }}/assets.lock.yaml'",
-  "cp '{{ vars.RELEASE_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
+  '''yq '{"deploymentUID": .spec.deploymentId, "environment": ({"name": .metadata.name, "namespace": .metadata.namespace} + (.spec.environment | pick(["region", "compartmentId", "providerConfigName", "storage"]))), "oci": load("{{ vars.ENV_DIR }}/deployment.yaml").oci}' '{{ vars.ENV_DIR }}/bootstrap.yaml' > '{{ vars.ENV_DIR }}/identity.yaml'''',
+  { task = "setup:overlay" },
+  "cp '{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.yaml'",
 ]

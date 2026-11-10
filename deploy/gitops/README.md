@@ -9,10 +9,10 @@ has completed. OKE runs External Secrets and the application controllers.
 
 | Step | Runs on | Action and result |
 | --- | --- | --- |
-| Prepare | Host | Read private settings and OCI profile; require a clean checkout whose commit is available from `origin`; retain that revision locally. |
-| Start management | Host -> Kind | Create Kind and install official Flux controllers. |
+| Prepare | Host | Read private settings and OCI profile; require a clean checkout whose commit is available from `origin`; validate the settings against the management chart. |
+| Start management | Host -> Kind | Create Kind and install official Flux controllers. Apply one Kustomize overlay: Git source, settings ConfigMap, OCI Secrets and the `tamoss-management` HelmRelease. |
 | Authenticate private Git | Host -> Kind | Register a dedicated read-only repository deploy key and create its Secret in Kind, with GitHub's published SSH host keys. |
-| Install controllers | Flux in Kind | Fetch the pinned Git commit; install official Crossplane and External Secrets charts, OCI provider packages and the local composition charts. |
+| Install controllers | Flux in Kind | Fetch the pinned Git commit; install the management chart with the settings; install official Crossplane and External Secrets charts, OCI provider packages and the local composition charts. |
 | Create infrastructure | Crossplane in Kind -> OCI | Create or adopt the recorded Vault/key; provision credentials, IAM, networking, OKE/workers, PostgreSQL and storage. |
 | Establish OKE access | Host -> Kind | Use OCI's exec kubeconfig to verify the OKE identity and request a bounded ServiceAccount token; submit a self-contained kubeconfig Secret to Kind. |
 | Discover database connection | Job in Kind -> OCI | Fetch the database hostname and CA using the existing OCI bootstrap Secret; publish validated connection data in Kind. |
@@ -47,7 +47,7 @@ background host process to renew tokens automatically.
 These charts have separate lifecycles: controller installation, Crossplane APIs,
 credential delivery and application releases. They do not require a separate
 registry publication step. `pins.yaml` records dependency versions and upstream
-digests; `assets.lock.yaml` records the selected product Git commit and source.
+digests; `source.json` records the selected product Git commit and source.
 
 ## Private repository authentication
 

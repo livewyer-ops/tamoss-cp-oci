@@ -1,11 +1,60 @@
+# Deployment settings. Private values.yaml overrides these defaults.
+name: media-demo
+source: {private: true}
+tadoss: {enabled: false}
+compartmentId: ''
+contactEmail: ''
+adminCidrs: []
+owner: ''
+acmeEmail: ''
+adminEmail: ''
+network:
+  ociServiceId: ''
+  ociServiceCidr: ''
+  vcn: 10.40.0.0/16
+  api: 10.40.0.0/28
+  loadBalancer: 10.40.1.0/24
+  workers: 10.40.2.0/24
+  database: 10.40.3.0/24
+  pods: 10.40.16.0/20
+  services: 10.96.0.0/16
+oke:
+  version: v1.36.0
+  imageId: ''
+  shape: VM.Standard.E5.Flex
+  ocpus: 4
+  memoryGiB: 32
+  placements: []
+database:
+  version: '16'
+  shape: VM.Standard.E5.Flex
+  ocpus: 2
+  memoryGiB: 32
+  administrator: bootstrap_admin
+  regionalStorage: true
+  backupRetentionDays: 1
+storage:
+  namespace: ''
+  bucket: ''
+storageIdentity:
+  domainId: ''
+  idcsEndpoint: ''
+foundation:
+  name: ''
+  adoption: {}
+
+# Facts recorded by the host when the deployment is seeded.
+deploymentId: ''
+oci: {}
+assets: {}
+
+# Pinned releases; pins.yaml supplies these.
 dependencies: {}
 packages: {}
 externalSecrets: {}
-product: {}
+connectionImages: {}
+release: {}
+
 sourceName: tamoss-bootstrap-product
-environmentDefinition: ''
-foundationDefinition: ''
-secretBootstrapFile: ''
+# A complete TamossBootstrap replaces the one derived from the settings above.
 instance: {}
-credentialsEstablished: false
-assets: {}

@@ -1,0 +1,66 @@
+{{- /* The application layer needs a real deployment and its pinned release. */ -}}
+{{- if and .Values.deploymentId .Values.release }}
+{{- $environment := include "management.environment" . | fromYaml -}}
+{{- $label := dict "tamoss.livewyer.io/deployment-id" .Values.deploymentId }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-gitops-values
+  namespace: tamoss-infra
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+    tadoss: {enabled: {{ .Values.tadoss.enabled }}}
+    deploymentId: {{ .Values.deploymentId | quote }}
+    region: {{ $environment.region | quote }}
+    databaseAdministrator: {{ $environment.database.administrator | quote }}
+    runtime:
+      bucket: {{ $environment.storage.bucket | quote }}
+      objectEndpoint: {{ printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $environment.storage.namespace $environment.region | quote }}
+      acmeEmail: {{ .Values.acmeEmail | default .Values.contactEmail | quote }}
+      adminEmail: {{ .Values.adminEmail | default .Values.contactEmail | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-assets
+  namespace: tamoss-infra
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+{{ dict "tadoss" (dict "release" .Values.tadoss.release) "dependencies" .Values.dependencies "packages" .Values.packages "externalSecrets" .Values.externalSecrets "connectionImages" .Values.connectionImages "release" .Values.release "assets" .Values.assets | toYaml | indent 4 }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: platform-defaults, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 2m
+  prune: true
+  path: ./deploy/gitops/platform-defaults
+  sourceRef: {kind: GitRepository, name: {{ .Values.sourceName }}}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: runtime
+  namespace: tamoss-infra
+  labels: {{ $label | toJson }}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 15m
+  prune: false
+  deletionPolicy: Orphan
+  sourceRef: {kind: GitRepository, name: {{ .Values.sourceName }}}
+  path: ./deploy/gitops/runtime
+  dependsOn: [{name: bootstrap-ready}, {name: platform-defaults}]
+  postBuild:
+    substituteFrom:
+      - {kind: ConfigMap, name: tamoss-runtime}
+      - {kind: ConfigMap, name: oke-bootstrap-facts}
+  commonMetadata:
+    labels: {{ $label | toJson }}
+  healthChecks:
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-gitops, namespace: tamoss-infra}
+{{- end }}

@@ -17,6 +17,11 @@
 - Remove the environment adoption inputs, remote workload-identity provider
   option, unused contracts and checks left from the ownership-handover design.
   `TamossEnvironment` no longer accepts `spec.adoption` or `Observe,Delete`.
+- Seed Kind with one Kustomize overlay. Flux installs the management chart from
+  Git with settings from a generated ConfigMap, and the chart derives the
+  `TamossBootstrap` root in-cluster. The host-only `setup`, `deployment-inputs`
+  templates and the local release copy are removed; the three API charts install
+  as one `tamoss-bootstrap-api` release.
 - Stop recording infrastructure external names in Vault. Nothing consumed the
   snapshot; bootstrap readiness no longer waits for its readback.
 - Run the S3 credential Job with the pinned upstream OCI CLI and kubectl images.

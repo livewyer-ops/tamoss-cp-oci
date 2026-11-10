@@ -196,10 +196,12 @@ spec:
         args:
         - helm
         - template
-        - setup
-        - charts/setup
+        - management
+        - charts/management
         - -f
         - environments/example/values.yaml
+        - --set
+        - deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         check:
           ($error != null): true
           (contains($stderr, 'compartmentId')): true

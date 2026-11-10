@@ -1,9 +1,0 @@
-{{- if .Values.oci }}
-product:
-{{ .Values.product | toYaml | indent 2 }}
-bundle:
-{{ .Values.bundles.tamoss | toYaml | indent 2 }}
-tadoss:
-  bundle:
-{{ .Values.bundles.tadoss | toYaml | indent 4 }}
-{{- end }}

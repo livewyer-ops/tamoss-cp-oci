@@ -149,7 +149,7 @@ run = [
   '''yq -e '.tadoss.enabled == true' '{{ vars.ENV_DIR }}/settings.yaml' || { printf '%s\n' "Set tadoss.enabled before deploying this environment" >&2; exit 1; }''',
   '''test -f '{{ vars.ENV_DIR }}/tadoss-inventory-before/.complete' || { printf '%s\n' "Capture the infrastructure baseline before qualification" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:ready",
-  "yq -r .data.productCommit '{{ vars.ENV_DIR }}/assets.lock.yaml' > '{{ vars.ENV_DIR }}/reports/tadoss-git-revision'",
+  "yq -r .commit '{{ vars.ENV_DIR }}/source.json' > '{{ vars.ENV_DIR }}/reports/tadoss-git-revision'",
   "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --test-dir tests/tadoss-live --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name tadoss-runtime",
   "LOCK={{ env.TASKV_LOCK | quote }} KEY={{ env.TASKV_KEY | quote }} ASSETS={{ env.TASKV_ASSETS | quote }} CACHE={{ env.TASKV_CACHE | quote }} DEPLOYMENT={{ env.TASKV_DEPLOYMENT | quote }} DOMAIN={{ env.TASKV_DOMAIN | quote }} SCHEMA_ID={{ env.TASKV_SCHEMA_ID | quote }} TRACK_ID={{ env.TASKV_TRACK_ID | quote }} INVENTORY_NAMES={{ env.TASKV_INVENTORY_NAMES | quote }} mise run tadoss:qualify:protected",
 ]

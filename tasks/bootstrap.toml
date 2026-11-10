@@ -9,27 +9,26 @@ run = [
 hide = true
 depends = ["bootstrap:configuration"]
 run = [
-  "kind create cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}' --config '{{ vars.RELEASE_DIR }}/deploy/management/kind.yaml' --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' --wait 120s",
+  "kind create cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}' --config '{{ vars.ROOT_DIR }}/deploy/management/kind.yaml' --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' --wait 120s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/management-uid'",
   '''yq -i '.managementUID = load_str("{{ vars.ENV_DIR }}/management-uid")' '{{ vars.ENV_DIR }}/identity.yaml'''',
-  '''umask 077
-helm template inputs '{{ vars.RELEASE_DIR }}/charts/deployment-inputs' --set-file files.foundation='{{ vars.ENV_DIR }}/foundation.yaml',files.environment='{{ vars.ENV_DIR }}/environment.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.settings='{{ vars.ENV_DIR }}/settings.yaml',files.product='{{ vars.ENV_DIR }}/product.yaml',files.assets='{{ vars.ENV_DIR }}/assets.lock.yaml',files.pins='{{ vars.RELEASE_DIR }}/pins.yaml',files.dependencies='{{ vars.RELEASE_DIR }}/dependencies.yaml',files.packages='{{ vars.RELEASE_DIR }}/charts/packages/values.yaml',files.externalSecrets='{{ vars.RELEASE_DIR }}/deploy/secrets/controller-values.yaml',files.environmentDefinition='{{ vars.RELEASE_DIR }}/charts/environment/definition.yaml',files.ociProfile='{{ vars.ENV_DIR }}/discovery/profile.yaml' --output-dir '{{ vars.ENV_DIR }}/seed-render'''',
-  "cp '{{ vars.ENV_DIR }}/seed-render/deployment-inputs/templates/management.yaml' '{{ vars.ENV_DIR }}/management-values.yaml'",
-  "cp '{{ vars.ENV_DIR }}/seed-render/deployment-inputs/templates/remote.yaml' '{{ vars.ENV_DIR }}/remote-bootstrap.yaml'",
-  "cp '{{ vars.ENV_DIR }}/seed-render/deployment-inputs/templates/'{bootstrap,remote-rbac,seed-secrets}.yaml '{{ vars.RELEASE_DIR }}/deploy/management/kustomization.yaml' '{{ vars.ENV_DIR }}/'",
-  "helm template management '{{ vars.RELEASE_DIR }}/charts/management' -f '{{ vars.ENV_DIR }}/management-values.yaml' --set-file environmentDefinition='{{ vars.RELEASE_DIR }}/charts/environment/definition.yaml',foundationDefinition='{{ vars.RELEASE_DIR }}/charts/secret-foundation/definition.yaml',secretBootstrapFile='{{ vars.RELEASE_DIR }}/deploy/secrets/bootstrap-values.yaml' > '{{ vars.ENV_DIR }}/management.yaml'",
   "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' install --components=source-controller,helm-controller,kustomize-controller --timeout=5m",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' create namespace tamoss-infra",
   "mise run source:authenticate",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -k '{{ vars.ENV_DIR }}'",
-  "rm -f '{{ vars.ENV_DIR }}/seed-secrets.yaml' '{{ vars.ENV_DIR }}/seed-render/deployment-inputs/templates/seed-secrets.yaml' '{{ vars.ENV_DIR }}/discovery/profile.yaml' '{{ vars.ENV_DIR }}/discovery/values.yaml'",
 ]
+depends_post = ["bootstrap:seed:cleanup"]
 env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''
+
+["bootstrap:seed:cleanup"]
+hide = true
+run = ["rm -f '{{ vars.ENV_DIR }}/discovery/credentials.json' '{{ vars.ENV_DIR }}/discovery/privatekey' '{{ vars.ENV_DIR }}/discovery/vault.env'"]
 
 ["bootstrap:connect"]
 hide = true
 depends = ["bootstrap:seed"]
 run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-management --for=condition=Ready --timeout=600s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait kustomization/bootstrap-ready --for=condition=Ready --timeout=3600s",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{ env.TASKV_NAME }} tamossenvironment/{{ env.TASKV_NAME }} secretfoundation/{{ env.TASKV_FOUNDATION }} key.kms.oci.m.upbound.io/{{ env.TASKV_FOUNDATION }} namespace/kube-system -o json > '{{ vars.ENV_DIR }}/bootstrap-state.json'",
   '''yq -i 'load("{{ vars.ENV_DIR }}/bootstrap-state.json").items as $objects | .bootstrapUID = ($objects[] | select(.kind == "TamossBootstrap") | .metadata.uid) | .compositeUID = ($objects[] | select(.kind == "TamossEnvironment") | .metadata.uid) | .creationCompositeUID = .compositeUID | .clusterID = ($objects[] | select(.kind == "TamossEnvironment") | .status.outputs.clusterId) | .managementUID = ($objects[] | select(.kind == "Namespace") | .metadata.uid)' '{{ vars.ENV_DIR }}/identity.yaml'''',

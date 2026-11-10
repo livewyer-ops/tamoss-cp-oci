@@ -1,0 +1,9 @@
+dependencies:
+- name: tamoss-environment
+  repository: file://../environment
+  version: 0.1.0
+- name: tamoss-secret-foundation
+  repository: file://../secret-foundation
+  version: 0.1.0
+digest: sha256:2a03c60dcd671b94fe37aa3ac243b9c9b24957c0222f0ce1460f9e76ada14fc7
+generated: "2026-11-10T16:44:15.056094405+01:00"

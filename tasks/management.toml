@@ -1,13 +1,4 @@
 
-["management:render"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "helm template inputs '{{ vars.ROOT_DIR }}/charts/deployment-inputs' --show-only templates/management.yaml --set-file files.bootstrap='{{ vars.ENV_DIR }}/bootstrap.yaml',files.identity='{{ vars.ENV_DIR }}/identity.yaml',files.assets='{{ vars.ENV_DIR }}/assets.lock.yaml',files.product='{{ vars.ENV_DIR }}/product.yaml',files.dependencies='{{ vars.ROOT_DIR }}/dependencies.yaml',files.packages='{{ vars.ROOT_DIR }}/charts/packages/values.yaml',files.externalSecrets='{{ vars.ROOT_DIR }}/deploy/secrets/controller-values.yaml' > '{{ vars.ENV_DIR }}/management-values.yaml'",
-  "helm template management '{{ vars.ROOT_DIR }}/charts/management' -f '{{ vars.ENV_DIR }}/management-values.yaml' --set-file environmentDefinition='{{ vars.ROOT_DIR }}/charts/environment/definition.yaml' --set-file foundationDefinition='{{ vars.ROOT_DIR }}/charts/secret-foundation/definition.yaml' --set-file secretBootstrapFile='{{ vars.ROOT_DIR }}/deploy/secrets/bootstrap-values.yaml' > '{{ vars.ENV_DIR }}/management.yaml'",
-]
-
 ["management:freeze-instance:apply"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

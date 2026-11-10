@@ -101,6 +101,7 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
 yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/{{ item }}.yaml > {{ env.TASKV_CACHE }}/{{ item }}-list.yaml
 {% endfor %}''',
   "chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render",
+  "helm dependency build --skip-refresh charts/bootstrap",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render",
   "mise run test:s3:render",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render-native",
@@ -153,8 +154,8 @@ yq 'select(.kind == "Vault" or .kind == "Key") | del(.status)' {{ env.TASKV_CACH
   '''yq -e 'select(.kind == "Key") | .metadata.annotations."crossplane.io/external-name" == load("tests/secrets/foundation-adoption.yaml").spec.adoption.keyExternalName' {{ env.TASKV_CACHE }}/foundation-adoption-render.yaml''',
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml > '{{ env.TASKV_CACHE }}/secrets.yaml'",
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f tests/secrets/runtime-values.yaml > '{{ env.TASKV_CACHE }}/secrets-runtime.yaml'",
-  "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f deploy/secrets/bootstrap-values.yaml --set initialise=true > '{{ env.TASKV_CACHE }}/secrets-bootstrap.yaml'",
-  "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f deploy/secrets/bootstrap-values.yaml --set initialise=false > '{{ env.TASKV_CACHE }}/secrets-established.yaml'",
+  "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f charts/bootstrap/secret-values.yaml --set initialise=true > '{{ env.TASKV_CACHE }}/secrets-bootstrap.yaml'",
+  "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f charts/bootstrap/secret-values.yaml --set initialise=false > '{{ env.TASKV_CACHE }}/secrets-established.yaml'",
   '''yq eval-all -e '[select(.kind == "PushSecret" or .kind == "Password")] | length == 0' {{ env.TASKV_CACHE }}/secrets-established.yaml''',
   '''yq eval-all -e '[select(.kind == "ExternalSecret")] | length == 9' {{ env.TASKV_CACHE }}/secrets-established.yaml''',
   '''yq '.metadata.namespace = "secret-check" | with(select(.kind == "SecretStore"); .spec.provider = load("tests/secret-persistence/provider.yaml")) | with(select(.kind == "PushSecret" and .metadata.name == "database-admin"); .spec.data[0].match.remoteRef.property = "password") | with(select(.kind == "ExternalSecret" and .metadata.name == "database-admin"); .spec.data[0].remoteRef.property = "password")' '{{ env.TASKV_CACHE }}/secrets.yaml' > '{{ env.TASKV_CACHE }}/secrets-persistence.yaml'''',
