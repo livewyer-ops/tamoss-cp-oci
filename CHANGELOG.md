@@ -17,6 +17,8 @@
 - Remove the environment adoption inputs, remote workload-identity provider
   option, unused contracts and checks left from the ownership-handover design.
   `TamossEnvironment` no longer accepts `spec.adoption` or `Observe,Delete`.
+- Stop recording infrastructure external names in Vault. Nothing consumed the
+  snapshot; bootstrap readiness no longer waits for its readback.
 - Run the S3 credential Job with the pinned upstream OCI CLI and kubectl images.
   Remove the project tooling image and its publication workflow.
   `storageCredentials.image` becomes `storageCredentials.images`.

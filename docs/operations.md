@@ -65,7 +65,7 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Preparation failure | Required settings, OCI profile, pushed Git revision and repository access |
 | Crossplane providers unavailable | Provider health and events in Kind |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository and HelmRelease conditions; Flux source/Helm controller logs |
-| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`, `bindingsReady`; inspect child conditions and HelmReleases |
+| Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`; inspect child conditions and HelmReleases |
 | Remote deployment failed | Kind `tamoss-infra` Kustomizations `runtime` and `deployment-ready`; inspect source, OKE access and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
 | Runtime waiting | Kind `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |

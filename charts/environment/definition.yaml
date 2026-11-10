@@ -155,8 +155,6 @@ spec:
             status:
               type: object
               properties:
-                bindingsReady:
-                  type: boolean
                 bootstrapReady:
                   type: boolean
                 outputs:

@@ -110,7 +110,6 @@ spec:
                     userId: {type: string}
                     groupId: {type: string}
                 infrastructureReady: {type: boolean}
-                bindingsReady: {type: boolean}
                 bootstrapReady: {type: boolean}
                 runtimeAccessReady: {type: boolean}
                 released: {type: boolean}

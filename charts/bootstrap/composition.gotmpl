@@ -59,15 +59,6 @@
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
 {{- end -}}
 {{- $accessReady := not (hasKey $p "vaultAuth") -}}
-{{- $bindingInput := dict -}}
-{{- $bindingReadback := dict -}}
-{{- range (dig "bindingInput" "items" (list) (.extraResources | default dict)) -}}{{- $bindingInput = .resource -}}{{- end -}}
-{{- range (dig "bindingReadback" "items" (list) (.extraResources | default dict)) -}}{{- $bindingReadback = .resource -}}{{- end -}}
-{{- if and $bindingInput (or (ne (dig "data" "DEPLOYMENT_ID" "" $bindingInput) (b64enc $p.deploymentId)) (ne (dig "data" "CREATION_COMPOSITE_UID" "" $bindingInput) (b64enc (dig "metadata" "uid" "" $environment)))) -}}
-{{- fail "Adoption snapshot does not belong to the original environment" -}}
-{{- end -}}
-{{- $bindingsReady := and (not (empty $bindingInput)) (not (empty $bindingReadback)) (eq (toJson $bindingInput.data) (toJson $bindingReadback.data)) -}}
-{{- if and $bindingReadback $bindingInput (not $bindingsReady) -}}{{- fail "Vault adoption bindings differ from the original infrastructure snapshot" -}}{{- end -}}
 {{- range (dig "status" "conditions" (list) $accessRelease) -}}
 {{- if and (eq .type "Ready") (eq .status "True") (eq (dig "status" "observedGeneration" 0 $accessRelease) ($accessRelease.metadata.generation | default 0)) -}}{{- $accessReady = true -}}{{- end -}}
 {{- end -}}
@@ -110,16 +101,6 @@ requirements:
     matchLabels:
       tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
       tamoss.livewyer.io/iam-role: runtime
-  bindingInput:
-    apiVersion: v1
-    kind: Secret
-    namespace: {{ $xr.metadata.namespace }}
-    matchName: adoption-bindings-input
-  bindingReadback:
-    apiVersion: v1
-    kind: Secret
-    namespace: {{ $xr.metadata.namespace }}
-    matchName: adoption-bindings
   credentials:
     apiVersion: external-secrets.io/v1
     kind: ExternalSecret
@@ -239,46 +220,6 @@ spec:
     bucket: {{ $p.environment.storage.bucket | quote }}
 {{- end }}
 {{- end }}
-{{- if $bindingInput }}
----
-apiVersion: external-secrets.io/v1alpha1
-kind: PushSecret
-metadata:
-  name: adoption-bindings
-  namespace: {{ $xr.metadata.namespace }}
-  annotations:
-    {{ setResourceNameAnnotation "binding-persistence" }}
-    gotemplating.fn.crossplane.io/ready: {{ $bindingsReady | toString | title | quote }}
-spec:
-  updatePolicy: IfNotExists
-  deletionPolicy: None
-  refreshInterval: 1m
-  secretStoreRefs: [{name: tamoss-vault, kind: SecretStore}]
-  selector:
-    secret: {name: adoption-bindings-input}
-  data:
-    - match:
-        remoteRef: {remoteKey: {{ printf "%s-adoption-bindings" $p.deploymentId | quote }}}
----
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: adoption-bindings
-  namespace: {{ $xr.metadata.namespace }}
-  annotations:
-    {{ setResourceNameAnnotation "binding-readback" }}
-    gotemplating.fn.crossplane.io/ready: {{ $bindingsReady | toString | title | quote }}
-spec:
-  refreshPolicy: Periodic
-  refreshInterval: 1m
-  secretStoreRef: {name: tamoss-vault, kind: SecretStore}
-  target:
-    name: adoption-bindings
-    creationPolicy: Owner
-    deletionPolicy: Retain
-  dataFrom:
-    - extract: {key: {{ printf "%s-adoption-bindings" $p.deploymentId | quote }}}
-{{- end }}
 {{- if or $environment (not $p.released) }}
 {{- $spec := $p.environment -}}
 {{- if $p.released -}}
@@ -302,7 +243,7 @@ apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 metadata:
   annotations:
-    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady (or (not (hasKey $p "vaultAuth")) $bindingsReady)) | toString | title | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady) | toString | title | quote }}
 status:
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
@@ -314,6 +255,5 @@ status:
     groupId: {{ $storageGroupId | quote }}
   infrastructureReady: {{ $infrastructureReady }}
   bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady $credentialsEstablished $storageRetired }}
-  bindingsReady: {{ $bindingsReady }}
   runtimeAccessReady: {{ $accessReady }}
   released: {{ and $p.released $storageRetired $storageQuiesced (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}
