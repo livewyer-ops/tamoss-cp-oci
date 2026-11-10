@@ -191,7 +191,7 @@ spec:
 {{- with $p.storageCredentials }}
     s3:
       userId: {{ $storageUserId | quote }}
-      image: {{ .image | quote }}
+      images: {{ .images | toJson }}
 {{- end }}
     oracle:
       region: {{ $p.foundation.region | quote }}

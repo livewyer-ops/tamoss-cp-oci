@@ -42,7 +42,7 @@ spec:
               properties:
                 storageCredentials:
                   type: object
-                  required: [domainId, idcsEndpoint, email, image]
+                  required: [domainId, idcsEndpoint, email, images]
                   x-kubernetes-validations:
                     - rule: self == oldSelf
                       message: Storage credential ownership is immutable
@@ -50,7 +50,12 @@ spec:
                     domainId: {type: string, pattern: '^ocid1\.domain\.'}
                     idcsEndpoint: {type: string, pattern: '^https://[a-zA-Z0-9.-]+(:443)?$'}
                     email: {type: string, format: email}
-                    image: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
+                    images:
+                      type: object
+                      required: [oci, kubectl]
+                      properties:
+                        oci: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
+                        kubectl: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
                 credentialsEstablished:
                   type: boolean
                   description: Legacy completion input; new installations use status.credentialsEstablished.

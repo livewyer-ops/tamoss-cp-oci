@@ -43,6 +43,6 @@ spec:
               apiVersion: tamoss.livewyer.io/v1alpha1
               kind: S3FixtureBootstrap
               metadata: {name: same-user, namespace: s3-admission}
-              spec: (merge($original.spec, `{"storageCredentials":{"userId":"ocid1.user.oc1.fixture","image":"ghcr.io/example/tools@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`))
+              spec: (merge($original.spec, `{"storageCredentials":{"userId":"ocid1.user.oc1.fixture","images":{"oci":"ghcr.io/example/oci@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kubectl":"ghcr.io/example/kubectl@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}`))
             expect:
               - check: {($error != null): true}
