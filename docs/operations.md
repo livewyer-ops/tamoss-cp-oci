@@ -305,13 +305,8 @@ Expected: the Object Storage namespace. Commands use the selected local profile
 and signing key. Host bootstrap and teardown share the same OCI kubeconfig path
 and identity checks. This does not grant additional IAM access.
 
-The S3 credential Job's [tooling image](../deploy/oke-bootstrap/Dockerfile) contains the pinned
-OCI CLI, Flux, kubectl and yq. To change its tools, update the selections in
-`dependencies.yaml` and run the [publication workflow](../.github/workflows/bootstrap-tools.yaml)
-on the product repository's default branch. The workflow uses `GITHUB_TOKEN` to
-publish and verify public package ownership, then checks anonymous access.
-Record the published digest in `bootstrapTools.image` before selecting that
-product commit for a new environment. No deployment registry credential is needed.
+The S3 credential Job runs the pinned upstream OCI CLI and kubectl images selected
+in `dependencies.yaml`. The project publishes no tooling image.
 
 ## Posted billing
 

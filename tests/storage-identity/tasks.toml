@@ -3,7 +3,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p .local/tmp/check/storage-identity",
-  '''yq '.spec.storageCredentials = {"domainId":"ocid1.domain.oc1.fixture", "idcsEndpoint":"https://identity.example.test:443", "email":"operator@example.test", "image":load("dependencies.yaml").bootstrapTools.image}' .local/tmp/check/bootstrap/native-root.yaml > .local/tmp/check/storage-identity/root.yaml''',
+  '''yq '.spec.storageCredentials = {"domainId":"ocid1.domain.oc1.fixture", "idcsEndpoint":"https://identity.example.test:443", "email":"operator@example.test", "images":{"oci":load("dependencies.yaml").oci.image, "kubectl":load("dependencies.yaml").connectionDetails.kubectlImage}}' .local/tmp/check/bootstrap/native-root.yaml > .local/tmp/check/storage-identity/root.yaml''',
   "cp .local/tmp/check/bootstrap/native-observed.yaml .local/tmp/check/storage-identity/observed.yaml",
   '''{% for stage in ["user", "group", "membership", "record", "ready"] %}
 crossplane composition render .local/tmp/check/storage-identity/root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/storage-identity/observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/storage-identity/{{ stage }}.yaml

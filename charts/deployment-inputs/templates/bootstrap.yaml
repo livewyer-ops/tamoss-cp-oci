@@ -15,7 +15,9 @@ spec:
   credentialsEstablished: {{ $id.credentialsEstablished | default false }}
   storageCredentials:
 {{ required "storage identity discovery is required" $settings.storageIdentity | toYaml | indent 4 }}
-    image: {{ $dependencies.bootstrapTools.image | quote }}
+    images:
+      oci: {{ $dependencies.oci.image | quote }}
+      kubectl: {{ $dependencies.connectionDetails.kubectlImage | quote }}
   vaultAuth:
     user: {{ $id.oci.user | quote }}
     tenancy: {{ $id.oci.tenancy | quote }}
