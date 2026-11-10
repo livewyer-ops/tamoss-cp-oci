@@ -24,8 +24,9 @@ mise run check
 | Setup discovery | Fixture-backed OCI/IP lookups, image selection, domain placement, explicit overrides, failure preservation and refusal to change existing deployments |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
-The check builds the container for the selected release's unchanged browser tests.
-Only the cases used by this deployment are collected. Downloads/build caches are
+`qualify` builds the container for the selected release's unchanged browser tests;
+only the cases used by this deployment are collected. A GitHub workflow runs
+`mise run check` on pull requests and on `main`. Downloads/build caches are
 private under `.local/tmp/`; reports and browser build logs are under `.local/reports/`.
 
 ## Management checks
