@@ -146,8 +146,8 @@ not an automatic build step or proof that unattended installation is reliable.
 Inspect remote bootstrap without exposing its credential:
 
 ```bash
-mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations -l tamoss.livewyer.io/remote-bootstrap=true
-mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra describe kustomization oke-seed
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations,helmreleases
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra describe kustomization deployment-ready
 ```
 
 The OCI kubeconfig on the host remains available for observation and teardown.
@@ -183,20 +183,14 @@ claims the operation before calling OCI, with automatic API retries disabled.
 An interruption after creation can lose the one-time secret response, so a
 failed Job is not evidence that OCI created no key.
 
-Correct the reported cause, then run:
-
-```bash
-mise run storage:recover
-mise run up
-```
-
-Recovery stops the owned Job, rejects an already staged or persisted response,
-and queries OCI for the exact attempt's key. It records the ID before revocation,
-verifies deletion and requests a fresh Helm reconciliation. Unrelated keys are
-retained. If the claim has no recorded ID and OCI cannot identify its key,
-recovery stops: retain the records and use OCI Audit to establish the creation
-outcome before changing the claim. A timeout or empty list alone cannot prove
-that an in-flight create failed. Do not clear the receipt to force a retry.
+If installation fails, follow [failed-deployment cleanup](#clean-up-a-failed-deployment)
+with the original directory. Teardown stops the owned Job, queries OCI for the
+exact attempt's key and records its ID before revocation. Unrelated keys block
+identity deletion. If the claim has no recorded ID and OCI cannot identify its
+key, cleanup stops: retain the records and use OCI Audit to establish the creation
+outcome. A timeout or empty list alone cannot prove that an in-flight create
+failed. Do not clear the receipt to force a retry. Start a fresh deployment only
+after cleanup is verified; `up` cannot resume the failed installation.
 
 Recorded IAM resources use `Observe,Delete` to prevent replacement. If
 `status.storageIdentityReady` becomes false, inspect their observed capabilities,

@@ -158,9 +158,9 @@ before a fresh deployment; local chart directories require no registry publicati
 | Resolved product, infrastructure and settings | `product.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
 | Initial deployment configuration | `seed-render/`, `remote-bootstrap.yaml` |
 | Selected Git commit and dependency pins | `assets.lock.yaml` |
-| Protected OCI profile and render inputs | `discovery/` |
+| Temporary protected OCI profile and render inputs | `discovery/` files, removed after seeding Kind |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
-| Cloud outputs | `outputs.json` |
+| Qualification cloud outputs | `outputs.json`, written by `qualify`; live outputs are in Kind's `TamossEnvironment.status.outputs` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `inventory-after/` |
 | Qualification reports | `reports/` |
@@ -180,8 +180,9 @@ kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tam
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss,storagebackends
 ```
 
-Expected: TAMOSS and its external StorageBackend report `Ready`. Export the
-initial login details to an owner-only file:
+Expected: TAMOSS and its external StorageBackend report `Ready`. `up` has already
+exported the initial login details to `.local/environment/access/ui-login.json`.
+If you removed that private file, recreate it with:
 
 ```bash
 umask 077

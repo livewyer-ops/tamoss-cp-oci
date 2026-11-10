@@ -14,7 +14,8 @@ and [testing guide](../../docs/testing.md).
 | This directory and `charts/gitops` | Operator/instance overlays, shared HA and OCI platform values, external database bootstrap chart, secret references, IngestRun and browser container configuration |
 | Infrastructure configuration | Kind, Crossplane, OCI provisioning, observed runtime inputs, resource identities and cloud teardown |
 
-Verified upstream files stay under `.local/tmp/tamoss/<release-record-sha256>/`.
+Local checks cache verified upstream files under `.local/tmp/tamoss/<release-record-sha256>/`.
+Flux uses the checked-in files described under [source delivery](#source-delivery).
 Local overlays are rendered in separate private directories. The instance overlay
 retains the `tamoss` resource name and `tams` namespace while inheriting the
 upstream multi-server base. Required anti-affinity, external services and TLS

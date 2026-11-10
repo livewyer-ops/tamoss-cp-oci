@@ -123,5 +123,6 @@ credentials are persisted in OCI Vault and delivered to OKE with workload identi
 
 Preserve the private environment directory and original Kind until verified cleanup.
 The retained Vault/key and its ownership record survive workload teardown. Scheduled
-secret deletion is verified and recorded. Fresh cloud qualification of this flow,
-upgrades and credential rotation remain outstanding.
+secret deletion is verified and recorded. Fresh OCI deployment and teardown have
+passed; upgrades and credential rotation remain unqualified. See the
+[verified coverage](testing.md#verified-coverage-and-limits).

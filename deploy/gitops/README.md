@@ -69,8 +69,10 @@ For future deployments after the repository becomes public, set
 `source.private: false`. The source uses public HTTPS without a Secret reference
 and skips deploy-key creation. For an existing running demo, change the Kind
 GitRepository to HTTPS and remove `spec.secretRef`, verify a successful anonymous
-fetch at the same commit, then revoke its recorded key and delete
-`tamoss-infra/deployment-git`. Retain the key until that fetch succeeds.
+fetch at the same commit, then run `ENV_DIR=.local/environment mise run source:revoke`
+and delete `tamoss-infra/deployment-git`. Use the original environment directory;
+the task revokes the key and removes its local ID so teardown will not revoke it
+again. Retain the key until that anonymous fetch succeeds.
 
 ## Demo inputs and source changes
 
@@ -81,6 +83,6 @@ controller declaration, chart and overlay that Flux will use.
 
 Source edits must be committed and pushed before a fresh deployment. This flow
 has no ownership handover or second environment repository. Retain the deployed
-product revision for qualification and teardown. Fresh OCI deployment and cleanup
-with this Git-based flow still require cloud qualification; local controller
-checks do not establish that result.
+product revision for qualification and teardown. Fresh OCI deployment,
+qualification and cleanup have passed with this flow; see the
+[verified coverage and limits](../../docs/testing.md#verified-coverage-and-limits).

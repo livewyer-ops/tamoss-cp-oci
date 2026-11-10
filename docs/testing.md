@@ -19,7 +19,7 @@ mise run check
 | Database | SQL repeatability, released migration command and trusted TLS; rejection of untrusted CA, hostname mismatch and plaintext |
 | Runtime | External service settings, HA overlays, operation/ownership contracts and release matching |
 | Operational Jobs | Shared retry bounds, security, image and temporary-storage contract for the remaining Jobs; rejection of missing deadlines and unsafe container permissions |
-| Remote OKE deployment | Git source rendering, local values and substitutions, and remote token expiry/renewal/revocation against disposable clusters |
+| Remote OKE deployment | Git source, local values and substitutions, and access/retirement rendering contracts; controller checks run under `check:management` |
 | Installation flow | Fresh-install command sequencing, refusal to reuse an existing deployment, failure propagation and credential-export cleanup; Git source selection, public authentication bypass and dependency-lock validation |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 
@@ -134,7 +134,7 @@ ENV_DIR=.local/environment mise run qualify
 owned fixture flows, then requires the store to contain no other flows. It uploads
 a fresh fixture, creates an operator-owned IngestRun and drains one worker using
 `--delete-emptydir-data`. Use a dedicated qualification environment. Check retained
-media before rerunning qualification after an upgrade; the old test flows will be removed.
+media before rerunning qualification; the old test flows will be removed.
 
 | Area | Expected result |
 | --- | --- |
@@ -153,6 +153,10 @@ afterwards. The container receives neither OCI credentials nor the Docker socket
 A failed qualification leaves the deployment running for investigation. Preserve
 evidence and continue independent checks as appropriate. Follow
 [operations](operations.md).
+
+`qualify` exercises TAMOSS. When TADOSS is enabled, follow the
+[shared-platform qualification sequence](../deploy/tadoss/README.md#verification-and-removal)
+to capture the infrastructure baseline and run its OAuth and persistence checks too.
 
 ## Verified coverage and limits
 

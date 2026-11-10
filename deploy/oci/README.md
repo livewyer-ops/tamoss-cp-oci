@@ -28,7 +28,7 @@ Allow group id <provisioner-group-ocid> to manage cluster-family in compartment 
 
 Supply the active Default identity domain's OCID and endpoint in `values.yaml`.
 The provisioner needs permission to manage users/groups with the reserved
-the `tamoss-storage-` name prefix. An account administrator grants these permissions
+`tamoss-storage-` name prefix. An account administrator grants these permissions
 once; deployment does not authorise itself:
 
 ```text

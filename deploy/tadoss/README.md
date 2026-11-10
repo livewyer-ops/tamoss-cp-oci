@@ -70,14 +70,26 @@ external PostgreSQL database with verified TLS and two replicas each of the
 server and worker. They cover repeat application and recovery after an invalid
 blueprint without pod replacement.
 
-The internal GitOps qualification uses Hurl to create a schema, track and timed
+For a running deployment with TADOSS enabled, run:
+
+```bash
+ENV_DIR=.local/environment mise run tadoss:baseline
+ENV_DIR=.local/environment mise run qualify
+ENV_DIR=.local/environment mise run tadoss:qualify
+```
+
+Use the original environment directory for all commands. The TAMOSS qualification
+creates the ingest source used by the TADOSS checks; read its
+[effects](../../docs/testing.md#deployed-qualification) before running it.
+
+TADOSS qualification uses Hurl to create a schema, track and timed
 events linked to the actual TAMOSS ingest source and segment time range. It
 checks anonymous and insufficient-scope rejection, retained events after pod
 replacement and continued media access. Replacement is verified by comparing
-pod UIDs before and after deletion. Keep Kind running. Capture an infrastructure
-baseline with `tadoss:baseline` before qualification; the checks compare OCI IDs
-afterwards and record the selected Git commit. These checks passed in the
-Kind-owned OCI run; see [verified coverage](../../docs/testing.md#verified-coverage-and-limits).
+pod UIDs before and after deletion. Keep Kind running. The checks compare OCI IDs
+against the captured baseline and record the selected Git commit. These checks
+passed in the Kind-owned OCI run; see
+[verified coverage](../../docs/testing.md#verified-coverage-and-limits).
 These checks require an authorised live environment; local passes alone do not
 establish them.
 
