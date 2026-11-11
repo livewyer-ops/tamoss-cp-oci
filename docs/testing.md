@@ -40,8 +40,7 @@ mise run check:management
 
 This includes `check`, then creates and removes a disposable Kind cluster without
 cloud credentials. It tests provider package health, real API admission, required database
-CA references, identity/adoption rejection and interrupted cleanup. Cleanup checks
-include partial installs and retention of state when the cloud audit fails.
+CA references and identity/adoption rejection.
 Flux also packages the operational charts from a source archive without generated
 dependency packages, verifying that the shared Helm library resolves from source.
 
@@ -94,37 +93,6 @@ observations and old Ready conditions after a values change. Real Flux checks
 cover delayed dependencies and recovery without forced reconciliation.
 Media-fixture preparation belongs to `qualify`;
 `up` does not prepare test media.
-
-## OCI storage check
-
-This creates a real private OCI bucket and a temporary Kind cluster. Prepare a
-separately authorised, dated spending allowance, a test compartment and a scoped
-[OCI profile](getting-started.md#api-signing-profile). Run local checks explicitly
-before paid testing:
-
-```bash
-mise run check
-OCI_TEST_COMPARTMENT_ID=ocid1.compartment.REPLACE mise run check:storage
-```
-
-Expected: repeat bucket apply succeeds, deletion is confirmed directly through
-OCI, and Kind is removed. The command prepares separate inputs and does not run
-the unrelated local suite. Its default directory is `.local/tmp/storage-check`.
-
-If interrupted or failed, preserve that directory and use the same OCI identity:
-
-```bash
-mise run check:storage:cleanup
-```
-
-Cleanup verifies the recorded identity, removes the owned Bucket through Crossplane
-and checks OCI against the baseline before deleting Kind. It archives records under
-`.local/reports/storage/`. Cleanup alone does not record a test pass.
-
-`STORAGE_DIR` selects another private probe directory; pass the same value to both
-commands. Failed cleanup retains state and credentials. Missing/incomplete records
-stop automatic cleanup. If Kind is already absent, surviving cloud resources need
-ownership-verified manual cleanup before the OCI audit can pass.
 
 ## Deployed qualification
 
