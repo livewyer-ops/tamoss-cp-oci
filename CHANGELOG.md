@@ -41,6 +41,9 @@
 - Look up the OKE image in the deployment compartment when `compartmentId` is
   set, so a compartment-scoped provisioner can run `setup`. The published policy
   no longer includes tenancy-wide instance inspection.
+- Run the `qualify` browser tests with `docker run`; only `check` needs the
+  Docker Compose plugin. The test selection moves to
+  `deploy/tamoss/browser/tests.txt`.
 - Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
   `docs/configuration.md`; publish the provisioner policy as one statement block.
 

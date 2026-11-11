@@ -11,7 +11,7 @@ In addition to the [deployment prerequisites](docs/getting-started.md#1-prepare-
 
 | Requirement | Used by |
 | --- | --- |
-| Docker Compose plugin | `check` database and TLS fixtures; the `qualify` browser tests |
+| Docker Compose plugin | `check` database and TLS fixtures |
 | `sshd` on the host and free port 22422 | `check:management` local Git fixture |
 | Internet access | Pinned upstream releases, charts and images |
 

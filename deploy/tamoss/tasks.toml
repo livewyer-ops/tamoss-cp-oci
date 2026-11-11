@@ -395,7 +395,7 @@ run = [
   "echo 'Building upstream browser tests; log: .local/reports/browser-build.log'",
   "docker build --tag tamoss-qualification-browser:local '{{ vars.ROOT_DIR }}/.local/tmp/browser-build' > '{{ vars.ROOT_DIR }}/.local/reports/browser-build.log' 2>&1",
   "docker image inspect tamoss-qualification-browser:local --format '{% raw %}{{.Id}}{% endraw %}' > '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/image-id'",
-  '''yq -e -r '.services.browser.command[] | select(test("^tests/"))' deploy/tamoss/browser/compose.yaml | xargs -d '\n' docker run --rm --network none --read-only --tmpfs /tmp tamoss-qualification-browser:local --collect-only -q > '{{ vars.ROOT_DIR }}/.local/reports/browser-selection.log'''',
+  '''xargs -d '\n' -a deploy/tamoss/browser/tests.txt docker run --rm --network none --read-only --tmpfs /tmp tamoss-qualification-browser:local --collect-only -q > '{{ vars.ROOT_DIR }}/.local/reports/browser-selection.log'''',
 ]
 env.TASKV_LOCK = '''{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ env.RELEASE_LOCK | default(value=(vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
 env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -e -r '.releaseSha256 | select(test(\"^[a-f0-9]{64}$\"))' " ~ ((env.TASKV_LOCK) | quote)) }}{% endif %}'''
