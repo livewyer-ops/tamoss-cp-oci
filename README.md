@@ -1,101 +1,83 @@
 # TAMOSS on OCI Kubernetes Engine
 
-Crossplane configuration and deployment tooling for
-[TAMOSS](https://github.com/livewyer-ops/tamoss) on Oracle Cloud Infrastructure
-(OCI). TAMOSS implements the BBC Time-addressable Media Store (TAMS) API.
-
-The deployment runs TAMOSS's `multi-server` profile on OKE with external
-PostgreSQL, private Object Storage, Authentik and public HTTPS. It is intended
-for HA deployments and qualification environments.
+Deploys [TAMOSS](https://github.com/livewyer-ops/tamoss) on Oracle Cloud
+Infrastructure (OCI) with three commands. TAMOSS implements the BBC
+Time-addressable Media Store (TAMS) API.
 
 ## Deployment
 
 | Component | Configuration |
 | --- | --- |
-| Management | Flux and Crossplane in Kind own deployment and teardown |
-| Kubernetes | OKE with three workers and explicit failure-domain placement |
+| Kubernetes | OKE with three workers spread across availability and fault domains |
 | Application | Replicated TAMOSS API, worker, UI and Console API |
-| PostgreSQL | Two OCI database nodes; separate TAMOSS and Authentik databases, with verified TLS |
-| Media storage | Private OCI Object Storage bucket through its S3-compatible endpoint |
-| Public access | OCI load balancer, replicated ingress and Authentik, trusted HTTPS |
-| Release assets | This repository at a pushed commit, official charts and pinned upstream artifacts |
+| PostgreSQL | Two OCI database nodes with verified TLS |
+| Media storage | Private OCI Object Storage bucket |
+| Public access | OCI load balancer, Authentik sign-in and trusted HTTPS |
+| Optional | [TADOSS](deploy/tadoss/README.md) timed metadata services on the same platform |
 
-The environment uses billable resources. Worker-drain checks have passed;
-managed-database failover and regional recovery are outside the verified
-coverage. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
+A local Kind cluster on your workstation runs Flux and Crossplane. They create
+the OCI resources and install the application on OKE. Keep the workstation and
+that Kind cluster running until you remove the deployment. See
+[architecture](docs/architecture.md).
 
-[Deployment from Git](deploy/gitops/README.md) follows Host -> Kind -> OKE.
-Flux in Kind reads this repository and manages OKE remotely. Crossplane provisions
-OCI resources from Kind. The host supplies OKE access; no second Flux or Crossplane
-stack is installed in OKE. A removable read-only deploy key allows private Git
-access. Fresh OCI deployment, application qualification and teardown have passed;
-[testing](docs/testing.md#verified-coverage-and-limits) records the coverage and limits.
+## Requirements
 
-[Optional TADOSS integration](deploy/tadoss/README.md) adds timed metadata services
-using the same platform. Enable it in the private settings before deployment.
+- Linux amd64 workstation with Docker running and [mise](https://mise.jdx.dev/installing-mise.html) installed.
+- An empty OCI compartment and an OCI API signing profile granted the
+  [account permissions](deploy/oci/README.md#policy).
+- While this repository is private: GitHub access that can manage its deploy keys.
+
+Deployment takes about 25 minutes and removal about 15 minutes. The resources
+are billable while they exist. Three deployments on 10 November 2026, about 3.3
+hours of infrastructure in total, were posted at GBP 2.04 before tax in
+`uk-london-1`; your rates may differ. See [posted billing](docs/operations.md#posted-billing).
 
 ## Quickstart
-
-Install [mise](https://mise.jdx.dev/installing-mise.html) and check the
-[workstation prerequisites](docs/getting-started.md#workstation-prerequisites), then:
 
 ```bash
 git clone https://github.com/dodwyer/tamoss-cp-oci.git
 cd tamoss-cp-oci
 mise trust
 mise install --locked
-```
-
-Complete [Getting started](docs/getting-started.md) with an authorised OCI profile,
-including discovery permissions, and a dedicated empty compartment. Prepare the
-settings, enter the compartment OCID and contact email, then deploy:
-
-```bash
+mise exec -- gh auth login --hostname github.com --git-protocol https
 mise run setup
 "${EDITOR:-vi}" .local/environment/values.yaml
 mise run up
 ```
 
-`setup` discovers the storage namespace, identity domain, service network, OKE
-image and placements, and current public IPv4 address. Supplied values are preserved.
-Use a clean, committed and pushed checkout. While this repository is private,
-[authenticate GitHub CLI](deploy/gitops/README.md#private-repository-authentication)
-on the host before `up`. Flux receives a dedicated read-only deploy key. `up`
-prints application URLs and the location of private initial login details.
+`gh auth login` is needed only while the repository is private. `setup` reads
+the OCI profile and fills in the tenancy and region settings. Enter
+`compartmentId` and `contactEmail` in `values.yaml` before `up`. `up` prints the
+application URLs and the location of the initial login details.
 
-Each `up` requires a fresh deployment directory. After an interrupted installation,
-follow [failed-deployment cleanup](docs/operations.md#clean-up-a-failed-deployment)
-before starting again. Keep Kind running throughout the demo.
+[Getting started](docs/getting-started.md) explains each step.
 
-Qualification replaces its test media and drains one worker. Follow the
-[access instructions](docs/getting-started.md#access) to sign in and inspect the
-ingest result. Keep the original Kind and environment directory until cleanup.
+## Removal
+
+```bash
+mise run down
+```
+
+**Removal deletes application data**, including the media bucket and database
+backups. See [teardown and retention](docs/operations.md#destroy-the-environment).
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `mise run setup` | Discover missing OCI settings in a private deployment directory. |
-| `mise run check` | Validate releases, rendering, TLS and local contracts. |
-| `mise run check:management` | Also test controller reconciliation in disposable Kind clusters. |
-| `mise run check:storage` | Test a real OCI bucket in a separately authorised compartment. |
-| `mise run check:storage:cleanup` | Finish an interrupted storage probe's cleanup. |
-| `mise run up` | Create a fresh deployment with public TLS ready; Kind retains infrastructure ownership. |
-| `mise run qualify` | Test ingest, access, network isolation and a worker drain. |
-| `mise run down` | Delete workloads and infrastructure through Kind, then retire credentials. |
+| `mise run setup` | Prepare private deployment settings and discover OCI values. |
+| `mise run up` | Create a fresh deployment and wait for public HTTPS. |
+| `mise run down` | Remove the application and OCI resources, then retire credentials. |
 
-`ENV_DIR` selects the private deployment directory. Storage checks have separate
-inputs; see [Testing](docs/testing.md#oci-storage-check).
-The environment stays running until explicitly removed with `mise run down`.
-**Teardown deletes application data**, including the owned bucket and database
-backups. See [teardown and retention](docs/operations.md#destroy-the-environment).
+`ENV_DIR` selects another private deployment directory; the default is
+`.local/environment`. Use the same value for every command of one deployment.
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md): workstation, OCI setup, deployment and access.
-- [Operations](docs/operations.md): inspection, retries, billing and teardown.
-- [Testing](docs/testing.md): local and deployed checks, reports and coverage limits.
+- [Getting started](docs/getting-started.md): prerequisites, deployment and access.
+- [Operations](docs/operations.md): inspection, failures, billing and teardown.
+- [Configuration](docs/configuration.md): optional settings and generated records.
 - [Architecture](docs/architecture.md): ownership, configuration, HA and storage.
+- [OCI account prerequisites](deploy/oci/README.md): policy for an account administrator.
+- [Contributing](CONTRIBUTING.md): local checks, qualification and release selection.
 - [Changelog](CHANGELOG.md): command and compatibility changes.
-- [TAMOSS integration](deploy/tamoss/README.md): immutable assets and release selection.
-- [GitOps integration](deploy/gitops/README.md): execution context, chart sources and private Git access.

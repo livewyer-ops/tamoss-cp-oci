@@ -94,135 +94,6 @@ Treat diagnostic output as private and redact it before sharing. Report location
 | Final cloud inventory | `.local/environment/inventory-after/` |
 | Recorded resource ownership | `.local/environment/resources.yaml`, `owned-cloud.yaml` |
 
-## Recover a policy binding
-
-An OCI policy can exist even when its managed resource has no
-`crossplane.io/external-name`. Repeated creation then fails with
-`PolicyAlreadyExists`. Inspect `Ready` and `LastAsyncOperation` as well as
-`Synced`; `Synced=True` alone does not establish successful creation.
-
-Use the original Kind and environment records. Pause only the affected policy:
-
-```bash
-export KUBECONFIG=.local/environment/management.kubeconfig
-POLICY="<policy-name>"
-kubectl -n tamoss-infra describe policy.identity.oci.m.upbound.io "$POLICY"
-kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" crossplane.io/paused=true
-kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" \
-  --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s
-kubectl -n tamoss-infra get policy.identity.oci.m.upbound.io "$POLICY" -o yaml
-```
-
-Let any in-flight operation finish. Record the original UID and resource version.
-Use `oci iam policy list`, `oci iam policy get` and OCI Audit to verify exactly
-one cloud policy matches the expected name, compartment, deployment tag,
-statements and creation time. Keep this evidence private. Stop if the match is
-missing or ambiguous, or if the managed resource already has a different binding.
-
-Restore the verified policy OCID on that same managed resource:
-
-```bash
-OCI_POLICY_ID="<verified-policy-OCID>"
-RESOURCE_VERSION="<inspected-resource-version>"
-kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" \
-  crossplane.io/external-name="$OCI_POLICY_ID" --resource-version="$RESOURCE_VERSION"
-kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" crossplane.io/paused-
-kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" --for=condition=Ready --timeout=180s
-kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" --for=condition=Synced --timeout=180s
-```
-
-The resource-version precondition rejects a concurrent change. Reinspect the
-original resource before retrying a rejected annotation. Verify its observed
-policy ID matches the restored binding, then resume the normal workflow.
-
-This uses Crossplane's [external-resource binding](https://docs.crossplane.io/latest/guides/import-existing-resources/)
-and Kubernetes' [conditional annotation update](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_annotate/).
-Preserve the policy, managed resource and finalisers throughout recovery. This is
-an operator recovery procedure for the [reported upstream defect](https://github.com/crossplane/upjet/issues/632),
-not an automatic build step or proof that unattended installation is reliable.
-
-## Operation recovery
-
-Inspect remote bootstrap without exposing its credential:
-
-```bash
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations,helmreleases
-kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra describe kustomization deployment-ready
-```
-
-The OCI kubeconfig on the host remains available for observation and teardown.
-Kind's separate ServiceAccount token stays valid until teardown deletes its
-namespace on OKE. Do not manually resume retired
-bootstrap declarations. `down` stops remote reconciliation before removing
-applications and revokes any remaining bootstrap access. A repeated teardown
-skips remote revocation once the current verified cloud inventory confirms that
-the cluster is gone; a failed or missing inventory cannot establish its absence.
-
-Inspect the failed host command, or the Job conditions and init-container logs,
-before retrying. Job deadlines and backoff limits remain specific to each
-operation; the common chart does not choose retry policy or manage the workflow.
-
-| Operation | Interruption and retry behaviour |
-| --- | --- |
-| Kind `tamoss-infra/s3-credentials` | Native reconciliation consumes a staged or persisted response. A claimed attempt is never automatically repeated. Preserve the receipt and use [failed-deployment cleanup](#clean-up-a-failed-deployment) if installation fails. |
-| Kind remote bootstrap | An interrupted installation requires teardown. Retain the original Kind and records; `down` stops remote bootstrap and revokes its access. |
-| Kind `tamoss-infra/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
-| Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
-
-Do not delete identity receipts or clear finalisers to bypass a failed operation.
-Database hostname/CA validation failures leave the previously published connection
-data intact. Secret-retirement failure keeps Kind and its credentials available
-for a later teardown attempt.
-
-### S3 credential recovery
-
-The immutable `storage-identity` ConfigMap records the generated user, group,
-membership and policy IDs. The `s3-credential-operation` ConfigMap records the deployment identity,
-storage user, attempt and key ID. Preserve both and the original Kind cluster. The Job
-claims the operation before calling OCI, with automatic API retries disabled.
-An interruption after creation can lose the one-time secret response, so a
-failed Job is not evidence that OCI created no key.
-
-If installation fails, follow [failed-deployment cleanup](#clean-up-a-failed-deployment)
-with the original directory. Teardown stops the owned Job, queries OCI for the
-exact attempt's key and records its ID before revocation. Unrelated keys block
-identity deletion. If the claim has no recorded ID and OCI cannot identify its
-key, cleanup stops: retain the records and use OCI Audit to establish the creation
-outcome. A timeout or empty list alone cannot prove that an in-flight create
-failed. Do not clear the receipt to force a retry. Start a fresh deployment only
-after cleanup is verified; `up` cannot resume the failed installation.
-
-Recorded IAM resources use `Observe,Delete` to prevent replacement. If
-`status.storageIdentityReady` becomes false, inspect their observed capabilities,
-membership and bucket policy against `spec.forProvider`. These resources do not
-repair drift automatically after recording. Restore the recorded configuration
-through the account administrator; retain Kind and the ownership record if an
-identity has been deleted. Do not replace the record or enable `Create` to bypass
-that failure.
-
-## Convergence and OKE access
-
-`mise run up` accepts a fresh deployment directory. Flux and Crossplane keep
-reconciling in Kind after the host command exits. Kind's `deployment-ready`
-Kustomization checks remote application health; the host also checks the selected
-Git commit, chart revision and current controller generations.
-
-Kind manages OKE with a ServiceAccount token that does not expire, so
-reconciliation continues without host involvement. `down` revokes it after
-workload cleanup. A revoked or fully torn-down deployment refuses a new token.
-
-## Interrupted host preparation
-
-The host records the selected release and prepares the Kind seed. Once
-`identity.yaml` exists, `up` refuses another installation attempt. Preserve the
-environment directory and inspect the failure before cleanup. Use `down` to
-verify the dedicated compartment and remove any owned Kind, then choose a fresh
-`ENV_DIR` and rerun `setup`.
-
-Once Kind has accepted the seed, retain that Kind and use the normal
-teardown path. If Kind exists but the initial apply failed, preserve it and inspect
-the apply error before removing any identity or credential files.
-
 ## Clean up a failed deployment
 
 `up` supports one installation attempt per deployment. If it fails, preserve the
@@ -244,7 +115,7 @@ If preparation failed before Kind accepted the seed, follow
 [preparation cleanup](#interrupted-host-preparation) before starting again.
 Do not delete a Kind cluster that has begun provisioning cloud resources.
 
-Preserve `bootstrap.yaml`, `management-values.yaml`, kubeconfigs and the environment
+Preserve `bootstrap.yaml`, kubeconfigs and the environment
 identity through verified teardown. Run one lifecycle command per environment at
 a time. Do not manually unpause a released root during operations or deletion.
 
@@ -267,13 +138,6 @@ recorded product commit for operations and teardown; bootstrap state is not migr
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
 overwrites them and continue independent checks where appropriate. Remove the
 environment explicitly with `down` when it is no longer needed.
-
-## Release selection
-
-Deployment records the repository commit in `source.json`; `pins.yaml` at that
-commit selects the upstream dependencies. Retain the matching source checkout for operations and teardown.
-Commit and push source changes before creating a fresh demo. Upgrades of an
-existing deployment and migration from earlier ownership models remain unqualified.
 
 ## Native OCI CLI
 
@@ -357,7 +221,7 @@ compartment contains no workload resources.
 After the cloud audit, teardown revokes the deployment's S3 key, verifies its
 absence, deletes the generated storage policy, membership, group and user through Crossplane,
 and verifies their absence through OCI. Unrelated keys block user deletion.
-It retires the binding PushSecret and schedules environment secrets for deletion.
+It schedules environment secrets for deletion.
 A bounded Kubernetes Job waits for OCI to report `PENDING_DELETION` or `DELETED`;
 a timeout retains Kind and the Job for diagnosis. `retained-foundation.yaml`
 records the owner, Vault/key and scheduled deletion times. The compartment still
@@ -396,7 +260,141 @@ MANAGEMENT_NAME="tamoss-cp-$(yq -r .metadata.name .local/environment/environment
 docker ps -a --filter "label=io.x-k8s.kind.cluster=$MANAGEMENT_NAME"
 ```
 
-## Manual cleanup after management state loss
+## Advanced recovery
+
+These procedures are for a deployment that normal teardown cannot finish. Keep
+the original Kind cluster and deployment directory throughout.
+
+### Convergence and OKE access
+
+`mise run up` accepts a fresh deployment directory. Flux and Crossplane keep
+reconciling in Kind after the host command exits. Kind's `deployment-ready`
+Kustomization checks remote application health; the host also checks the selected
+Git commit, chart revision and current controller generations.
+
+Kind manages OKE with a ServiceAccount token that does not expire, so
+reconciliation continues without host involvement. `down` revokes it after
+workload cleanup. A revoked or fully torn-down deployment refuses a new token.
+
+### Interrupted host preparation
+
+The host records the selected release and prepares the Kind seed. Once
+`identity.yaml` exists, `up` refuses another installation attempt. Preserve the
+environment directory and inspect the failure before cleanup. Use `down` to
+verify the dedicated compartment and remove any owned Kind, then choose a fresh
+`ENV_DIR` and rerun `setup`.
+
+Once Kind has accepted the seed, retain that Kind and use the normal
+teardown path. If Kind exists but the initial apply failed, preserve it and inspect
+the apply error before removing any identity or credential files.
+
+### Operation recovery
+
+Inspect remote bootstrap without exposing its credential:
+
+```bash
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get kustomizations,helmreleases
+kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra describe kustomization deployment-ready
+```
+
+The OCI kubeconfig on the host remains available for observation and teardown.
+Kind's separate ServiceAccount token stays valid until teardown deletes its
+namespace on OKE. Do not manually resume retired
+bootstrap declarations. `down` stops remote reconciliation before removing
+applications and revokes any remaining bootstrap access. A repeated teardown
+skips remote revocation once the current verified cloud inventory confirms that
+the cluster is gone; a failed or missing inventory cannot establish its absence.
+
+Inspect the failed host command, or the Job conditions and init-container logs,
+before retrying. Job deadlines and backoff limits remain specific to each
+operation; the common chart does not choose retry policy or manage the workflow.
+
+| Operation | Interruption and retry behaviour |
+| --- | --- |
+| Kind `tamoss-infra/s3-credentials` | Native reconciliation consumes a staged or persisted response. A claimed attempt is never automatically repeated. Preserve the receipt and use [failed-deployment cleanup](#clean-up-a-failed-deployment) if installation fails. |
+| Kind remote bootstrap | An interrupted installation requires teardown. Retain the original Kind and records; `down` stops remote bootstrap and revokes its access. |
+| Kind `tamoss-infra/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
+| Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
+
+Do not delete identity receipts or clear finalisers to bypass a failed operation.
+Database hostname/CA validation failures leave the previously published connection
+data intact. Secret-retirement failure keeps Kind and its credentials available
+for a later teardown attempt.
+
+#### S3 credential recovery
+
+The immutable `storage-identity` ConfigMap records the generated user, group,
+membership and policy IDs. The `s3-credential-operation` ConfigMap records the deployment identity,
+storage user, attempt and key ID. Preserve both and the original Kind cluster. The Job
+claims the operation before calling OCI, with automatic API retries disabled.
+An interruption after creation can lose the one-time secret response, so a
+failed Job is not evidence that OCI created no key.
+
+If installation fails, follow [failed-deployment cleanup](#clean-up-a-failed-deployment)
+with the original directory. Teardown stops the owned Job, queries OCI for the
+exact attempt's key and records its ID before revocation. Unrelated keys block
+identity deletion. If the claim has no recorded ID and OCI cannot identify its
+key, cleanup stops: retain the records and use OCI Audit to establish the creation
+outcome. A timeout or empty list alone cannot prove that an in-flight create
+failed. Do not clear the receipt to force a retry. Start a fresh deployment only
+after cleanup is verified; `up` cannot resume the failed installation.
+
+Recorded IAM resources use `Observe,Delete` to prevent replacement. If
+`status.storageIdentityReady` becomes false, inspect their observed capabilities,
+membership and bucket policy against `spec.forProvider`. These resources do not
+repair drift automatically after recording. Restore the recorded configuration
+through the account administrator; retain Kind and the ownership record if an
+identity has been deleted. Do not replace the record or enable `Create` to bypass
+that failure.
+
+### Recover a policy binding
+
+An OCI policy can exist even when its managed resource has no
+`crossplane.io/external-name`. Repeated creation then fails with
+`PolicyAlreadyExists`. Inspect `Ready` and `LastAsyncOperation` as well as
+`Synced`; `Synced=True` alone does not establish successful creation.
+
+Use the original Kind and environment records. Pause only the affected policy:
+
+```bash
+export KUBECONFIG=.local/environment/management.kubeconfig
+POLICY="<policy-name>"
+kubectl -n tamoss-infra describe policy.identity.oci.m.upbound.io "$POLICY"
+kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" crossplane.io/paused=true
+kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" \
+  --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s
+kubectl -n tamoss-infra get policy.identity.oci.m.upbound.io "$POLICY" -o yaml
+```
+
+Let any in-flight operation finish. Record the original UID and resource version.
+Use `oci iam policy list`, `oci iam policy get` and OCI Audit to verify exactly
+one cloud policy matches the expected name, compartment, deployment tag,
+statements and creation time. Keep this evidence private. Stop if the match is
+missing or ambiguous, or if the managed resource already has a different binding.
+
+Restore the verified policy OCID on that same managed resource:
+
+```bash
+OCI_POLICY_ID="<verified-policy-OCID>"
+RESOURCE_VERSION="<inspected-resource-version>"
+kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" \
+  crossplane.io/external-name="$OCI_POLICY_ID" --resource-version="$RESOURCE_VERSION"
+kubectl -n tamoss-infra annotate policy.identity.oci.m.upbound.io "$POLICY" crossplane.io/paused-
+kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" --for=condition=Ready --timeout=180s
+kubectl -n tamoss-infra wait policy.identity.oci.m.upbound.io "$POLICY" --for=condition=Synced --timeout=180s
+```
+
+The resource-version precondition rejects a concurrent change. Reinspect the
+original resource before retrying a rejected annotation. Verify its observed
+policy ID matches the restored binding, then resume the normal workflow.
+
+This uses Crossplane's [external-resource binding](https://docs.crossplane.io/latest/guides/import-existing-resources/)
+and Kubernetes' [conditional annotation update](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_annotate/).
+Preserve the policy, managed resource and finalisers throughout recovery. This is
+an operator recovery procedure for the [reported upstream defect](https://github.com/crossplane/upjet/issues/632),
+not an automatic build step or proof that unattended installation is reliable.
+
+### Manual cleanup after management state loss
 
 Management-state restoration is outside this environment's supported lifecycle.
 If Kind state is lost, stop normal deployment operations. Use retained identity
@@ -417,6 +415,5 @@ and inventory records with the native OCI CLI or Console:
    for remaining workload resources before declaring cleanup complete or discarding credentials.
 
 Keep the precreated compartment until its owner retires it. If ownership evidence
-is insufficient, establish ownership before deletion. For a GitOps deployment,
-also account for runtime IAM, persisted secrets and the retained Vault/key with
+is insufficient, establish ownership before deletion. Also account for runtime IAM, persisted secrets and the retained Vault/key with
 their owner; a replacement Kind does not restore their management state.

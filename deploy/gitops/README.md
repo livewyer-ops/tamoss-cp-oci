@@ -15,7 +15,7 @@ has completed. OKE runs External Secrets and the application controllers.
 | Authenticate private Git | Host -> Kind | Register a dedicated read-only repository deploy key and create its Secret in Kind, with GitHub's published SSH host keys. |
 | Install controllers | Flux in Kind | Fetch the pinned Git commit; install the management chart with the settings; install official Crossplane and External Secrets charts, OCI provider packages and the local composition charts. |
 | Create infrastructure | Crossplane in Kind -> OCI | Create or adopt the recorded Vault/key; provision credentials, IAM, networking, OKE/workers, PostgreSQL and storage. |
-| Establish OKE access | Host -> Kind | Use OCI's exec kubeconfig to verify the OKE identity and request a bounded ServiceAccount token; submit a self-contained kubeconfig Secret to Kind. |
+| Establish OKE access | Host -> Kind | Use OCI's exec kubeconfig to verify the OKE identity and create a non-expiring ServiceAccount token; submit a self-contained kubeconfig Secret to Kind. |
 | Discover database connection | Job in Kind -> OCI | Fetch the database hostname and CA using the existing OCI bootstrap Secret; publish validated connection data in Kind. |
 | Install the platform | Flux in Kind -> OKE | Install External Secrets, ingress, certificates, Authentik and database initialisation. Chart values and substitutions are read in Kind; SQL Jobs run in OKE. |
 | Install the application | Flux in Kind -> OKE | Apply the upstream TAMOSS operator and the checked-in instance overlay; include TADOSS when enabled before deployment. |

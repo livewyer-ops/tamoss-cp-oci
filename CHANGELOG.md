@@ -10,8 +10,8 @@
   Flux. Remove custom deployment bundle/chart publication and ownership handover.
 - Add removable read-only SSH deploy-key authentication for the private repository;
   public deployments use anonymous HTTPS.
-- Run database metadata lookup and retirement operations in Kind. Retain and renew
-  OKE access until remote cleanup finishes.
+- Run database metadata lookup and retirement operations in Kind. Retain OKE
+  access until remote cleanup finishes.
 - Select optional TADOSS before a fresh deployment. Existing deployments must use
   their recorded installer revision for operations and cleanup.
 - Allow Authentik server health checks 30 seconds, matching worker probes, to
@@ -33,6 +33,10 @@
 - Run the S3 credential Job with the pinned upstream OCI CLI and kubectl images.
   Remove the project tooling image and its publication workflow.
   `storageCredentials.image` becomes `storageCredentials.images`.
+- Run `mise run check` in a GitHub workflow on pull requests and `main`. Build
+  the browser test image during `qualify` instead of `check`.
+- Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
+  `docs/configuration.md`; publish the provisioner policy as one statement block.
 
 
 ### Earlier development
