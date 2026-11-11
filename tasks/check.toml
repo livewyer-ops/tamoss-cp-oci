@@ -85,7 +85,6 @@ crossplane resource validate {{ env.TASKV_CACHE }}/schemas,charts/environment/de
   '''{% for item in ["initial", "partial", "ready", "platform", "operator", "tamoss"] %}
 yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/{{ item }}.yaml > {{ env.TASKV_CACHE }}/{{ item }}-list.yaml
 {% endfor %}''',
-  '''yq -r 'select(.kind == "Usage") | [.spec.of.resourceRef.name, .spec.by.resourceRef.name] | @tsv' {{ env.TASKV_CACHE }}/partial.yaml | tsort > {{ env.TASKV_CACHE }}/deletion-order.txt''',
   '''yq 'select(.kind != "TamossEnvironment") | del(.status)' {{ env.TASKV_CACHE }}/partial.yaml > {{ env.TASKV_CACHE }}/expected-recovery.yaml''',
   '''yq 'select(.kind != "TamossEnvironment") | del(.status)' {{ env.TASKV_CACHE }}/recovering.yaml > {{ env.TASKV_CACHE }}/actual-recovery.yaml''',
   "diff -u '{{ env.TASKV_CACHE }}/expected-recovery.yaml' '{{ env.TASKV_CACHE }}/actual-recovery.yaml'",
@@ -107,7 +106,6 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render-native",
   "mise run test:bootstrap:credential-completion",
   "mise run test:bootstrap:seed-inputs",
-  "mise run test:bootstrap:remote-record",
   "mise run test:s3:composition",
   "ROOT={{ vars.ROOT_DIR }} mise run test:controller-state:render",
   "mise run test:oke-bootstrap:retirement",

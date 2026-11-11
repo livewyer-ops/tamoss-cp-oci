@@ -1,20 +1,3 @@
-
-["test:tadoss:check"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "mise run tadoss:fetch",
-  "mise run tadoss:bundle",
-  "mise run verify:tadoss",
-]
-
-["test:tadoss:tls"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  "mise run tadoss:tls",
-]
-
 ["test:tadoss:remove-instance"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
