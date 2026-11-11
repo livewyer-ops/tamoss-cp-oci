@@ -248,7 +248,7 @@ env.LOCAL_UID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "i
 env.LOCAL_GID = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "id -g") }}'''
 run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  '''BROWSER_IMAGE="$(cat '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/image-id')" docker compose -f deploy/tamoss/browser/compose.yaml run --rm --pull never -T browser > '{{ vars.ENV_DIR }}/reports/browser.log' 2>&1''',
+  '''xargs -d '\n' -a deploy/tamoss/browser/tests.txt docker run --rm --pull never --user "$LOCAL_UID:$LOCAL_GID" --read-only --cap-drop ALL --security-opt no-new-privileges:true --shm-size 256m --tmpfs /tmp --volume "$TAMOSS_ENV_DIR/browser.env:/run/target.env:ro" --volume "$TAMOSS_ENV_DIR/reports:/reports" "$(cat '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/image-id')" --target-env=/run/target.env --junitxml=/reports/browser.xml -q > '{{ vars.ENV_DIR }}/reports/browser.log' 2>&1''',
   '''yq -p=xml -oy -e '.testsuites.testsuite | [(."+@tests" == "5"), (."+@failures" == "0"), (."+@errors" == "0"), (."+@skipped" == "0")] | all' {{ vars.ENV_DIR }}/reports/browser.xml > /dev/null''',
 ]
 depends_post = ["qualification:browser:cleanup"]
