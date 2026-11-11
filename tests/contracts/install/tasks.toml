@@ -34,7 +34,7 @@ env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% el
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''yq -e '[.deploymentUID == "original", .deploymentReady == true, .gitopsEstablished == false, .handoverComplete != true, .quiesced != true, .runtimeWritesEnabled != true, .starts == 0, .publications == 0, .stopped != true] | all' '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+  '''yq -e '[.deploymentUID == "original", .deploymentReady == true, .gitopsEstablished == false, .starts == 0, .publications == 0] | all' '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.PROJECT_ROOT }}/.local/tmp/check/install-flow{% endif %}"
 

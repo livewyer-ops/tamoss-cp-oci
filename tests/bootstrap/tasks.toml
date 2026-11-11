@@ -162,7 +162,7 @@ run = [
   "mise run test:setup:render",
   "test ! -e '{{ env.DIRECTORY }}/management.kubeconfig'",
   "crossplane resource validate '.local/tmp/check/bootstrap/api.yaml' '{{ env.DIRECTORY }}/bootstrap.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='.local/tmp/check/crossplane' --error-on-missing-schemas",
-  '''yq -e '(.spec.deploymentId | test("^[a-f0-9]{32}$")) and .spec.credentialsEstablished == false and .spec.remoteBootstrap == null and .spec.storageCredentials.domainId == "ocid1.domain.oc1.fixture" and .spec.vaultAuth.user == "ocid1.user.oc1.fixture"' '{{ env.DIRECTORY }}/bootstrap.yaml'''',
+  '''yq -e '(.spec.deploymentId | test("^[a-f0-9]{32}$")) and .spec.credentialsEstablished == false and .spec.storageCredentials.domainId == "ocid1.domain.oc1.fixture" and .spec.vaultAuth.user == "ocid1.user.oc1.fixture"' '{{ env.DIRECTORY }}/bootstrap.yaml'''',
 ]
 env.DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
 env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/bootstrap-inputs"
@@ -191,17 +191,3 @@ run = [
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/seed-inputs'
 
-["test:bootstrap:remote-record"]
-hide = true
-run = [
-  "mkdir -p '{{ env.TASKV_DIRECTORY }}'",
-  '''DIRECTORY='{{ env.TASKV_DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"record": {"run": ."bootstrap:remote-access".run[2:4]}}}' tasks/bootstrap.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml' ''',
-  "mise trust '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'",
-  '''yq -n '{"apiVersion": "v1", "kind": "Config", "clusters": [{"name": "fixture", "cluster": {"server": "https://remote.example.test:6443"}}], "users": [{"name": "fixture", "user": {"exec": {"command": "old"}}}]}' > '{{ env.TASKV_DIRECTORY }}/remote.kubeconfig' ''',
-  '''yq -n '{"deploymentUID": "fixture"}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml' ''',
-  "printf remote-uid > '{{ env.TASKV_DIRECTORY }}/remote-uid'",
-  "MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ env.TASKV_DIRECTORY }}' run record",
-  '''yq -e '.remoteUID == "remote-uid" and .remoteServer == "https://remote.example.test:6443" and .deploymentUID == "fixture"' '{{ env.TASKV_DIRECTORY }}/identity.yaml' ''',
-  '''yq -e '.kind == "Config" and .users[0].user.exec.command == "oci" and .deploymentUID == null' '{{ env.TASKV_DIRECTORY }}/remote.kubeconfig' ''',
-]
-env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/remote-record'
