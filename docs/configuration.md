@@ -31,9 +31,10 @@ Failed discovery leaves the settings file unchanged.
 
 `setup` refuses a directory that already holds a deployment. Keep the OCI
 profile and region the same between `setup` and `up`. Discovery does not reserve
-capacity. The lookups need the tenancy-level inspect statements in the
-[account policy](../deploy/oci/README.md#policy); without them, supply the
-corresponding settings yourself.
+capacity. The [account policy](../deploy/oci/README.md#policy) covers the
+lookups when `compartmentId` is set before discovery, because the OKE image
+lookup is then made in the deployment compartment. Supply a setting yourself to
+skip its lookup.
 
 ## Optional settings
 

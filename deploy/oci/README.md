@@ -36,14 +36,10 @@ Allow group id <group-ocid> to inspect groups in tenancy
 Allow group id <group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
 Allow group id <group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
 Allow group id <group-ocid> to inspect compartments in tenancy
-Allow group id <group-ocid> to inspect instances in tenancy
 ```
 
-The statements down to `tamoss-storage-*` match the policy used by the verified
-OCI deployments. The last two support [setup discovery](#setup-discovery); they
-have not yet been exercised with a scoped provisioner, because those runs used
-an administrator profile for `setup`. Leave them out if you supply the
-discovered settings yourself.
+The last statement supports [setup discovery](#setup-discovery) of availability
+domains. Leave it out if you supply `oke.placements` yourself.
 
 | Statements | Purpose |
 | --- | --- |
@@ -52,7 +48,7 @@ discovered settings yourself.
 | `postgres-*` | PostgreSQL system, backups and work requests |
 | `vaults`, `keys`, `secret-family`, `policies` | Vault foundation, persisted credentials and runtime IAM policies |
 | `domains`, `users`, `groups` | The generated storage identity |
-| `compartments`, `instances` in tenancy | Setup discovery |
+| `compartments` in tenancy | Setup discovery of availability domains |
 
 ## Storage IAM permissions
 
@@ -87,15 +83,13 @@ credentials and policies can take time to propagate.
 ## Setup discovery
 
 Configure the signing profile before running `mise run setup`. Missing settings
-are filled using read-only OCI lookups. The profile needs `DOMAIN_INSPECT` for
-the tenancy's identity domains, `COMPARTMENT_INSPECT` for availability-domain
-discovery, and `INSTANCE_INSPECT` for the unscoped OKE node-pool options lookup.
-Compartment-scoped provisioning grants alone may not cover these lookups.
-Account administrators can grant tenancy-level inspection of `domains`,
-`compartments` and `instances`, or supply the corresponding settings explicitly
-so setup skips those requests. Oracle lists the permissions for
-[IAM discovery](https://docs.oracle.com/en-us/iaas/Content/Identity/policyreference/iampolicyreference.htm)
-and [OKE node-pool options](https://docs.oracle.com/en-us/iaas/Content/Identity/Reference/contengpolicyreference.htm).
+are filled using read-only OCI lookups. The [policy](#policy) covers them:
+`read domains` for the tenancy's identity domains, `inspect compartments in
+tenancy` for availability domains, and the compartment's `cluster-family` grant
+for the OKE image lookup. That lookup is made in the deployment compartment when
+`compartmentId` is known, so pass `--compartment-id` to `setup` or enter the
+value first. Without it the lookup is tenancy-wide and needs wider access than
+this policy grants. Supply a setting explicitly to skip its lookup.
 
 Setup also reads the Object Storage namespace and regional service-gateway
 catalogue. It writes the selected identifiers into the private settings file;

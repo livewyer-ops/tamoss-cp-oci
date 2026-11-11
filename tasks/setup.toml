@@ -73,7 +73,8 @@ yq -e -i '(load("{{ vars.ENV_DIR }}/discovery/domains.json").data | sort_by(.nam
 {% endif %}''',
   '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
 {% if not v | get(key="oke", default={}) | get(key="imageId", default="") %}
-oci --connection-timeout 10 --read-timeout 30 --max-retries 0 ce node-pool-options get --node-pool-option-id all --node-pool-k8s-version {{ env.TASKV_VERSION | quote }} --node-pool-os-arch X86_64 --node-pool-os-type OL8 > '{{ vars.ENV_DIR }}/discovery/node-options.json'
+COMPARTMENT="$(yq -r '[.compartmentId // ""] | map(select(test("^ocid1[.]compartment[.]")) | select(test("REPLACE") | not)) | .[0] // ""' '{{ vars.ENV_DIR }}/values.yaml')"
+oci --connection-timeout 10 --read-timeout 30 --max-retries 0 ce node-pool-options get --node-pool-option-id all ${COMPARTMENT:+--compartment-id "$COMPARTMENT"} --node-pool-k8s-version {{ env.TASKV_VERSION | quote }} --node-pool-os-arch X86_64 --node-pool-os-type OL8 > '{{ vars.ENV_DIR }}/discovery/node-options.json'
 yq -e -i 'load("{{ vars.ENV_DIR }}/discovery/node-options.json").data as $options |
   select($options.shapes | contains([strenv(TASKV_SHAPE)])) |
   [$options.sources[] | select(."source-type" == "IMAGE") |

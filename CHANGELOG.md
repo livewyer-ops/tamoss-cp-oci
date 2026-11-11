@@ -38,6 +38,9 @@
 - Accept `--compartment-id` and `--contact-email` on `mise run setup`. `up` checks
   the settings, Docker, GitHub access and the OCI profile before it starts.
   Hide the storage checks from `mise tasks`; they still run by name.
+- Look up the OKE image in the deployment compartment when `compartmentId` is
+  set, so a compartment-scoped provisioner can run `setup`. The published policy
+  no longer includes tenancy-wide instance inspection.
 - Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
   `docs/configuration.md`; publish the provisioner policy as one statement block.
 
