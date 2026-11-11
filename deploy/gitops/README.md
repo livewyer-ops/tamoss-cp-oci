@@ -1,9 +1,11 @@
 # Deployment from Git
 
-Flux and Crossplane run in Kind for the lifetime of the demo. Flux reads this
-repository at the committed revision selected by `up`, packages its chart
-directories and deploys the application to OKE. Keep Kind running until teardown
-has completed. OKE runs External Secrets and the application controllers.
+Crossplane runs in Kind and owns the OCI resources for the lifetime of the demo.
+Flux runs in both clusters and reads this repository at the committed revision
+selected by `up`. Flux in Kind installs the controllers, the infrastructure
+claims and one root release on OKE. Flux in OKE installs External Secrets, the
+platform and the applications. Keep Kind until teardown has completed: it holds
+the infrastructure state and `down` needs it.
 
 ## Process and execution context
 
@@ -15,19 +17,21 @@ has completed. OKE runs External Secrets and the application controllers.
 | Authenticate private Git | Host -> Kind | Register a dedicated read-only repository deploy key and create its Secret in Kind, with GitHub's published SSH host keys. |
 | Install controllers | Flux in Kind | Fetch the pinned Git commit; install the management chart with the settings; install official Crossplane and External Secrets charts, OCI provider packages and the local composition charts. |
 | Create infrastructure | Crossplane in Kind -> OCI | Create or adopt the recorded Vault/key; provision credentials, IAM, networking, OKE/workers, PostgreSQL and storage. |
-| Establish OKE access | Host -> Kind | Use OCI's exec kubeconfig to verify the OKE identity and create a non-expiring ServiceAccount token; submit a self-contained kubeconfig Secret to Kind. |
-| Discover database connection | Job in Kind -> OCI | Fetch the database hostname and CA using the existing OCI bootstrap Secret; publish validated connection data in Kind. |
-| Install the platform | Flux in Kind -> OKE | Install External Secrets, ingress, certificates, Authentik and database initialisation. Chart values and substitutions are read in Kind; SQL Jobs run in OKE. |
-| Install the application | Flux in Kind -> OKE | Apply the upstream TAMOSS operator and the checked-in instance overlay; include TADOSS when enabled before deployment. |
-| Observe | Kind; host reads results | Check current source/chart revisions and remote workload health. Print application URLs and the location of private login details. |
-| Remove workloads | Kind -> OKE | Suspend deployment reconciliation, run application finalisers and uninstall remote releases while their operators remain available. |
+| Establish OKE access | Host -> OKE and Kind | Use OCI's exec kubeconfig to verify the OKE identity, install the Flux controllers on OKE and create a non-expiring ServiceAccount token; submit a self-contained kubeconfig Secret to Kind. |
+| Install the root | Flux in Kind -> OKE | Install the `oke-root` release: Git source, read-only Git key when the repository is private, settings, observed resource IDs and the `tamoss-gitops` release. |
+| Discover database connection | Job in OKE -> OCI | Fetch the database hostname and CA with OKE workload identity under a composed policy; publish validated connection data in OKE. |
+| Install the platform | Flux in OKE | Install External Secrets, ingress, certificates, Authentik and database initialisation. |
+| Install the application | Flux in OKE | Apply the upstream TAMOSS operator and the checked-in instance overlay; include TADOSS when enabled. |
+| Observe | Host reads Kind and OKE | Wait for the root release in Kind, then check current source/chart revisions and workload health in OKE. Print application URLs and the location of private login details. |
+| Remove workloads | Host and Kind -> OKE | Suspend reconciliation in both clusters, run application finalisers and uninstall the releases in OKE while their operators remain available. |
 | Remove infrastructure | Kind -> OCI | Empty owned storage, delete infrastructure and backups, retire credentials and schedule Vault secret deletion. Host reads OCI inventory to verify cleanup. |
 | Remove management | Host | Revoke the per-deployment Git key and delete Kind after the cleanup audit passes; retain local records and the Vault/key ownership record. |
 
 The host exception is OKE access: the pinned Crossplane OCI provider does not
 supply the kubeconfig needed here. Stock Flux needs a self-contained kubeconfig
 and cannot run the OCI exec authentication plugin. The host creates a
-ServiceAccount token Secret on OKE and copies its token into the Kind Secret. The
+ServiceAccount token Secret on OKE and copies its token into the Kind Secret.
+Kind uses it for the root release and for teardown Jobs. The
 token does not expire: Kind already holds the OCI signing key, so an expiry would
 add renewal work without limiting Kind's authority. Teardown revokes the token by
 deleting its namespace after workload cleanup.

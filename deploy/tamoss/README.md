@@ -61,7 +61,7 @@ for release selection, verification and lifecycle instructions.
 
 ## Source delivery
 
-Flux in Kind consumes the operator's pinned upstream OCI bundle directly.
+Flux in OKE consumes the operator's pinned upstream OCI bundle directly.
 Unchanged platform helper charts, defaults and instance manifests from the
 selected TAMOSS source release are checked in under `upstream/` directories.
 `mise run check` compares them with the verified release and checks `pins.yaml`.

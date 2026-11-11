@@ -3,8 +3,9 @@
 [Overview](../README.md) | [Getting started](getting-started.md) | [Operations](operations.md) | [Testing](testing.md)
 
 The demo follows Host -> Kind -> OKE. Kind contains Flux, Crossplane, the OCI
-providers and External Secrets. Crossplane owns OCI infrastructure until teardown;
-Flux in Kind installs the platform and applications on OKE. The
+providers and External Secrets. Crossplane owns OCI infrastructure until teardown.
+Flux in Kind installs one root release on OKE; Flux in OKE installs the platform
+and applications from it. The
 [process table](../deploy/gitops/README.md#process-and-execution-context) identifies
 the execution context and output of each step.
 
@@ -14,7 +15,8 @@ flowchart LR
     Git[Repository at a pushed commit] --> Kind
     Upstream[Official charts and packages] --> Kind
     Kind --> OCI[OCI: network, OKE, database, storage, IAM]
-    Kind --> OKE[OKE: ESO, platform, application operators]
+    Kind --> OKE[OKE: Flux, ESO, platform, application operators]
+    Git --> OKE
     Kind --> Vault[Retained Vault and key]
     Vault --> OKE
     OKE --> App[TAMOSS and optional TADOSS]
@@ -27,7 +29,8 @@ flowchart LR
 | Account administrator | Dedicated compartment, OCI profile, signing key and prerequisites |
 | Host | Discover setup defaults, start Kind, establish private Git access, issue OKE access, read audit results and remove Kind last |
 | Crossplane in Kind | Vault/key ownership, credentials, storage identity, networking, OKE/workers, PostgreSQL, bucket and reserved public IP |
-| Flux in Kind | Management and remote platform releases, overlays, application declarations and readiness |
+| Flux in Kind | Management releases and the `oke-root` release, which places the Git source, settings and root release in OKE |
+| Flux in OKE | Platform releases, overlays, application declarations and readiness |
 | OKE cloud controller | Load balancer created by the ingress Service |
 | Application operators in OKE | Application workloads, migrations, storage and ingest resources |
 
@@ -38,10 +41,13 @@ HelmRelease and the runtime IAM policies from observed resource IDs; Flux perfor
 the Helm operations.
 
 The host records OKE's cluster ID, API endpoint and namespace UID before issuing
-remote access. Flux uses a self-contained kubeconfig Secret in Kind. Chart
-`valuesFrom` and Kustomize substitutions are resolved in Kind; target and Helm
-storage namespaces are in OKE. Database metadata retrieval therefore runs in Kind,
-while SQL initialisation runs in OKE to reach the private database.
+remote access, and installs the Flux controllers on OKE. Flux in Kind uses a
+self-contained kubeconfig Secret for one release, `oke-root`. It passes the
+resource IDs Crossplane observed and the deployment settings to OKE as Helm
+values. Every other release is a Flux object in OKE's `tamoss-infra` namespace
+and resolves its values there. A Job in OKE reads the database hostname and CA
+with OKE workload identity; External Secrets delivers the Authentik values that
+Helm needs from Vault. Stopping Kind does not stop reconciliation in OKE.
 
 Kind remains the sole infrastructure owner. Teardown first suspends runtime
 reconciliation, freezes the instance release and releases and pauses the bootstrap

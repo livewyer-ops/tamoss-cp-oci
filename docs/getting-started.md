@@ -60,7 +60,7 @@ The deployment uses the region of this profile. `OCI_CLI_CONFIG_FILE` and
 
 ## 3. Sign in to GitHub (private repository only)
 
-Flux in Kind reads this repository at the commit you have checked out. While the
+Flux reads this repository at the commit you have checked out. While the
 repository is private, `up` registers a read-only deploy key for the deployment,
 so sign in with an account allowed to manage the repository's deploy keys:
 

@@ -159,6 +159,8 @@ Limits:
   verified deployments reused a retained Vault.
 - A Kind interruption has not been repeated on OCI with the non-expiring token;
   local checks cover Kind restart.
+- Flux inside OKE, the workload-identity database connection Job and continued
+  reconciliation with Kind stopped are unverified on OCI.
 - Release upgrades, credential rotation, managed-database failover, browser
   logout-button interaction, regional recovery and management-state restoration
   remain unqualified.
