@@ -69,7 +69,7 @@ run = [
   '''umask 077
 kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get secret authentik -o json | yq -p=json -o=json '.data | {"username": (.AUTHENTIK_BOOTSTRAP_USERNAME | @base64d), "password": (.AUTHENTIK_BOOTSTRAP_PASSWORD | @base64d)}' > '{{ vars.ENV_DIR }}/access/ui-login.json'''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss/tamoss -o json | yq -p=json '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'''',
-  "printf 'OKE kubeconfig: %s/remote.kubeconfig\nPrivate initial login: %s/access/ui-login.json\n' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}'",
+  "printf 'OKE kubeconfig: %s/remote.kubeconfig\nPrivate initial login: %s/access/ui-login.json\nKeep this workstation and its Kind cluster running. Remove the deployment with: ENV_DIR=%s mise run down\n' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}'",
 ]
 
 

@@ -35,6 +35,9 @@
   `storageCredentials.image` becomes `storageCredentials.images`.
 - Run `mise run check` in a GitHub workflow on pull requests and `main`. Build
   the browser test image during `qualify` instead of `check`.
+- Accept `--compartment-id` and `--contact-email` on `mise run setup`. `up` checks
+  the settings, Docker, GitHub access and the OCI profile before it starts.
+  Hide the storage checks from `mise tasks`; they still run by name.
 - Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
   `docs/configuration.md`; publish the provisioner policy as one statement block.
 

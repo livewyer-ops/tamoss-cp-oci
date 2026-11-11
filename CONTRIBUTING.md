@@ -25,6 +25,9 @@ In addition to the [deployment prerequisites](docs/getting-started.md#1-prepare-
 | `mise run check:storage:cleanup` | Finish an interrupted storage check | The same OCI identity |
 | `mise run qualify` | Test ingest, access, network isolation and a worker drain on a running deployment | A dedicated deployment; changes its data |
 
+`mise tasks` lists `setup`, `up`, `down` and the commands marked "Contributor".
+The storage checks are hidden from that list and run by name.
+
 A GitHub workflow runs `mise run check` on pull requests and on `main`. Run
 `check:management` on a quiet host before merging a change to tasks, charts or
 compositions; do not run other checks beside it. [Testing](docs/testing.md)
