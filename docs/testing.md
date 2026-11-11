@@ -182,7 +182,7 @@ scoped OCI identity and needed no manual resource repair.
 | Teardown | One `down` removed workloads, cloud resources, application IAM, the Git deploy key and Kind in approximately 15 minutes. Independent native OCI inventory found no remaining workload resources. Existing local clusters were unchanged |
 | Retained foundation | The pre-existing compartment, Vault and key were retained. The deployment's Vault secrets were scheduled for deletion |
 
-Later on 11 November, commit `7649e61` repeated the deployment, both
+Later on 11 November, commit `68cd493` (deployed before merging as `7649e61`) repeated the deployment, both
 qualifications and teardown with one temporary identity holding only the
 [published policy](../deploy/oci/README.md#policy). `setup` discovered every
 setting with that identity, and `up` passed its preflight checks and completed
