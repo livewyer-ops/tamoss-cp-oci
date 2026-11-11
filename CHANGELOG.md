@@ -41,6 +41,9 @@
 - Look up the OKE image in the deployment compartment when `compartmentId` is
   set, so a compartment-scoped provisioner can run `setup`. The published policy
   no longer includes tenancy-wide instance inspection.
+- Add `mise run account:create` and `account:remove` for an administrator to
+  create and remove the scoped provisioner user, group, policy and API key.
+  `deploy/oci/policy.txt` holds the policy statements.
 - Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
   `docs/configuration.md`; publish the provisioner policy as one statement block.
 

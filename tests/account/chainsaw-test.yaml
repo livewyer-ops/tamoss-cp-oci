@@ -1,0 +1,68 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: account}
+spec:
+  steps:
+    - name: create the provisioner from the published policy
+      try:
+        - command: &prepare
+            entrypoint: mise
+            env: &paths [{name: PROJECT_ROOT, value: ($values.root)}]
+            args: [-C, $PROJECT_ROOT, run, test:account:prepare]
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:account:create]
+            check:
+              ($error == null): true
+              (contains(join('', [$stdout, $stderr]), 'mise run setup --compartment-id ocid1.compartment.oc1..fixture')): true
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:account:created]
+    - name: refuse to replace existing account records
+      try:
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:account:create]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Account records already exist')): true
+    - name: remove the provisioner in dependency order with its local key
+      try:
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:account:remove]
+    - name: reject an invalid compartment before any request
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [COMPARTMENT=not-a-compartment, mise, -C, $PROJECT_ROOT, run, test:account:create]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Pass the deployment compartment OCID')): true
+        - command:
+            entrypoint: test
+            env: *paths
+            args: ['!', -e, $PROJECT_ROOT/.local/tmp/check/account/calls.log]
+    - name: remove a partly created provisioner after a failed policy request
+      try:
+        - command: *prepare
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$PROJECT_ROOT/.local/tmp/check/account/fail/iam-policy-create]
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:account:create]
+            check:
+              ($error != null): true
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ['EXPECTED=iam-group-remove-user iam-group-delete identity-domains-user-delete', mise, -C, $PROJECT_ROOT, run, test:account:remove]

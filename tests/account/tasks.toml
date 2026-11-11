@@ -1,0 +1,61 @@
+["test:account:check"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  # The administrator copies the policy from the guide; the task reads policy.txt.
+  """awk '/^## Policy/{p=1} p&&/^```text/{f=1;next} f&&/^```/{exit} f' deploy/oci/README.md | cmp - deploy/oci/policy.txt""",
+  "chainsaw test --no-cluster --test-dir tests/account --exec-timeout 60s --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name account",
+]
+
+["test:account:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ env.TASKV_DIRECTORY }}'",
+  "install -d -m 700 '{{ env.TASKV_DIRECTORY }}/bin' '{{ env.TASKV_DIRECTORY }}/fail' '{{ env.TASKV_DIRECTORY }}/deploy/oci'",
+  "cp -r tests/account/responses '{{ env.TASKV_DIRECTORY }}/responses'",
+  "cp deploy/oci/policy.txt '{{ env.TASKV_DIRECTORY }}/deploy/oci/'",
+  # Stand-in for the OCI CLI: record the command, fail on request, return its fixture.
+  """printf '%s\n' '#!/bin/sh' 'shift 6' 'name=""' 'while [ $# -gt 0 ]; do case "$1" in --*) break;; esac; name="$name${name:+-}$1"; shift; done' 'echo "$name" >> "$STUB/calls.log"' 'test ! -e "$STUB/fail/$name" || exit 1' 'test ! -e "$STUB/responses/$name.json" || cat "$STUB/responses/$name.json"' > '{{ env.TASKV_DIRECTORY }}/bin/oci'""",
+  "chmod 700 '{{ env.TASKV_DIRECTORY }}/bin/oci'",
+  """PROJECT_ROOT={{ vars.ROOT_DIR | quote }} DIRECTORY={{ env.TASKV_DIRECTORY | quote }} yq eval-all -p=toml -o=toml '
+    select(fileIndex == 0) as $root | select(fileIndex == 1) as $account | select(fileIndex == 0) |
+    {"vars":{"ROOT_DIR":strenv(DIRECTORY)},
+     "env":{"OCI_CLI_CONFIG_FILE":(strenv(PROJECT_ROOT) + "/tests/setup/oci-config"), "OCI_CLI_PROFILE":"demo"},
+     "task_config":{"shell":$root.task_config.shell},
+     "tasks":{"account:create":$account."account:create", "account:remove":$account."account:remove"}}' mise.toml tasks/account.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'""",
+  "mise trust '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/account'
+
+["test:account:create"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "PATH='{{ env.TASKV_DIRECTORY }}/bin':\"$PATH\" STUB='{{ env.TASKV_DIRECTORY }}' MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ env.TASKV_DIRECTORY }}' run account:create --compartment-id {{ env.COMPARTMENT | default(value=\"ocid1.compartment.oc1..fixture\") }} --contact-email operator@fixture.test",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/account'
+
+["test:account:created"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  """test "$(stat -c '%a' '{{ env.TASKV_RECORDS }}')" = 700 && test "$(stat -c '%a' '{{ env.TASKV_RECORDS }}/api-key.pem')" = 600 && test "$(stat -c '%a' '{{ env.TASKV_RECORDS }}/oci-config')" = 600""",
+  """yq -p=ini -o=yaml -e '[.user == "ocid1.user.oc1..fixture", .fingerprint == "aa:bb:cc", .tenancy == "ocid1.tenancy.oc1.fixture", .region == "eu-frankfurt-1", .key_file == "{{ env.TASKV_RECORDS }}/api-key.pem"] | all' '{{ env.TASKV_RECORDS }}/oci-config' > /dev/null""",
+  """yq -p=json -o=yaml -e '[.compartmentId == "ocid1.tenancy.oc1.fixture", .name == "tamoss-provisioner", (.statements | length) == 22, (.statements | map(test("<")) | any | not), (.statements | map(select(test("ocid1.group.oc1..fixture"))) | length) == 22, (.statements | map(select(test("compartment id ocid1.compartment.oc1..fixture"))) | length) == 16] | all' '{{ env.TASKV_RECORDS }}/policy-request.json' > /dev/null""",
+  """yq -p=json -o=yaml -e '[.userName == "tamoss-provisioner", .emails[0].value == "operator@fixture.test", .urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser.canUseApiKeys == true, .urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser.canUseConsole == false] | all' '{{ env.TASKV_RECORDS }}/user-request.json' > /dev/null""",
+  "printf '%s\\n' iam-domain-list identity-domains-user-create iam-group-create iam-group-add-user iam-policy-create iam-user-api-key-upload | cmp - '{{ env.TASKV_DIRECTORY }}/calls.log'",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/account'
+env.TASKV_RECORDS = '{{ vars.ROOT_DIR }}/.local/tmp/check/account/.local/account/tamoss-provisioner'
+
+["test:account:remove"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -f '{{ env.TASKV_DIRECTORY }}/calls.log'",
+  "PATH='{{ env.TASKV_DIRECTORY }}/bin':\"$PATH\" STUB='{{ env.TASKV_DIRECTORY }}' MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ env.TASKV_DIRECTORY }}' run account:remove",
+  "test ! -e '{{ env.TASKV_DIRECTORY }}/.local/account/tamoss-provisioner'",
+  "printf '%s\\n' {{ env.EXPECTED | default(value=\"iam-user-api-key-delete iam-policy-delete iam-group-remove-user iam-group-delete identity-domains-user-delete\") }} | cmp - '{{ env.TASKV_DIRECTORY }}/calls.log'",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/account'

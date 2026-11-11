@@ -8,10 +8,30 @@ user, group, membership and bucket policy during deployment. Storage IAM remains
 owned by the Kind bootstrap throughout the demo; OKE needs no user-management
 permissions.
 
+## Create the provisioner
+
+An administrator can create the provisioner user, its group, the policy below
+and an API signing key with one command, using an administrator OCI profile:
+
+```bash
+mise run account:create --compartment-id 'ocid1.compartment.oc1..example' --contact-email 'you@example.com'
+```
+
+The command writes an owner-only profile and key to
+`.local/account/tamoss-provisioner/` and prints the `setup` command that uses
+them. The user can only use API keys; console sign-in is disabled. `--name`
+selects another name for a second provisioner. Remove the user, group, policy
+and key when they are no longer needed:
+
+```bash
+mise run account:remove
+```
+
 ## Policy
 
-Create a group for the provisioner user and a policy in the root compartment
-with these statements. Replace `<group-ocid>` and `<compartment-ocid>`:
+To prepare the account by hand instead, create a group for the provisioner user
+and a policy in the root compartment with the statements in
+[policy.txt](policy.txt). Replace `<group-ocid>` and `<compartment-ocid>`:
 
 ```text
 Allow group id <group-ocid> to manage instance-family in compartment id <compartment-ocid>
