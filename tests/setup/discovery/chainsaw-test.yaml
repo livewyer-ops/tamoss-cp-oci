@@ -9,6 +9,9 @@ spec:
             entrypoint: mise
             env: &paths [{name: PROJECT_ROOT, value: ($values.root)}]
             args: [-C, $PROJECT_ROOT, run, test:setup:discovery:defaults]
+            check:
+              ($error == null): true
+              (contains(join('', [$stdout, $stderr]), 'Enter compartmentId and contactEmail in')): true
     - name: preserve explicit settings and skip every supplied lookup
       try:
         - command:
@@ -66,3 +69,69 @@ spec:
               ($error != null): true
               (contains($stderr, 'existing deployment')): true
         - command: *unchanged
+    - name: accept the required settings as setup arguments
+      try:
+        - command:
+            entrypoint: mise
+            env: *paths
+            args: [-C, $PROJECT_ROOT, run, test:setup:discovery:arguments]
+            check:
+              ($error == null): true
+              (contains(join('', [$stdout, $stderr]), 'Settings are ready in')): true
+    - name: pass preflight with complete settings and available tools
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=complete, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+    - name: skip GitHub checks for a public source
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=public, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+    - name: stop before deployment without settings
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=missing, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+            check:
+              ($error != null): true
+              (contains($stderr, 'No settings found')): true
+    - name: stop before deployment with placeholder settings
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=placeholder, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Enter compartmentId and contactEmail')): true
+    - name: stop before deployment when Docker is unavailable
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=docker, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Docker is not running')): true
+    - name: stop before deployment without GitHub access to a private source
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=gh, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Sign in to GitHub')): true
+    - name: stop before deployment when the compartment is unreadable
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: [CASE=oci, mise, -C, $PROJECT_ROOT, run, test:setup:preflight]
+            check:
+              ($error != null): true
+              (contains($stderr, 'cannot read the deployment compartment')): true

@@ -40,15 +40,16 @@ cd tamoss-cp-oci
 mise trust
 mise install --locked
 mise exec -- gh auth login --hostname github.com --git-protocol https
-mise run setup
-"${EDITOR:-vi}" .local/environment/values.yaml
+mise run setup --compartment-id 'ocid1.compartment.oc1..example' --contact-email 'you@example.com'
 mise run up
 ```
 
-`gh auth login` is needed only while the repository is private. `setup` reads
-the OCI profile and fills in the tenancy and region settings. Enter
-`compartmentId` and `contactEmail` in `values.yaml` before `up`. `up` prints the
-application URLs and the location of the initial login details.
+Replace the example compartment OCID and email with your own. `gh auth login` is
+needed only while the repository is private. `setup` writes
+the private settings to `.local/environment/values.yaml` and fills in the
+tenancy and region settings from the OCI profile. `up` first checks Docker, the
+settings, GitHub access and the OCI profile, then prints the application URLs
+and the location of the initial login details when the deployment is ready.
 
 [Getting started](docs/getting-started.md) explains each step.
 

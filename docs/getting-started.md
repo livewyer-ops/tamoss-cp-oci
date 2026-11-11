@@ -69,20 +69,19 @@ settings created by the next step.
 ## 4. Create the settings
 
 ```bash
-mise run setup
-"${EDITOR:-vi}" .local/environment/values.yaml
+mise run setup --compartment-id 'ocid1.compartment.oc1..example' --contact-email 'you@example.com'
 ```
 
-`setup` creates the private settings file and fills in the storage namespace,
-identity domain, service network, OKE image, worker placements and your current
-public IPv4 address. It makes read-only requests and creates no cloud resources.
-
-Enter two values:
-
-| Setting | Value |
+| Argument | Value |
 | --- | --- |
-| `compartmentId` | OCID of the empty deployment compartment |
-| `contactEmail` | Operator contact, also used for certificates and the administrator account |
+| `--compartment-id` | OCID of the empty deployment compartment |
+| `--contact-email` | Operator contact, also used for certificates and the administrator account |
+
+`setup` creates the private settings file `.local/environment/values.yaml` and
+fills in the storage namespace, identity domain, service network, OKE image,
+worker placements and your current public IPv4 address. It makes read-only
+requests and creates no cloud resources. Both arguments are optional; without
+them, enter `compartmentId` and `contactEmail` in the settings file.
 
 Check `adminCidrs` if your VPN or proxy uses a different outbound address for
 Kubernetes access. Set `tadoss.enabled: true` to include
@@ -97,7 +96,9 @@ Use a clean checkout whose current commit exists on GitHub `origin`.
 mise run up
 ```
 
-`up` takes about 25 minutes. It starts Kind, creates the OCI resources, installs
+`up` first checks the settings, Docker, GitHub access for a private repository
+and that the OCI profile can read the compartment. A failed check names the fix
+and changes nothing. `up` then takes about 25 minutes. It starts Kind, creates the OCI resources, installs
 the application on OKE and waits for public HTTPS. It then prints the
 application URLs and writes the initial login details to
 `.local/environment/access/ui-login.json`.
@@ -149,7 +150,7 @@ mise run down
 Use a separate directory and name for each additional deployment:
 
 ```bash
-ENV_DIR=.local/environments/my-environment mise run setup
+ENV_DIR=.local/environments/my-environment mise run setup --compartment-id 'ocid1.compartment.oc1..example' --contact-email 'you@example.com'
 ```
 
 Set an unused `name` in its `values.yaml` and pass the same `ENV_DIR` to every
