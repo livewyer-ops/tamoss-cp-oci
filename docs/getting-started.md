@@ -33,6 +33,10 @@ Ask an account administrator for:
 - a provisioner user in a group that holds the [account policy](../deploy/oci/README.md#policy);
 - an API signing key for that user.
 
+An administrator can create the last two with
+[one command](../deploy/oci/README.md#create-the-provisioner), which also writes
+the signing profile described below.
+
 The same account preparation can be reused for later deployments. OCI can take
 a few minutes to accept a new API key; if `setup` reports `NotAuthenticated`
 straight after the key was added, wait and run it again.

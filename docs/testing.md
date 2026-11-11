@@ -23,6 +23,7 @@ mise run check
 | Remote OKE deployment | Git source, local values and substitutions, and access/retirement rendering contracts; controller checks run under `check:management` |
 | Installation flow | Fresh-install command sequencing, refusal to reuse an existing deployment, failure propagation and credential-export cleanup; Git source selection, public authentication bypass and dependency-lock validation |
 | Setup discovery | Fixture-backed OCI/IP lookups, image selection, domain placement, explicit overrides, setup arguments, failure preservation and refusal to change existing deployments |
+| Account tasks | Stand-in OCI CLI: provisioner creation from the published policy, owner-only profile and key, refusal to replace records, removal in dependency order and after a failed policy request |
 | Preflight | Stubbed Docker, GitHub and OCI checks: missing or placeholder settings and each unavailable dependency stop `up` with its message; a public source skips the GitHub checks |
 | TADOSS | Immutable assets, shared platform configuration, separate database and scoped Vault access, PostgreSQL 16 migrations and TLS rejection |
 

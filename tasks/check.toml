@@ -115,6 +115,7 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "mise run verify:gitops",
   "mise run verify:tadoss",
   "ROOT={{ vars.ROOT_DIR }} mise run test:setup:check",
+  "mise run test:account:check",
   "mise run test:bootstrap:inputs",
   '''{% for item in ["open-api", "overlap", "outside-vcn", "service-overlap", "catalogue-shape", "unsupported-oke", "duplicate-placement", "name-length"] %}
 kubectl kustomize tests/invalid/{{ item }} > '{{ env.TASKV_CACHE }}/rejected-{{ item }}.yaml'

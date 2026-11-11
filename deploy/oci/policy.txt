@@ -1,0 +1,22 @@
+Allow group id <group-ocid> to manage instance-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage virtual-network-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage volume-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage cluster-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage load-balancers in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage buckets in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage objects in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage postgres-db-systems in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage postgres-backups in compartment id <compartment-ocid>
+Allow group id <group-ocid> to read postgres-configurations in compartment id <compartment-ocid>
+Allow group id <group-ocid> to read postgres-work-requests in compartment id <compartment-ocid>
+Allow group id <group-ocid> to inspect compartments in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage vaults in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage keys in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage secret-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage policies in compartment id <compartment-ocid>
+Allow group id <group-ocid> to read domains in tenancy
+Allow group id <group-ocid> to inspect users in tenancy where target.resource.domain.name = 'Default'
+Allow group id <group-ocid> to inspect groups in tenancy
+Allow group id <group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
+Allow group id <group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
+Allow group id <group-ocid> to inspect compartments in tenancy
