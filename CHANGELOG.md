@@ -44,6 +44,9 @@
 - Run the `qualify` browser tests with `docker run`; only `check` needs the
   Docker Compose plugin. The test selection moves to
   `deploy/tamoss/browser/tests.txt`.
+- Add `mise run account:create` and `account:remove` for an administrator to
+  create and remove the scoped provisioner user, group, policy and API key.
+  `deploy/oci/policy.txt` holds the policy statements.
 - Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
   `docs/configuration.md`; publish the provisioner policy as one statement block.
 
