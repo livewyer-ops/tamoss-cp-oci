@@ -28,9 +28,8 @@ that Kind cluster running until you remove the deployment. See
 - While this repository is private: GitHub access that can manage its deploy keys.
 
 Deployment takes about 25 minutes and removal about 15 minutes. The resources
-are billable while they exist. Three deployments on 10 November 2026, about 3.3
-hours of infrastructure in total, were posted at GBP 2.04 before tax in
-`uk-london-1`; your rates may differ. See [posted billing](docs/operations.md#posted-billing).
+are billable while they exist; [posted billing](docs/operations.md#posted-billing)
+shows how to check the charges.
 
 ## Quickstart
 
