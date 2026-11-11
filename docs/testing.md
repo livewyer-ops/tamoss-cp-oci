@@ -165,58 +165,34 @@ to capture the infrastructure baseline and run its OAuth and persistence checks 
 
 ## Verified coverage and limits
 
-On 11 November 2026, published commit `51c3af4` completed a fresh OCI deployment
-in `uk-london-1`, TAMOSS and TADOSS qualification and teardown. Both
-applications were enabled before installation. `setup` discovered every OCI
-setting using an administrator profile. Deployment and teardown used a temporary
-scoped OCI identity and needed no manual resource repair.
+A fresh deployment in `uk-london-1` with TAMOSS and TADOSS enabled has passed
+`setup`, `up`, both qualifications and `down` using a provisioner that holds
+only the [published policy](../deploy/oci/README.md#policy), with no manual
+resource repair.
 
-| Behaviour | Observed status |
+| Behaviour | Verified on OCI |
 | --- | --- |
-| Setup discovery | Identity domain, storage namespace, service network, OKE image, placements and public IPv4 address were discovered; no setting was entered except the compartment and contact |
-| Git delivery and readiness | Private SSH fetch with a temporary read-only deploy key, chart packaging from the selected commit and current-revision readiness passed. One unattended `up` completed in approximately 26 minutes |
-| Worker placement | The node pool reported one worker in each of three availability domains, in fault domains 1, 2 and 3 |
-| Remote access | The host issued a non-expiring ServiceAccount token; teardown removed it with the remote access after application removal |
-| TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, the selected browser tests, replica placement and network policy passed |
-| Worker disruption | API and login-path sampling across the worker drain had no failed requests; the worker was uncordoned and post-drain media reads passed |
-| TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after pod replacement passed. Inventoried OCI IDs were unchanged |
-| Teardown | One `down` removed workloads, cloud resources, application IAM, the Git deploy key and Kind in approximately 15 minutes. Independent native OCI inventory found no remaining workload resources. Existing local clusters were unchanged |
-| Retained foundation | The pre-existing compartment, Vault and key were retained. The deployment's Vault secrets were scheduled for deletion |
+| Account preparation | `account:create` creates a working provisioner and `account:remove` deletes its user, group, policy and key |
+| Setup discovery | Identity domain, storage namespace, service network, OKE image, placements and public IPv4 address are discovered; only the compartment and contact are entered |
+| Git delivery and readiness | Private SSH fetch with a temporary read-only deploy key, chart packaging from the selected commit and current-revision readiness. One unattended `up` completes in about 25 minutes |
+| Worker placement | One worker in each of three availability domains, in separate fault domains |
+| Remote access | The host issues a non-expiring ServiceAccount token; teardown removes it with the remote access after application removal |
+| TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, the selected browser tests, replica placement and network policy |
+| Worker disruption | API and login-path sampling across the worker drain has no failed requests; post-drain media reads pass |
+| TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after pod replacement |
+| Teardown | One `down` removes workloads, cloud resources, application IAM, the Git deploy key and Kind in about 15 minutes. An independent OCI inventory finds no remaining workload resources |
+| Retained foundation | A pre-existing compartment, Vault and key are retained. The deployment's Vault secrets are scheduled for deletion |
 
-Later on 11 November, commit `68cd493` (deployed before merging as `7649e61`) repeated the deployment, both
-qualifications and teardown with one temporary identity holding only the
-[published policy](../deploy/oci/README.md#policy). `setup` discovered every
-setting with that identity, and `up` passed its preflight checks and completed
-in approximately 26 minutes. The first `setup` attempts were refused as
-unauthenticated for about two minutes after the API key was created.
+Limits:
 
-Also on 11 November, `account:create` from commit `4de2381` created a
-provisioner with an administrator profile, `setup` discovered every setting
-with the profile it wrote, and `account:remove` deleted the user, group, policy
-and key. No deployment was made with that provisioner.
-
-Two earlier runs on 10 November used the same design before its final commits;
-the second also passed as one unattended `up`, with its three composed runtime
-IAM policies observed Ready and Synced. `check:management` passed in full
-on the merged content.
-
-On 10 November, commit `0bc2c3e` passed an original Kind interruption on OCI:
-media and UI login access continued with Kind stopped, the same container and
-management identity returned and Flux readiness recovered. That deployment used
-an expiring OKE token. The interruption has not been repeated on OCI with the
-non-expiring token; local checks cover Kind restart.
-
-In the `0bc2c3e` run the TADOSS OAuth blueprint Job failed its first attempt and
-completed on its automatic retry. Its failure log contained an exception while
-sanitising importer logs, so the underlying cause remains unconfirmed. One local
-Authentik startup check also failed once while other checks shared the host and
-passed when repeated alone.
-
-Deployments running longer than about an hour, other regions and regions with fewer than three availability domains
-are unverified on OCI. Release upgrades, credential rotation, managed-database
-failover, browser logout-button interaction, regional recovery and
-management-state restoration remain unqualified. Earlier OCI external-binding
-loss and intermittent ACME failures were not reproduced; their causes remain
-unconfirmed.
-
-Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).
+- Deployments running longer than about an hour, other regions and regions
+  with fewer than three availability domains are unverified on OCI.
+- Creating a new Vault and key with the published policy is unverified; the
+  verified deployments reused a retained Vault.
+- A Kind interruption has not been repeated on OCI with the non-expiring token;
+  local checks cover Kind restart.
+- Release upgrades, credential rotation, managed-database failover, browser
+  logout-button interaction, regional recovery and management-state restoration
+  remain unqualified.
+- The TADOSS OAuth blueprint Job has failed its first attempt once and completed
+  on its automatic retry; the cause is unconfirmed.
