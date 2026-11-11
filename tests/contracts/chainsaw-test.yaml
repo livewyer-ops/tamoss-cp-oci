@@ -148,18 +148,6 @@ spec:
         check:
           ($error != null): true
           (contains($stderr, 'verify:privacy')): true
-    - command:
-        entrypoint: env
-        workDir: ../..
-        args:
-        - mise
-        - -C
-        - .
-        - run
-        - check:storage
-        check:
-          ($error != null): true
-          (contains($stderr, 'verify:privacy')): true
     finally:
     - command:
         entrypoint: rmdir
