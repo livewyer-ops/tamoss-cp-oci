@@ -119,9 +119,9 @@ it does not change account permissions or create OCI resources.
 
 ## Deployment asset access
 
-Flux in Kind reads this repository at the selected Git commit and consumes the
-operators' pinned public OCI artifacts. Private Git access uses a read-only
-repository deploy key. No OCI asset-reader identity or Vault delivery is created.
+Flux in Kind and Flux in OKE read this repository at the selected Git commit;
+Flux in OKE consumes the operators' pinned public OCI artifacts. Private Git
+access uses a read-only repository deploy key, held in both clusters. No OCI asset-reader identity or Vault delivery is created.
 
 ## Retirement
 

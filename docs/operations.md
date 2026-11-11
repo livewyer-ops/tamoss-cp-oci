@@ -66,8 +66,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Crossplane providers unavailable | Provider health and events in Kind |
 | Bootstrap installation stalled | Kind `tamoss-infra` GitRepository and HelmRelease conditions; Flux source/Helm controller logs |
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`; inspect child conditions and HelmReleases |
-| Remote deployment failed | Kind `tamoss-infra` Kustomizations `runtime` and `deployment-ready`; inspect source, OKE access and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
-| Runtime waiting | Kind `tamoss-infra/runtime` Kustomization and `tamoss-runtime` ConfigMap; inspect infrastructure observations |
+| Remote deployment failed | Kind `tamoss-infra` HelmRelease `oke-root`, then OKE `tamoss-infra` HelmRelease `tamoss-gitops` and Kustomization `deployment-ready`; inspect source, OKE access and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
+| Root release waiting | Kind `tamoss-infra/oke-root` HelmRelease and the `tamoss-runtime` and `oke-bootstrap-facts` ConfigMaps; inspect infrastructure observations |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | IAM `PolicyAlreadyExists` with no external-name | Follow [policy binding recovery](#recover-a-policy-binding) using the original managed resource and a verified OCI policy |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
@@ -204,8 +204,9 @@ Use the retained installer and private environment records:
 ENV_DIR=.local/environment mise run down
 ```
 
-`down` verifies the original Kind identity, suspends runtime reconciliation and
-releases the bootstrap's authority to recreate children. It removes applications through Kind while the OKE API is available. Remote
+`down` verifies the original Kind identity, suspends reconciliation in Kind and
+in OKE and releases the bootstrap's authority to recreate children. It removes
+applications and their releases in OKE while the OKE API is available. Remote
 access is revoked after workload cleanup.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
@@ -267,13 +268,14 @@ the original Kind cluster and deployment directory throughout.
 
 ### Convergence and OKE access
 
-`mise run up` accepts a fresh deployment directory. Flux and Crossplane keep
-reconciling in Kind after the host command exits. Kind's `deployment-ready`
-Kustomization checks remote application health; the host also checks the selected
-Git commit, chart revision and current controller generations.
+`mise run up` accepts a fresh deployment directory. Crossplane keeps reconciling
+the OCI resources in Kind after the host command exits, and Flux in OKE keeps
+reconciling the platform and applications. OKE's `deployment-ready`
+Kustomization checks application health; the host also checks the selected Git
+commit, chart revision and current controller generations.
 
-Kind manages OKE with a ServiceAccount token that does not expire, so
-reconciliation continues without host involvement. `down` revokes it after
+Kind reaches OKE with a ServiceAccount token that does not expire. It uses the
+token for the `oke-root` release and for teardown. `down` revokes it after
 workload cleanup. A revoked or fully torn-down deployment refuses a new token.
 
 ### Interrupted host preparation
@@ -313,7 +315,7 @@ operation; the common chart does not choose retry policy or manage the workflow.
 | --- | --- |
 | Kind `tamoss-infra/s3-credentials` | Native reconciliation consumes a staged or persisted response. A claimed attempt is never automatically repeated. Preserve the receipt and use [failed-deployment cleanup](#clean-up-a-failed-deployment) if installation fails. |
 | Kind remote bootstrap | An interrupted installation requires teardown. Retain the original Kind and records; `down` stops remote bootstrap and revokes its access. |
-| Kind `tamoss-infra/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
+| OKE `tamoss-infra/database-connection-<revision>` | Flux runs the Helm hook for the selected database/revision. Retrieval and validation precede publication; a stale identity or revision cannot overwrite the current ConfigMap. Preserve the failed Job for diagnosis and retry the owning HelmRelease after correcting the cause. |
 | Kind `tamoss-infra/secret-retirement` | Repeat `mise run down` with the original directory and credentials. The Job only verifies deletion scheduling; it does not request deletion. Active or scheduling secrets keep verification incomplete. A failed inventory request cannot count as successful retirement. |
 
 Do not delete identity receipts or clear finalisers to bypass a failed operation.

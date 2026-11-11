@@ -13,7 +13,7 @@ the media source through a `tams://` identifier. TADOSS needs no object store.
 ## Enable for a fresh demo
 
 The [release lock](release.yaml) selects published upstream assets by checksum
-and digest. Flux in Kind pulls the operator's OCI artifact directly. It builds
+and digest. Flux in OKE pulls the operator's OCI artifact directly. It builds
 this repository's integration charts from the selected Git commit.
 
 Before `mise run up`, set the private deployment's `values.yaml`:
@@ -24,8 +24,8 @@ tadoss:
 ```
 
 Crossplane and External Secrets prepare the database and OAuth credentials in
-Vault. Kind's Flux installs the separate database/role, Authentik configuration,
-released operator and instance on OKE. The API uses
+Vault. Flux in OKE installs the separate database/role, Authentik configuration,
+released operator and instance. The API uses
 `https://tads.<hyphenated-public-IP>.sslip.io`.
 
 Use the separate `tadoss-<deployment-id>` OAuth client with Authentik's

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Breaking:** run Flux for the platform and applications inside OKE. Kind
+  installs Flux on OKE and one root release there; OKE then reconciles itself
+  and continues while Kind is stopped. The database connection Job runs in OKE
+  with workload identity, and External Secrets delivers the Authentik values to
+  OKE. Existing deployments must be removed with the version that created them.
+
 - Discover missing OCI settings and the host's public IPv4 allowlist during
   `mise run setup`. Preserve explicit overrides and leave discovery out of `up`.
 - Keep Flux and Crossplane in Kind through deployment and teardown. Flux deploys
