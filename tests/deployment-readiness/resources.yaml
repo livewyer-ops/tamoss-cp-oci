@@ -81,28 +81,6 @@ status:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: runtime
-  namespace: tamoss-infra
-spec:
-  interval: 1m
-  path: ./
-  prune: false
-  sourceRef:
-    kind: GitRepository
-    name: tamoss-bootstrap-product
-status:
-  observedGeneration: 1
-  conditions:
-  - type: Ready
-    status: 'True'
-    reason: Fixture
-    message: Fixture
-    lastTransitionTime: '2026-01-01T00:00:00Z'
-  lastAppliedRevision: main@sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
   name: deployment-ready
   namespace: tamoss-infra
 spec:

@@ -174,28 +174,6 @@ spec:
         file: resources.yaml
         subresource: status
     - command: *id003
-  - name: reject runtime lastAppliedRevision None
-    try:
-    - patch:
-        subresource: status
-        resource:
-          apiVersion: kustomize.toolkit.fluxcd.io/v1
-          kind: Kustomization
-          metadata:
-            name: runtime
-            namespace: tamoss-infra
-          status:
-            lastAppliedRevision: null
-    - command:
-        entrypoint: chainsaw
-        env: *id001
-        args: *id002
-        check:
-          ($error != null): true
-    - patch:
-        file: resources.yaml
-        subresource: status
-    - command: *id003
   - name: reject deployment-ready observedGeneration 0
     try:
     - patch:

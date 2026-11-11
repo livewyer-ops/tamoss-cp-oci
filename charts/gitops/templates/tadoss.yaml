@@ -4,8 +4,6 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata: {name: tadoss-config, namespace: tamoss-infra}
 spec:
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
   interval: 5m
   timeout: 10m
   releaseName: tadoss-config
@@ -54,8 +52,6 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: tadoss-operator, namespace: tamoss-infra}
 spec:
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
   interval: 5m
   timeout: 10m
   prune: false
@@ -94,8 +90,6 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: tadoss, namespace: tamoss-infra}
 spec:
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
   interval: 5m
   timeout: 15m
   prune: false

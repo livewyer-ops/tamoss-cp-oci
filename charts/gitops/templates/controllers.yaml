@@ -5,8 +5,6 @@ spec:
   interval: 10m
   timeout: 10m
   releaseName: external-secrets
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
   targetNamespace: external-secrets
   storageNamespace: external-secrets
   install:
@@ -30,7 +28,5 @@ spec:
   timeout: 5m
   prune: false
   deletionPolicy: Orphan
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
   sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   path: ./deploy/bootstrap/remote

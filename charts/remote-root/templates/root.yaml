@@ -1,0 +1,92 @@
+{{- $source := .Values.source -}}
+{{- $label := dict "tamoss.livewyer.io/deployment-id" (required "deploymentId is required" .Values.deploymentId) -}}
+{{- range $key, $value := .Values.facts }}{{ $_ := required (printf "facts.%s is required" $key) $value }}{{ end -}}
+{{- if $source.identity }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deployment-git
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  identity: {{ $source.identity | quote }}
+  identity.pub: {{ $source.identityPub | quote }}
+  known_hosts: {{ $source.knownHosts | quote }}
+---
+{{- end }}
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: tamoss-bootstrap-product
+  namespace: {{ .Release.Namespace }}
+spec:
+  interval: 1m
+  url: {{ required "source.url is required" $source.url | quote }}
+  ref: {commit: {{ required "source.commit is required" $source.commit | quote }}}
+{{- if $source.identity }}
+  secretRef: {name: deployment-git}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-gitops-values
+  namespace: {{ .Release.Namespace }}
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+{{ .Values.settings | toYaml | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-assets
+  namespace: {{ .Release.Namespace }}
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+{{ .Values.assets | toYaml | indent 4 }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: platform-defaults, namespace: {{ .Release.Namespace }}}
+spec:
+  interval: 1m
+  timeout: 2m
+  prune: true
+  path: ./deploy/gitops/platform-defaults
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tamoss-gitops
+  namespace: {{ .Release.Namespace }}
+  labels: {{ $label | toJson }}
+spec:
+  commonMetadata:
+    labels: {{ $label | toJson }}
+  interval: 5m
+  timeout: 10m
+  releaseName: tamoss-gitops
+  install:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  chart:
+    spec:
+      chart: ./charts/gitops
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  valuesFrom:
+    - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
+    - {kind: ConfigMap, name: tamoss-gitops-values, valuesKey: values.yaml}
+    - {kind: ConfigMap, name: tamoss-assets, valuesKey: values.yaml}
+  values:
+    vaultId: {{ .Values.facts.vaultId | quote }}
+    databaseId: {{ .Values.facts.databaseId | quote }}
+    runtime:
+      publicIp: {{ .Values.facts.publicIp | quote }}
+      loadBalancerSubnetId: {{ .Values.facts.loadBalancerSubnetId | quote }}

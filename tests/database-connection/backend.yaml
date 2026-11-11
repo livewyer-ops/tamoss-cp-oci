@@ -17,14 +17,3 @@ kind: ConfigMap
 metadata:
   name: unrelated
   namespace: database-connection-check
-
----
-apiVersion: v1
-kind: Secret
-metadata: {name: oci-vault-bootstrap, namespace: database-connection-check}
-stringData:
-  user: fixture
-  tenancy: fixture
-  fingerprint: fixture
-  passphrase: ''
-  privatekey: fixture

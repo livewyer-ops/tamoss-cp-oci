@@ -13,8 +13,8 @@
 {{- $releases := list
   (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))
   (dict "name" "traefik" "namespace" "traefik" "chart" "traefik" "source" "traefik" "version" $bom.traefik.chartVersion "values" $platform.traefik)
-  (dict "name" "authentik-bootstrap" "namespace" "auth" "chart" "authentik-bootstrap" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart) "secret" true "connection" true "needs" (list (dict "name" "tamoss-secrets-auth" "namespace" "tamoss-infra") (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra")))
-  (dict "name" "tamoss-database-connection" "namespace" "auth" "chart" "database-connection" "values" (dict "databaseId" .Values.databaseId "region" .Values.region "refreshRevision" .Values.databaseRefreshRevision "images" .Values.connectionImages))
+  (dict "name" "authentik-bootstrap" "namespace" "auth" "chart" "authentik-bootstrap" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart) "secret" true "connection" true "needs" (list (dict "name" "tamoss-secrets-auth" "namespace" "tamoss-infra") (dict "name" "tamoss-secrets-tamoss-infra" "namespace" "tamoss-infra") (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra")))
+  (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra" "chart" "database-connection" "values" (dict "databaseId" .Values.databaseId "region" .Values.region "refreshRevision" .Values.databaseRefreshRevision "images" .Values.connectionImages))
   (dict "name" "tamoss-database-init" "namespace" "auth" "chart" "tamoss-database-init" "values" dict "connection" true "needs" (list (dict "name" "authentik-bootstrap" "namespace" "tamoss-infra") (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra")))
   (dict "name" "authentik" "namespace" "auth" "chart" "authentik" "source" "authentik" "version" $bom.authentik.chartVersion "values" $platform.authentikChart "connection" true "needs" (list (dict "name" "tamoss-database-init" "namespace" "tamoss-infra")))
   (dict "name" "tamoss-platform-config" "namespace" "tamoss-platform" "chart" "tamoss-platform-config" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart "tls" $platform.tls "clusterIssuer" $platform.clusterIssuer) "needs" (list (dict "name" "cert-manager" "namespace" "tamoss-infra") (dict "name" "authentik" "namespace" "tamoss-infra"))) -}}
@@ -26,10 +26,6 @@ metadata:
   name: {{ .name }}
   namespace: tamoss-infra
 spec:
-{{ if ne .name "tamoss-database-connection" }}
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
-{{ end }}
   install:
     createNamespace: true
     strategy: {name: RetryOnFailure, retryInterval: 30s}
@@ -38,8 +34,8 @@ spec:
   interval: 10m
   timeout: 15m
   releaseName: {{ .name }}
-  targetNamespace: {{ ternary "tamoss-infra" .namespace (eq .name "tamoss-database-connection") }}
-  storageNamespace: {{ ternary "tamoss-infra" .namespace (eq .name "tamoss-database-connection") }}
+  targetNamespace: {{ .namespace }}
+  storageNamespace: {{ .namespace }}
 {{ with .needs }}
   dependsOn:
 {{ . | toYaml | indent 4 }}
