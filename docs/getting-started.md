@@ -1,190 +1,118 @@
 # Getting started
 
-[Overview](../README.md) | [Operations](operations.md) | [Testing](testing.md) | [Architecture](architecture.md)
+[Overview](../README.md) | [Operations](operations.md) | [Configuration](configuration.md) | [Architecture](architecture.md)
 
 Run commands from the repository root. The default deployment directory is
-`.local/environment`. Retain that directory and the original Kind cluster until
-teardown is verified.
+`.local/environment`. Keep that directory, this checkout and the Kind cluster
+created by `up` until teardown has finished.
 
-## Workstation prerequisites
+## 1. Prepare the workstation
 
 Use Linux amd64 with Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar,
-gzip, unzip and Docker with its Compose plugin. Docker must be running and
-accessible to your user. Other workstation platforms remain unverified.
+gzip and Docker. Docker must be running and accessible to your user. Other
+workstation platforms are unverified.
 
 Install [mise](https://mise.jdx.dev/installing-mise.html), then run:
 
 ```bash
+git clone https://github.com/dodwyer/tamoss-cp-oci.git
+cd tamoss-cp-oci
 mise trust
 mise install --locked
 ```
 
-mise supplies the pinned tools, including an isolated native OCI CLI and Python.
-The committed lockfile includes its Python dependencies. No PATH export or shell
-activation is required for `mise run`. Configure the OCI profile below before
-running `setup`; discovery uses that profile for read-only OCI requests.
+mise installs the pinned tools, including kubectl, the OCI CLI and the GitHub
+CLI. No PATH export or shell activation is required for `mise run`.
 
-## OCI preparation
+## 2. Prepare the OCI account
 
-Use a precreated compartment with quota for three OKE workers, two PostgreSQL
-nodes, networking, storage and a load balancer. The [account prerequisites](../deploy/oci/README.md)
-define infrastructure and restricted identity-management permissions. Deployment
-creates the application storage identity. The provisioner also needs the
-Vault and runtime IAM permissions listed in those prerequisites.
-These account prerequisites can be reused across deployments.
+Ask an account administrator for:
+
+- a dedicated compartment with no workload resources, and quota for three OKE
+  workers, two PostgreSQL nodes, networking, storage and a load balancer;
+- a provisioner user in a group that holds the [account policy](../deploy/oci/README.md#policy);
+- an API signing key for that user.
+
+The same account preparation can be reused for later deployments.
 
 ### API signing profile
 
-Store the provisioner's signing key outside Git. Configure `~/.oci/config`:
+Store the signing key outside Git and configure `~/.oci/config`:
 
 ```ini
 [DEFAULT]
 user=<provisioner user OCID>
 fingerprint=<API key fingerprint>
 tenancy=<tenancy OCID>
-region=eu-frankfurt-1
+region=uk-london-1
 key_file=/absolute/path/to/oci_api_key.pem
 ```
 
 Restrict the configuration and key to mode `600` and their directory to `700`.
-`OCI_CLI_CONFIG_FILE` and `OCI_CLI_PROFILE` select another file/profile; their
-defaults are `~/.oci/config` and `DEFAULT`. The deployment reads its region from
-that profile. The profile also needs the [discovery permissions](../deploy/oci/README.md#setup-discovery)
-for any settings you leave unspecified.
+The deployment uses the region of this profile. `OCI_CLI_CONFIG_FILE` and
+`OCI_CLI_PROFILE` select another file or profile.
 
-### Storage identity
+## 3. Sign in to GitHub (private repository only)
 
-Crossplane creates a dedicated storage user, group and bucket access policy in
-the tenancy's Default identity domain. `setup` discovers that domain's OCID and
-endpoint in `storageIdentity`; the generated user reuses `contactEmail`. There is no storage
-user OCID to enter. The provisioner needs the
-[storage IAM permissions](../deploy/oci/README.md#storage-iam-permissions).
+Flux in Kind reads this repository at the commit you have checked out. While the
+repository is private, `up` registers a read-only deploy key for the deployment,
+so sign in with an account allowed to manage the repository's deploy keys:
 
-The default bucket is `tamoss-media-demo-media`. Setting `name` changes it to
-`tamoss-<name>-media`; `storage.bucket` overrides the bucket name. Crossplane
-creates the bucket and grants the generated user access to that bucket only.
+```bash
+mise exec -- gh auth login --hostname github.com --git-protocol https
+```
 
-During `up`, a bounded Job in Kind creates the key and stages its one-time
-response in a Kubernetes Secret. ESO persists it in OCI Vault and reads it back
-before bootstrap continues. No S3 key files or copy-and-paste step are required.
-Database and application passwords are also generated and persisted in Vault.
+Your GitHub token stays on the workstation. Teardown revokes the deploy key.
+Skip this step for a public repository and set `source.private: false` in the
+settings created by the next step.
 
-## Quick deployment
-
-Use a clean checkout with its current commit pushed to this repository's GitHub
-`origin`. Flux in Kind reads that exact commit. While the repository is private,
-run `mise exec -- gh auth login --hostname github.com --git-protocol https` with
-an account allowed to manage its deploy keys. Leave `source.private: true` in
-settings. A public repository can use `source.private: false` to skip this step.
-Use a dedicated compartment with no workload resources.
-
-Run setup with the authorised OCI profile:
+## 4. Create the settings
 
 ```bash
 mise run setup
 "${EDITOR:-vi}" .local/environment/values.yaml
 ```
 
-`setup` creates an owner-only directory and `values.yaml` from the
-[example settings](../environments/example/values.yaml), then fills missing OCI
-settings. Complete `compartmentId` and `contactEmail`, review the discovered
-values and choose whether to enable TADOSS:
+`setup` creates the private settings file and fills in the storage namespace,
+identity domain, service network, OKE image, worker placements and your current
+public IPv4 address. It makes read-only requests and creates no cloud resources.
 
-| Input | How it is set |
+Enter two values:
+
+| Setting | Value |
 | --- | --- |
-| `compartmentId`, `contactEmail` | You supply the empty deployment compartment and operator contact |
-| `storageIdentity.domainId`, `storageIdentity.idcsEndpoint` | Discover the single active Default identity domain |
-| `storage.namespace` | Discover the tenancy's Object Storage namespace |
-| `network.ociServiceId`, `network.ociServiceCidr` | Discover the regional All Services network |
-| `oke.imageId` | Select the highest OKE build number among standard Oracle Linux 8 x86-64 images matching the configured Kubernetes version; require the configured worker shape in the returned options |
-| `oke.placements` | Sort availability-domain names and distribute three workers across them, using separate fault domains when an availability domain is reused |
-| `adminCidrs` | Look up the host's public IPv4 address using `https://api.ipify.org` and allow that address as `/32` |
+| `compartmentId` | OCID of the empty deployment compartment |
+| `contactEmail` | Operator contact, also used for certificates and the administrator account |
 
-Supplied values are preserved and skip their corresponding lookups. You can
-prepopulate `values.yaml` before setup to override discovery. Before deployment,
-remove a discovered field or set it empty and rerun `setup` to refresh it; remove
-both fields together when changing an identity domain or service network.
-Failed discovery leaves the original settings file intact.
+Check `adminCidrs` if your VPN or proxy uses a different outbound address for
+Kubernetes access. Set `tadoss.enabled: true` to include
+[TADOSS](../deploy/tadoss/README.md). [Configuration](configuration.md) lists
+the other settings and explains how discovery chooses its values.
 
-Setup makes read-only requests and creates no cloud resources. It refuses an
-environment containing an existing deployment identity. For another demo, use
-`ENV_DIR=.local/environments/my-environment mise run setup`, then use that same
-`ENV_DIR` for every lifecycle command. Keep the selected OCI profile and region
-consistent between setup and deployment. Discovery does not reserve capacity.
+## 5. Deploy
 
-Review `adminCidrs` if your VPN or proxy uses different egress addresses for HTTPS
-and Kubernetes access; supply the required address or range explicitly.
-The name defaults to `media-demo`; choose another unused `name`
-for a separate environment. Names have 3–23 lowercase letters, digits or hyphens,
-starting with a letter and ending with a letter or digit.
-
-The [defaults](../charts/management/values.yaml) supply HA capacity, network ranges,
-PostgreSQL settings and the OKE version. Owner, ACME contact and
-administrator email use `contactEmail`. The Vault foundation defaults to
-`<name>-vault`. Set `tadoss.enabled: true` before deployment to include TADOSS.
+Use a clean checkout whose current commit exists on GitHub `origin`.
 
 ```bash
 mise run up
 ```
 
-`up` records the Git revision and renders the supplied inputs. Helm validates
-required fields and types. Kind installs Flux, Crossplane and External Secrets;
-Crossplane provisions OCI resources. The host records OKE's identity and supplies
-Kind with a bounded ServiceAccount kubeconfig. Flux in Kind then installs the
-platform and applications on OKE. Keep Kind running through teardown.
+`up` takes about 25 minutes. It starts Kind, creates the OCI resources, installs
+the application on OKE and waits for public HTTPS. It then prints the
+application URLs and writes the initial login details to
+`.local/environment/access/ui-login.json`.
 
-After current source/chart revisions and public TLS are ready, `up` prints URLs
-and writes initial login details to `.local/environment/access/ui-login.json`.
-OKE access remains available in Kind until workload cleanup finishes. See the
-[full process](../deploy/gitops/README.md#process-and-execution-context), including
-how that access is issued and revoked.
-
-`up` accepts only a fresh deployment directory. Keep its inputs unchanged during
-installation. `mise run check` is a contributor validation command; it is not
-required before every deployment.
-
-## Advanced inputs and generated records
-
-Override supported infrastructure fields in `values.yaml` only when needed:
-
-```yaml
-name: another-demo
-owner: platform-team@example.com
-acmeEmail: certificates@example.com
-storage:
-  bucket: my-authorised-media-bucket
-```
-
-Network, worker placement/image, sizing and database overrides are validated
-against the [settings schema](../charts/management/values.schema.json) and environment API.
-Keep subnets inside the selected VCN. Reuse an owned Vault/key through
-`foundation.name` and recorded `foundation.adoption` fields; a matching name is
-not proof of ownership.
-
-`source.json` records the repository and Git commit. Commit and push source edits
-before a fresh deployment; local chart directories require no registry publication.
-
-| Generated output | Location under `.local/environment/` |
-| --- | --- |
-| Deployment input | `values.yaml` |
-| Host facts: deployment identity, OCI profile identifiers and Git source | `deployment.yaml`, `source.json` |
-| Kind seed overlay | `kustomization.yaml`, `source.yaml`, `release.yaml` |
-| Local copies of the resources Kind derives | `bootstrap.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
-| Temporary protected OCI signing material | `discovery/` files, removed after seeding Kind |
-| Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
-| Qualification cloud outputs | `outputs.json`, written by `qualify`; live outputs are in Kind's `TamossEnvironment.status.outputs` |
-| Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
-| Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `inventory-after/` |
-| Qualification reports | `reports/` |
-
-Follow [cleanup instructions](operations.md#clean-up-a-failed-deployment) using the
-original directory. Existing deployments must retain their deployed product revision
-for operations and teardown; this layout does not migrate them.
+`up` accepts only a fresh deployment directory. If it fails, follow
+[failed-deployment cleanup](operations.md#clean-up-a-failed-deployment) before
+starting again.
 
 ## Access
 
-Enter `mise exec -- bash` for the native commands in this section, then display
-the public URLs and application status:
+Open `.local/environment/access/ui-login.json` locally, visit the UI URL and sign
+in through Authentik. Remove the file after use.
+
+Enter `mise exec -- bash` for the commands below. Display the URLs and status
+again with:
 
 ```bash
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tamoss -o json |
@@ -192,9 +120,8 @@ kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss tam
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get tamoss,storagebackends
 ```
 
-Expected: TAMOSS and its external StorageBackend report `Ready`. `up` has already
-exported the initial login details to `.local/environment/access/ui-login.json`.
-If you removed that private file, recreate it with:
+Expected: TAMOSS and its external StorageBackend report `Ready`. If you removed
+the login file, recreate it with:
 
 ```bash
 umask 077
@@ -205,22 +132,25 @@ kubectl --kubeconfig .local/environment/remote.kubeconfig -n auth get secret aut
   > .local/environment/access/ui-login.json
 ```
 
-Open the private file locally, visit the UI URL and sign in through Authentik.
-If the bootstrap password has changed, use the current password. Remove the
-exported file after use. For authenticated API requests, see
-[Operations](operations.md#first-api-request).
+If the bootstrap password has changed, use the current password. For
+authenticated API requests, see [Operations](operations.md#first-api-request).
 
-## Qualify and inspect ingest
-
-Read the [qualification effects](testing.md#deployed-qualification) before running:
+## Remove the deployment
 
 ```bash
-mise run qualify
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n tams get ingestrun qualification
+mise run down
 ```
 
-Expected: the run reaches `Succeeded` and all qualification checks pass. In the
-UI, open **Ingest runs** and follow the output Flow links. Qualification drains
-one worker and replaces its test media. The environment remains running after
-qualification; use [verified teardown](operations.md#destroy-the-environment)
-when it is no longer needed.
+`down` takes about 15 minutes and deletes application data. Read
+[teardown and retention](operations.md#destroy-the-environment) first.
+
+## Another deployment
+
+Use a separate directory and name for each additional deployment:
+
+```bash
+ENV_DIR=.local/environments/my-environment mise run setup
+```
+
+Set an unused `name` in its `values.yaml` and pass the same `ENV_DIR` to every
+later command.

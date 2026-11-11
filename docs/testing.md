@@ -1,9 +1,10 @@
 # Testing
 
-[Overview](../README.md) | [Getting started](getting-started.md) | [Operations](operations.md) | [Architecture](architecture.md)
+[Overview](../README.md) | [Contributing](../CONTRIBUTING.md) | [Operations](operations.md) | [Architecture](architecture.md)
 
-Run commands from the repository root through mise. Local checks
-need Docker and internet access. They do not require OCI credentials.
+Run commands from the repository root through mise. Local checks need Docker
+with its Compose plugin and internet access. They do not require OCI
+credentials. Deploying does not require any command on this page.
 
 ## Local checks
 
@@ -49,7 +50,7 @@ and Kustomize workload remotely. Values and substitutions stay in the management
 cluster. The test checks TLS/identity rejection, continued access during teardown,
 revocation and suspended declarations across controller restart.
 The target has no Flux installation. Kind's certificate supplies administrator
-access in the fixture; this does not qualify OCI authentication or OKE token caps.
+access in the fixture; this does not qualify OCI authentication.
 The local Git fixture requires `sshd` on the host and a free port 22422 reachable
 from the disposable Kind network. Its forced command permits read-only access to
 the test repository; cleanup stops that server and removes its temporary keys.
@@ -65,7 +66,7 @@ controller restart with unchanged child identities, rejection of a replaced root
 preservation of current settings after release, teardown retaining Kind ownership
 and the pause before deletion.
 Flux installs the Kind controller releases from the authenticated Git fixture. Further
-checks cover chart failure/recovery, controller-derived secret/IAM releases,
+checks cover chart failure/recovery, the controller-derived secret release and composed IAM policies,
 irreversible credential retirement and a suspended instance across controller
 restarts and original Kind stop/start. Fixture sources and a Kubernetes secret backend replace GitHub and OCI Vault;
 these checks do not qualify those external services.
@@ -162,41 +163,47 @@ to capture the infrastructure baseline and run its OAuth and persistence checks 
 
 ## Verified coverage and limits
 
-On 10 November 2026, published commit `0bc2c3e` completed a fresh OCI deployment,
-TAMOSS and TADOSS qualification, original Kind restart and teardown. Both
-applications were enabled before installation. Deployment and teardown used a
-temporary scoped OCI identity and needed no manual resource repair.
-
-Flux fetched the exact commit using a temporary read-only GitHub deploy key.
-Flux and Crossplane remained in Kind throughout; OKE ran the application stack.
-An independent administrator audit confirmed cleanup, then retired the temporary
-provisioner account and its API key, group and policy.
+On 11 November 2026, published commit `51c3af4` completed a fresh OCI deployment
+in `uk-london-1`, TAMOSS and TADOSS qualification and teardown. Both
+applications were enabled before installation. `setup` discovered every OCI
+setting using an administrator profile. Deployment and teardown used a temporary
+scoped OCI identity and needed no manual resource repair.
 
 | Behaviour | Observed status |
 | --- | --- |
-| Git delivery and readiness | Private SSH fetch, chart packaging from the selected commit and current-revision deployment readiness passed. Fresh `up` completed in approximately 26 minutes |
-| Execution context | Database metadata lookup completed in Kind; SQL initialisation ran in OKE. OKE contained no Flux or Crossplane deployment |
-| Remote access | The host issued a non-expiring ServiceAccount token; teardown removed the remote service account, binding and Kind access Secret after application removal |
-| Storage and secrets | Generated storage credentials, Vault synchronisation, external PostgreSQL and S3 access passed |
-| TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, all five selected browser tests, replica placement and network policy passed |
-| Worker disruption | All 540 API/login-path requests succeeded across the worker drain; the worker was uncordoned and post-drain media reads passed |
-| TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after four verified pod replacements passed. All inventoried OCI IDs were unchanged |
-| Original Kind interruption | Media and UI login access passed with Kind stopped. The same container and management identity returned; all 23 recorded infrastructure bindings were unchanged and Flux readiness recovered |
-| Teardown | Workloads, cloud resources, application IAM, Git deploy key and Kind were removed. Independent native OCI inventory found all 21 resource categories empty. Existing local clusters, Git keys and upstream worktrees were unchanged |
-| Retained foundation | The pre-existing compartment, Vault and key were retained. The deployment's ten Vault secrets were scheduled for deletion |
+| Setup discovery | Identity domain, storage namespace, service network, OKE image, placements and public IPv4 address were discovered; no setting was entered except the compartment and contact |
+| Git delivery and readiness | Private SSH fetch with a temporary read-only deploy key, chart packaging from the selected commit and current-revision readiness passed. One unattended `up` completed in approximately 26 minutes |
+| Worker placement | The node pool reported one worker in each of three availability domains, in fault domains 1, 2 and 3 |
+| Remote access | The host issued a non-expiring ServiceAccount token; teardown removed it with the remote access after application removal |
+| TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, the selected browser tests, replica placement and network policy passed |
+| Worker disruption | API and login-path sampling across the worker drain had no failed requests; the worker was uncordoned and post-drain media reads passed |
+| TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after pod replacement passed. Inventoried OCI IDs were unchanged |
+| Teardown | One `down` removed workloads, cloud resources, application IAM, the Git deploy key and Kind in approximately 15 minutes. Independent native OCI inventory found no remaining workload resources. Existing local clusters were unchanged |
+| Retained foundation | The pre-existing compartment, Vault and key were retained. The deployment's Vault secrets were scheduled for deletion |
 
-The TADOSS OAuth blueprint Job failed its first attempt and completed on its
-automatic retry; Authentik had no pod restarts during initial convergence. Its
-failure log contained an exception while sanitising importer logs, so the
-underlying cause remains unconfirmed. Earlier local testing also observed an
-intermittent blueprint failure. The local suites have passed across focused runs;
-a clean uninterrupted management-suite run remains outstanding.
+Two earlier runs on 10 November used the same design before its final commits;
+the second also passed as one unattended `up`, with its three composed runtime
+IAM policies observed Ready and Synced. `check:management` passed in full
+on the merged content.
 
-Local controller checks additionally cover rejected access issue after revocation, invalid cluster identity and interrupted retirement. Release
-upgrades, credential rotation, managed-database failover, browser logout-button
-interaction, regional recovery and management-state restoration remain unqualified.
-Earlier OCI external-binding loss and intermittent ACME failures were not
-reproduced; their causes remain unconfirmed. Reliability across repeated fresh
-deployments remains unqualified.
+On 10 November, commit `0bc2c3e` passed an original Kind interruption on OCI:
+media and UI login access continued with Kind stopped, the same container and
+management identity returned and Flux readiness recovered. That deployment used
+an expiring OKE token. The interruption has not been repeated on OCI with the
+non-expiring token; local checks cover Kind restart.
+
+In the `0bc2c3e` run the TADOSS OAuth blueprint Job failed its first attempt and
+completed on its automatic retry. Its failure log contained an exception while
+sanitising importer logs, so the underlying cause remains unconfirmed. One local
+Authentik startup check also failed once while other checks shared the host and
+passed when repeated alone.
+
+Setup discovery with a scoped provisioner, deployments running longer than about
+an hour, other regions and regions with fewer than three availability domains
+are unverified on OCI. Release upgrades, credential rotation, managed-database
+failover, browser logout-button interaction, regional recovery and
+management-state restoration remain unqualified. Earlier OCI external-binding
+loss and intermittent ACME failures were not reproduced; their causes remain
+unconfirmed.
 
 Detailed procedures are in the [GitOps guide](../deploy/gitops/README.md).

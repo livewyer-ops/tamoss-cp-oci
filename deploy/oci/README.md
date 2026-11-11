@@ -8,35 +8,57 @@ user, group, membership and bucket policy during deployment. Storage IAM remains
 owned by the Kind bootstrap throughout the demo; OKE needs no user-management
 permissions.
 
-The provisioner needs an API signing key and these permissions in the dedicated
-compartment:
+## Policy
 
-| Verb | Resource types |
-| --- | --- |
-| manage | `instance-family`, `virtual-network-family`, `volume-family`, `cluster-family`, `load-balancers`, `buckets`, `objects`, `postgres-db-systems`, `postgres-backups` |
-| manage | `vaults`, `keys`, `secret-family`, `policies` |
-| read | `postgres-configurations`, `postgres-work-requests` |
-| inspect | `compartments` |
-
-Each permission becomes an IAM statement, for example:
+Create a group for the provisioner user and a policy in the root compartment
+with these statements. Replace `<group-ocid>` and `<compartment-ocid>`:
 
 ```text
-Allow group id <provisioner-group-ocid> to manage cluster-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage instance-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage virtual-network-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage volume-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage cluster-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage load-balancers in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage buckets in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage objects in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage postgres-db-systems in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage postgres-backups in compartment id <compartment-ocid>
+Allow group id <group-ocid> to read postgres-configurations in compartment id <compartment-ocid>
+Allow group id <group-ocid> to read postgres-work-requests in compartment id <compartment-ocid>
+Allow group id <group-ocid> to inspect compartments in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage vaults in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage keys in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage secret-family in compartment id <compartment-ocid>
+Allow group id <group-ocid> to manage policies in compartment id <compartment-ocid>
+Allow group id <group-ocid> to read domains in tenancy
+Allow group id <group-ocid> to inspect users in tenancy where target.resource.domain.name = 'Default'
+Allow group id <group-ocid> to inspect groups in tenancy
+Allow group id <group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
+Allow group id <group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
+Allow group id <group-ocid> to inspect compartments in tenancy
+Allow group id <group-ocid> to inspect instances in tenancy
 ```
+
+The statements down to `tamoss-storage-*` match the policy used by the verified
+OCI deployments. The last two support [setup discovery](#setup-discovery); they
+have not yet been exercised with a scoped provisioner, because those runs used
+an administrator profile for `setup`. Leave them out if you supply the
+discovered settings yourself.
+
+| Statements | Purpose |
+| --- | --- |
+| `instance-family`, `virtual-network-family`, `volume-family`, `cluster-family`, `load-balancers` | OKE, workers, networking and the public load balancer |
+| `buckets`, `objects` | Media bucket and its cleanup |
+| `postgres-*` | PostgreSQL system, backups and work requests |
+| `vaults`, `keys`, `secret-family`, `policies` | Vault foundation, persisted credentials and runtime IAM policies |
+| `domains`, `users`, `groups` | The generated storage identity |
+| `compartments`, `instances` in tenancy | Setup discovery |
 
 ## Storage IAM permissions
 
-Setup discovers the active Default identity domain's OCID and endpoint in `values.yaml`.
-The provisioner needs permission to manage users/groups with the reserved
-`tamoss-storage-` name prefix. An account administrator grants these permissions
-once; deployment does not authorise itself:
-
-```text
-Allow group id <provisioner-group-ocid> to inspect users in tenancy where target.resource.domain.name = 'Default'
-Allow group id <provisioner-group-ocid> to inspect groups in tenancy
-Allow group id <provisioner-group-ocid> to manage users in tenancy where target.user.name = /tamoss-storage-*/
-Allow group id <provisioner-group-ocid> to manage groups in tenancy where target.group.name = /tamoss-storage-*/
-```
+The `users` and `groups` statements in the [policy](#policy) let the provisioner
+manage identities with the reserved `tamoss-storage-` name prefix. An account
+administrator grants them once; deployment does not authorise itself.
 
 Inspection permits discovery and deletion audits; it does not permit changes to
 identities outside the reserved prefix. The management grants apply to matching
@@ -97,8 +119,8 @@ The original compartment and provisioner remain administrator-owned. Retire
 temporary account prerequisites through the administrator's credential workflow
 only after all deployment cleanup has completed.
 
-Both quick deployment and [GitOps](../gitops/README.md)
-use the Vault/key, secret and runtime-policy permissions above. The retained
+[Deployment from Git](../gitops/README.md) uses the Vault/key, secret and
+runtime-policy permissions above. The retained
 foundation has an explicit owner and prevents treating the compartment as empty
 after workload teardown. Billing access is separate; see
 [posted billing](../../docs/operations.md#posted-billing).

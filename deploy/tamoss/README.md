@@ -4,7 +4,7 @@
 
 TAMOSS is an external, read-only dependency. `release.yaml` selects an immutable
 release record and matching source archive. `tasks.toml` verifies and prepares
-them using the repository's native tools. See the [public commands](../../README.md#commands)
+them using the repository's native tools. See the [contributor commands](../../CONTRIBUTING.md#commands)
 and [testing guide](../../docs/testing.md).
 
 | Owner | Assets |
@@ -55,7 +55,7 @@ database migrations can be reversed.
 
 Preserve the release records and original Kind cluster through teardown. `down`
 removes workloads and infrastructure through Kind.
-See [Operations](../../docs/operations.md#release-selection) and
+See [Contributing](../../CONTRIBUTING.md#release-selection) and
 [deployment from Git](../gitops/README.md#demo-inputs-and-source-changes)
 for release selection, verification and lifecycle instructions.
 
