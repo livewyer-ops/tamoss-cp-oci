@@ -47,6 +47,7 @@ oci ce cluster create-kubeconfig --cluster-id {{ env.TASKV_CLUSTER | quote }} --
   '''yq -i '.users[].user.exec |= (.command = "oci" | .env = [{"name":"OCI_CLI_CONFIG_FILE","value":strenv(OCI_CLI_CONFIG_FILE)},{"name":"OCI_CLI_PROFILE","value":strenv(OCI_CLI_PROFILE)}])' '{{ vars.ENV_DIR }}/remote.kubeconfig'''',
   '''yq -i '.remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster.server' '{{ vars.ENV_DIR }}/identity.yaml'''',
   "mise run bootstrap:remote-rbac",
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' install --components=source-controller,helm-controller,kustomize-controller --timeout=5m",
   "mise run bootstrap:remote-access:issue",
 ]
 env.TASKV_CLUSTER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="clusterID") }}'''
@@ -60,7 +61,10 @@ run = [
 
 ["bootstrap:local-ready"]
 hide = true
-run = ["KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir deploy/gitops/readiness-check --assert-timeout=1800s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready"]
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/oke-root --for=condition=Ready --timeout=1800s",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir deploy/gitops/readiness-check --assert-timeout=1800s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready",
+]
 
 ["bootstrap:access"]
 hide = true
@@ -128,15 +132,16 @@ run = [
 ["bootstrap:remove-application:apply"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
-skip_if = '''(yq -e '.applicationRemoved == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null || (CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD"))'''
+skip_if = '''(yq -e '.applicationRemoved == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null || (CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name)" && test -z "$CRD"))'''
 run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remote-suspend",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tadoss:remove-instance",
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} NAME={{ ("tadoss-operator") | quote }} mise run bootstrap:remove-operator''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run application:remove-instance",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-operator",
-  '''{% for item in ["tamoss-platform-config", "authentik", "tadoss-config", "tadoss-secrets", "tamoss-database-init", "authentik-bootstrap", "tamoss-database-connection", "traefik", "cert-manager", "tamoss-secrets-auth", "tamoss-secrets-tams", "oke-external-secrets"] %}
-KUBECONFIG={{ (vars.ENV_DIR ~ "/management.kubeconfig") | quote }} NAMESPACE=tamoss-infra NAME={{ item | quote }} mise run bootstrap:remove-release
+  '''{% for item in ["tamoss-platform-config", "authentik", "tadoss-config", "tadoss-secrets", "tamoss-database-init", "authentik-bootstrap", "tamoss-database-connection", "traefik", "cert-manager", "tamoss-secrets-auth", "tamoss-secrets-tams", "tamoss-secrets-tamoss-infra", "oke-external-secrets"] %}
+KUBECONFIG={{ (vars.ENV_DIR ~ "/remote.kubeconfig") | quote }} NAMESPACE=tamoss-infra NAME={{ item | quote }} mise run bootstrap:remove-release
 {% endfor %}''',
   "yq -i '.applicationRemoved = true' {{ vars.ENV_DIR }}/identity.yaml",
 ]
@@ -152,10 +157,10 @@ run = [
 ["bootstrap:remove-operator:apply"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
-skip_if = '''(RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomization/"$TASKV_NAME" --ignore-not-found -o name)" && test -z "$RESOURCE")'''
+skip_if = '''(RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get kustomization/"$TASKV_NAME" --ignore-not-found -o name)" && test -z "$RESOURCE")'''
 run = [
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch kustomization/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'''',
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete kustomization/{{ env.TASKV_NAME }} --wait=true --timeout=300s",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra patch kustomization/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"suspend":false,"prune":true,"deletionPolicy":"WaitForTermination"}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra delete kustomization/{{ env.TASKV_NAME }} --wait=true --timeout=300s",
 ]
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ env.NAME | default(value="tamoss-operator") }}{% endif %}'''
 
@@ -260,7 +265,7 @@ run = [
   { task = "assets:restore-runtime" },
   "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:release",
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' > '{{ vars.ENV_DIR }}/outputs.json'''',
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
   { task = "qualification:run" },
 ]
 env.TASKV_NAME = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'

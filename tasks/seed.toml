@@ -65,6 +65,20 @@ run = [
 ]
 env.TASKV_DEPLOYMENT = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'
 
+["bootstrap:remote-suspend"]
+hide = true
+# Stop OKE's own Flux from restoring releases while teardown removes them.
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=0",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system wait pod -l 'app in (kustomize-controller,helm-controller)' --for=delete --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get kustomizations,helmreleases -l 'tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o json > '{{ vars.ENV_DIR }}/remote-flux-observed.json'",
+  '''yq -e '.items | length == 0' '{{ vars.ENV_DIR }}/remote-flux-observed.json' > /dev/null || kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' patch -f '{{ vars.ENV_DIR }}/remote-flux-observed.json' --type=merge -p '{"spec":{"suspend":true}}' ''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=1",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system rollout status deployment/helm-controller --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n flux-system rollout status deployment/kustomize-controller --timeout=180s",
+]
+env.TASKV_DEPLOYMENT = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'
+
 ["bootstrap:remote-revoke:apply"]
 hide = true
 skip_if = '''yq -e '.remoteUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || (yq -e '.teardownStarted == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null && yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null)'''

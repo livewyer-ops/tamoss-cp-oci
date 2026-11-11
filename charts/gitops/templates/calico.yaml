@@ -2,8 +2,6 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: calico, namespace: tamoss-infra}
 spec:
-  kubeConfig:
-    secretRef: {name: oke-bootstrap-access}
   interval: 10m
   timeout: 5m
   prune: false

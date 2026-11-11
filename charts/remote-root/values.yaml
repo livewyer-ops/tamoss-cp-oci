@@ -1,0 +1,18 @@
+deploymentId: ''
+# Git source of the product charts.
+source:
+  url: ''
+  commit: ''
+  # SSH credentials for a private repository; empty for a public one.
+  identity: ''
+  identityPub: ''
+  knownHosts: ''
+# Identifiers of resources the base created.
+facts:
+  vaultId: ''
+  databaseId: ''
+  publicIp: ''
+  loadBalancerSubnetId: ''
+# Deployment settings and pinned releases passed to the gitops chart.
+settings: {}
+assets: {}

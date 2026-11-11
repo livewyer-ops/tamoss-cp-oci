@@ -37,18 +37,8 @@ spec:
               (status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra', 'tamoss-infra-tamoss-gitops').status.artifact.revision): true
               status:
                 (conditions[?type == 'Ready'] | [0].status): 'True'
-    - name: observe the current runtime and remote workload health
+    - name: observe the current workload health
       try:
-        - assert:
-            resource:
-              apiVersion: kustomize.toolkit.fluxcd.io/v1
-              kind: Kustomization
-              metadata: {name: runtime, namespace: tamoss-infra}
-              (spec.suspend != `true`): true
-              (status.observedGeneration == metadata.generation): true
-              (status.lastAppliedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision): true
-              status:
-                (conditions[?type == 'Ready'] | [0].status): 'True'
         - assert:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1
