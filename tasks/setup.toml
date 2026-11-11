@@ -1,3 +1,16 @@
+["preflight"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "test -s '{{ vars.ENV_DIR }}/values.yaml' || { echo 'No settings found in {{ vars.ENV_DIR }}. Run: mise run setup' >&2; exit 1; }",
+  """yq -e '(.compartmentId // "") as $c | (.contactEmail // "") as $e | [($c | test("^ocid1[.]compartment[.]")), ($c | test("REPLACE") | not), ($e | test("@")), ($e | test("[.]invalid$") | not)] | all' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 || { echo 'Enter compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml before up.' >&2; exit 1; }""",
+  "docker info > /dev/null 2>&1 || { echo 'Docker is not running or not accessible to this user.' >&2; exit 1; }",
+  """yq -e '.source.private == false' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 || gh auth status --hostname github.com > /dev/null 2>&1 || { echo 'Sign in to GitHub for the private repository: mise exec -- gh auth login --hostname github.com --git-protocol https' >&2; exit 1; }""",
+  """yq -e '.source.private == false' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 || gh api "repos/$(git remote get-url origin | sed -E 's#^(git@github.com:|https://github.com/|ssh://git@github.com/)##; s#[.]git$##')/keys" --silent > /dev/null 2>&1 || { echo 'The GitHub account cannot manage deploy keys for this repository.' >&2; exit 1; }""",
+  """oci --connection-timeout 10 --read-timeout 30 --max-retries 0 network vcn list --compartment-id "$(yq -r .compartmentId '{{ vars.ENV_DIR }}/values.yaml')" --limit 1 > /dev/null 2>&1 || { echo 'The OCI profile cannot read the deployment compartment. Check the profile, signing key and account policy.' >&2; exit 1; }""",
+]
+
 ["setup:initialise"]
 hide = true
 run = [

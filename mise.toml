@@ -37,17 +37,22 @@ OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependen
 [tasks."setup"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Discover OCI defaults and prepare private deployment settings"
+description = "Prepare private deployment settings and discover OCI values"
+usage = '''
+flag "--compartment-id <ocid>" help="OCID of the empty deployment compartment"
+flag "--contact-email <email>" help="Operator contact address"
+'''
 depends = ["setup:initialise"]
 run = [
+  """COMPARTMENT="${usage_compartment_id:-}" CONTACT="${usage_contact_email:-}" yq -i 'with(select(strenv(COMPARTMENT) != ""); .compartmentId = strenv(COMPARTMENT)) | with(select(strenv(CONTACT) != ""); .contactEmail = strenv(CONTACT))' '{{ vars.ENV_DIR }}/values.yaml'""",
   { task = "setup:discover" },
-  "echo 'Complete compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml, review the discovered settings, then run mise run up.'",
+  """yq -e '(.compartmentId // "") as $c | (.contactEmail // "") as $e | [($c | test("^ocid1[.]compartment[.]")), ($c | test("REPLACE") | not), ($e | test("@")), ($e | test("[.]invalid$") | not)] | all' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 && echo 'Settings are ready in {{ vars.ENV_DIR }}/values.yaml. Review them, then run: mise run up' || echo 'Enter compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml, then run: mise run up'""",
 ]
 
 [tasks."check"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Validate pinned artefacts, composition lifecycle and native deployment configuration"
+description = "Contributor: validate pinned artefacts, composition lifecycle and deployment configuration"
 run = [
   "mise run verify:tools",
   "echo 'Running local checks; reports: .local/reports'",
@@ -73,14 +78,14 @@ run = [
 [tasks."check:management"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Run local checks and a disposable credential-free Kind bootstrap"
+description = "Contributor: run local checks and a disposable credential-free Kind bootstrap"
 run = [
   "mise run check",
   "mise run management:check",
 ]
 
 [tasks."check:storage"]
-hide = false
+hide = true
 dir = "{{ vars.ROOT_DIR }}"
 description = "Test a real OCI bucket in an authorised compartment, then verify cleanup"
 run = [
@@ -90,7 +95,7 @@ run = [
 ]
 
 [tasks."check:storage:cleanup"]
-hide = false
+hide = true
 dir = "{{ vars.ROOT_DIR }}"
 description = "Finish an interrupted storage probe's deletion without recording a test pass"
 run = [
@@ -101,15 +106,18 @@ run = [
 [tasks."up"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Create a fresh OCI and TAMOSS deployment with Kind retaining infrastructure ownership"
-depends = ["bootstrap:install"]
-run = [{ task = "bootstrap:access" }]
+description = "Create a fresh deployment and wait for public HTTPS"
+run = [
+  { task = "preflight" },
+  { task = "bootstrap:install" },
+  { task = "bootstrap:access" },
+]
 
 
 [tasks."qualify"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Qualify ingest, media reads and availability during one worker drain"
+description = "Contributor: qualify ingest, media reads and availability during one worker drain"
 run = [
   '''test -s '{{ vars.ENV_PATH }}/tamoss-release.yaml' || { printf '%s\n' "Selected environment has no TAMOSS release record" >&2; exit 1; }''',
   "mise run verify:tools",
@@ -120,7 +128,7 @@ run = [
 [tasks."down"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Remove workloads and OCI resources through Kind, then retire credentials"
+description = "Remove the application and OCI resources, then retire credentials"
 run = [
   "mise run verify:tools",
   "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run bootstrap:down",
