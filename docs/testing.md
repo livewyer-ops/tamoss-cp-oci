@@ -190,6 +190,11 @@ setting with that identity, and `up` passed its preflight checks and completed
 in approximately 26 minutes. The first `setup` attempts were refused as
 unauthenticated for about two minutes after the API key was created.
 
+Also on 11 November, `account:create` from commit `4de2381` created a
+provisioner with an administrator profile, `setup` discovered every setting
+with the profile it wrote, and `account:remove` deleted the user, group, policy
+and key. No deployment was made with that provisioner.
+
 Two earlier runs on 10 November used the same design before its final commits;
 the second also passed as one unattended `up`, with its three composed runtime
 IAM policies observed Ready and Synced. `check:management` passed in full
