@@ -38,6 +38,8 @@ Allow group id <group-ocid> to manage groups in tenancy where target.group.name 
 Allow group id <group-ocid> to inspect compartments in tenancy
 ```
 
+A provisioner holding only this policy has completed `setup`, deployment,
+qualification and teardown; see [verified coverage](../../docs/testing.md#verified-coverage-and-limits).
 The last statement supports [setup discovery](#setup-discovery) of availability
 domains. Leave it out if you supply `oke.placements` yourself.
 

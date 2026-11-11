@@ -182,6 +182,13 @@ scoped OCI identity and needed no manual resource repair.
 | Teardown | One `down` removed workloads, cloud resources, application IAM, the Git deploy key and Kind in approximately 15 minutes. Independent native OCI inventory found no remaining workload resources. Existing local clusters were unchanged |
 | Retained foundation | The pre-existing compartment, Vault and key were retained. The deployment's Vault secrets were scheduled for deletion |
 
+Later on 11 November, commit `7649e61` repeated the deployment, both
+qualifications and teardown with one temporary identity holding only the
+[published policy](../deploy/oci/README.md#policy). `setup` discovered every
+setting with that identity, and `up` passed its preflight checks and completed
+in approximately 26 minutes. The first `setup` attempts were refused as
+unauthenticated for about two minutes after the API key was created.
+
 Two earlier runs on 10 November used the same design before its final commits;
 the second also passed as one unattended `up`, with its three composed runtime
 IAM policies observed Ready and Synced. `check:management` passed in full
@@ -199,8 +206,7 @@ sanitising importer logs, so the underlying cause remains unconfirmed. One local
 Authentik startup check also failed once while other checks shared the host and
 passed when repeated alone.
 
-Setup discovery with a scoped provisioner, deployments running longer than about
-an hour, other regions and regions with fewer than three availability domains
+Deployments running longer than about an hour, other regions and regions with fewer than three availability domains
 are unverified on OCI. Release upgrades, credential rotation, managed-database
 failover, browser logout-button interaction, regional recovery and
 management-state restoration remain unqualified. Earlier OCI external-binding
