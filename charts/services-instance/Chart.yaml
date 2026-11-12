@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-services-instance
+description: Workload identity provider configuration and the services composite
+type: application
+version: 0.1.0

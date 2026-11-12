@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Render
+(length(resources)): 3
+(resources[?kind == 'Secret'] | [0].metadata.name): oci-workload
+(json_parse(resources[?kind == 'Secret'] | [0].stringData.credentials)): {auth: OKEWorkloadIdentity, region: eu-frankfurt-1}
+(resources[?kind == 'ProviderConfig'] | [0].metadata.name): oci-workload
+(resources[?kind == 'ProviderConfig'] | [0].spec.credentials.secretRef): {name: oci-workload, namespace: tamoss-infra, key: credentials}
+(resources[?kind == 'TamossServices'] | [0].spec.providerConfigName): oci-workload

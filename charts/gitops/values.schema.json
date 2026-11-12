@@ -2,12 +2,24 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": true,
-  "required": ["deploymentId", "region", "vaultId", "databaseId", "databaseAdministrator", "databaseRefreshRevision", "release", "runtime", "dependencies", "packages", "externalSecrets", "connectionImages"],
+  "required": ["deploymentId", "region", "vaultId", "services", "databaseAdministrator", "databaseRefreshRevision", "release", "runtime", "dependencies", "packages", "externalSecrets", "connectionImages"],
   "properties": {
     "deploymentId": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
     "region": {"type": "string", "pattern": "^[a-z]+-[a-z]+-[0-9]+$"},
     "vaultId": {"type": "string", "pattern": "^ocid1\\.vault\\.[a-z0-9.-]+$"},
-    "databaseId": {"type": "string", "pattern": "^ocid1\\.postgresqldbsystem\\.[a-z0-9.-]+$"},
+    "services": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "ownerUid", "compartmentId", "owner", "databaseSubnetId", "storageNamespace", "database"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,21}[a-z0-9]$"},
+        "ownerUid": {"type": "string", "pattern": "^[a-f0-9-]{36}$"},
+        "compartmentId": {"type": "string", "pattern": "^ocid1\\.compartment\\.[a-z0-9.-]+$"},
+        "owner": {"type": "string", "minLength": 1},
+        "databaseSubnetId": {"type": "string", "pattern": "^ocid1\\.subnet\\.[a-z0-9.-]+$"},
+        "storageNamespace": {"type": "string", "pattern": "^[a-zA-Z0-9_-]+$"},
+        "database": {"type": "object", "required": ["version", "shape", "ocpus", "memoryGiB", "regionalStorage", "backupRetentionDays"]}
+      }
+    },
     "databaseAdministrator": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
     "databaseRefreshRevision": {"type": "string", "minLength": 1, "maxLength": 64},
     "tadoss": {

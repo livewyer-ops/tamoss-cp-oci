@@ -31,8 +31,6 @@ spec:
                   message: Foundation and environment must share their region, compartment and provider
                 - rule: 'self.environment.managementPolicies == ["*"]'
                   message: Bootstrap creates a new environment with full management
-                - rule: self.environment.database.credentialsSecret == "database-admin"
-                  message: Bootstrap requires the scoped database-admin delivery
                 - rule: has(self.vaultAuth) == has(oldSelf.vaultAuth)
                   message: Bootstrap credential ownership cannot change
                 - rule: has(self.storageCredentials) == has(oldSelf.storageCredentials)

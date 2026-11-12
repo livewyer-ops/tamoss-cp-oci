@@ -29,15 +29,6 @@ spec:
       - {availabilityDomain: 'REPLACE:EU-FRANKFURT-1-AD-1', faultDomain: FAULT-DOMAIN-1}
       - {availabilityDomain: 'REPLACE:EU-FRANKFURT-1-AD-2', faultDomain: FAULT-DOMAIN-1}
       - {availabilityDomain: 'REPLACE:EU-FRANKFURT-1-AD-3', faultDomain: FAULT-DOMAIN-1}
-  database:
-    version: '16'
-    shape: VM.Standard.E5.Flex
-    ocpus: 2
-    memoryGiB: 32
-    administrator: bootstrap_admin
-    credentialsSecret: database-admin
-    regionalStorage: true
-    backupRetentionDays: 1
   storage:
     namespace: REPLACE
     bucket: qualification-media

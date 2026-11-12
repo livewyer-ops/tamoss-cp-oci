@@ -8,3 +8,4 @@ kind: Render
 (resources[?kind == 'Role'] | [0].rules[0].verbs): [get, patch]
 (resources[?kind == 'Job'] | [0].spec.template.spec.serviceAccountName): database-connection
 (length(resources[?kind == 'Secret'])): 0
+(resources[?kind == 'Job'] | [0].spec.template.spec.initContainers[?name == 'validate'] | [0].args[?contains(@, 'strenv(CONNECTION_REVISION)}}]')] | length(@)): 1

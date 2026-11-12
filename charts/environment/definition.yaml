@@ -24,7 +24,7 @@ spec:
           properties:
             spec:
               type: object
-              required: [region, compartmentId, providerConfigName, owner, network, oke, database, storage]
+              required: [region, compartmentId, providerConfigName, owner, network, oke, storage]
               properties:
                 managementPolicies:
                   type: array
@@ -123,26 +123,6 @@ spec:
                       x-kubernetes-validations:
                         - rule: 'self.all(p, self.filter(q, q.availabilityDomain == p.availabilityDomain && q.faultDomain == p.faultDomain).size() == 1)'
                           message: Workers must occupy distinct failure domains
-                database:
-                  type: object
-                  required: [version, shape, ocpus, memoryGiB, administrator, credentialsSecret, regionalStorage, backupRetentionDays]
-                  x-kubernetes-validations:
-                    - rule: 'self.regionalStorage || has(self.availabilityDomain)'
-                      message: AD-local database storage requires an availability domain
-                  properties:
-                    version: {type: string, minLength: 1}
-                    shape:
-                      type: string
-                      pattern: '^VM\.Standard(\.E[0-9]+|[0-9]+)\.Flex$'
-                    ocpus: {type: integer, minimum: 1}
-                    memoryGiB: {type: integer, minimum: 8}
-                    administrator:
-                      type: string
-                      pattern: '^[a-z][a-z0-9_]{2,30}$'
-                    credentialsSecret: {type: string, minLength: 1}
-                    regionalStorage: {type: boolean}
-                    availabilityDomain: {type: string, minLength: 1}
-                    backupRetentionDays: {type: integer, minimum: 1, maximum: 35}
                 storage:
                   type: object
                   x-kubernetes-validations:
@@ -161,8 +141,7 @@ spec:
                   type: object
                   properties:
                     clusterId: {type: string}
-                    databaseId: {type: string}
-                    databaseIp: {type: string}
+                    databaseSubnetId: {type: string}
                     publicIp: {type: string}
                     bucket: {type: string}
                     objectEndpoint: {type: string}

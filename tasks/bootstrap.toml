@@ -197,6 +197,15 @@ env.TASKV_KUBECONFIG = '''{{ env.KUBECONFIG | default(value="") }}'''
 env.TASKV_NAME = '''{{ env.NAME | default(value="") }}'''
 env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
 
+["bootstrap:remove-services"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null || (CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd tamossservices.tamoss.livewyer.io --ignore-not-found -o name)" && test -z "$CRD"))'''
+run = [
+  # Crossplane in OKE deletes the database and bucket before Kind removes their network and the cluster.
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra delete tamossservices --all --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
+]
+
 ["bootstrap:down:managed"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
@@ -216,6 +225,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-application",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-revoke",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:prepare-deletion",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-services",
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{ env.TASKV_NAME }} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:delete-backups",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:audit",
@@ -265,6 +275,7 @@ run = [
   { task = "assets:restore-runtime" },
   "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:release",
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' > '{{ vars.ENV_DIR }}/outputs.json'''',
+  '''DATABASE_ID="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get tamossservices/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs.databaseId}')" yq -i -o=json '.databaseId = strenv(DATABASE_ID)' '{{ vars.ENV_DIR }}/outputs.json'''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
   { task = "qualification:run" },
 ]

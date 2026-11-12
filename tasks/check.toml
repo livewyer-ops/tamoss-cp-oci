@@ -53,7 +53,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mise run tamoss:media",
   "mise run runtime:fixture",
-  "helm lint charts/packages charts/environment deploy/tamoss/database/chart",
+  "helm lint charts/packages charts/environment charts/services deploy/tamoss/database/chart",
   "helm template environment charts/environment > '{{ env.TASKV_CACHE }}/environment-api.yaml'",
   '''yq 'select(.kind == "Composition")' {{ env.TASKV_CACHE }}/environment-api.yaml > {{ env.TASKV_CACHE }}/composition.yaml''',
   '''helm template packages charts/packages --set services=true | yq 'select(.kind == "Function")' > '{{ env.TASKV_CACHE }}/functions.yaml'''',
@@ -91,13 +91,24 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "crossplane composition render environments/example/environment.yaml {{ env.TASKV_CACHE }}/composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --observed-resources={{ env.TASKV_CACHE }}/service-recovering-observed.yaml --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/service-recovering.yaml",
   '''yq 'select(.kind != "TamossEnvironment") | del(.status)' {{ env.TASKV_CACHE }}/service-recovering.yaml > {{ env.TASKV_CACHE }}/service-recovering-resources.yaml''',
   "diff -u '{{ env.TASKV_CACHE }}/expected-recovery.yaml' '{{ env.TASKV_CACHE }}/service-recovering-resources.yaml'",
-  '''yq 'with(select(.kind == "PsqlDbSystem"); .status.atProvider.id = "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.fixture")' {{ env.TASKV_CACHE }}/observed.yaml > {{ env.TASKV_CACHE }}/database-created-observed.yaml''',
-  "crossplane composition render environments/example/environment.yaml {{ env.TASKV_CACHE }}/composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --observed-resources={{ env.TASKV_CACHE }}/database-created-observed.yaml --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/database-created.yaml",
-  '''yq 'with(select(.kind == "PsqlDbSystem"); .metadata.annotations."crossplane.io/external-name" = .status.atProvider.id | del(.status))' {{ env.TASKV_CACHE }}/database-created-observed.yaml > {{ env.TASKV_CACHE }}/database-binding-recovering-observed.yaml''',
-  "crossplane composition render environments/example/environment.yaml {{ env.TASKV_CACHE }}/composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --observed-resources={{ env.TASKV_CACHE }}/database-binding-recovering-observed.yaml --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/database-binding-recovering.yaml",
-  '''{% for item in ["database-created", "database-binding-recovering"] %}
-yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/{{ item }}.yaml > {{ env.TASKV_CACHE }}/{{ item }}-list.yaml
+  '''helm template services charts/services | yq 'select(.kind == "Composition")' > '{{ env.TASKV_CACHE }}/services-composition.yaml'''',
+  "crossplane composition render environments/example/services.yaml {{ env.TASKV_CACHE }}/services-composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/services-initial.yaml",
+  '''yq 'select(.metadata.annotations."crossplane.io/composition-resource-name" != null) | .status.conditions = [{"type": "Ready", "status": "False"}] | with(select(.kind == "PsqlDbSystem"); .status.atProvider.id = "ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.fixture")' {{ env.TASKV_CACHE }}/services-initial.yaml > {{ env.TASKV_CACHE }}/services-created-observed.yaml''',
+  "crossplane composition render environments/example/services.yaml {{ env.TASKV_CACHE }}/services-composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --observed-resources={{ env.TASKV_CACHE }}/services-created-observed.yaml --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/services-created.yaml",
+  '''yq '.status.conditions = [{"type": "Ready", "status": "True"}]' {{ env.TASKV_CACHE }}/services-created-observed.yaml > {{ env.TASKV_CACHE }}/services-ready-observed.yaml''',
+  "crossplane composition render environments/example/services.yaml {{ env.TASKV_CACHE }}/services-composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --observed-resources={{ env.TASKV_CACHE }}/services-ready-observed.yaml --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/services-ready.yaml",
+  '''yq 'select(.metadata.annotations."crossplane.io/composition-resource-name" != null) | del(.status)' {{ env.TASKV_CACHE }}/services-ready.yaml > {{ env.TASKV_CACHE }}/services-recovering-observed.yaml''',
+  "crossplane composition render environments/example/services.yaml {{ env.TASKV_CACHE }}/services-composition.yaml {{ env.TASKV_CACHE }}/functions.yaml --include-full-xr --observed-resources={{ env.TASKV_CACHE }}/services-recovering-observed.yaml --crossplane-image={{ vars.CORE }} > {{ env.TASKV_CACHE }}/services-recovering.yaml",
+  '''yq '{"services": .}' environments/example/services.yaml > '{{ env.TASKV_CACHE }}/services-instance-values.yaml'''',
+  "helm lint charts/services-instance -f '{{ env.TASKV_CACHE }}/services-instance-values.yaml'",
+  "helm template tamoss-services charts/services-instance -n tamoss-infra -f '{{ env.TASKV_CACHE }}/services-instance-values.yaml' > '{{ env.TASKV_CACHE }}/services-instance.yaml'",
+  '''{% for item in ["initial", "created", "ready", "recovering", "instance"] %}
+crossplane resource validate {{ env.TASKV_CACHE }}/schemas,charts/services/definition.yaml {{ env.TASKV_CACHE }}/services-{{ item }}.yaml --crossplane-image={{ vars.CORE }} --cache-dir={{ env.TASKV_CACHE }}/crossplane --error-on-missing-schemas --skip-success-results
 {% endfor %}''',
+  '''{% for item in ["initial", "created", "ready", "recovering", "instance"] %}
+yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' {{ env.TASKV_CACHE }}/services-{{ item }}.yaml > {{ env.TASKV_CACHE }}/services-{{ item }}-list.yaml
+{% endfor %}''',
+  '''helm template packages charts/packages --set family=true,services=true,workloadIdentityRegion=eu-frankfurt-1 --set-json 'serviceProviders=["psql","objectstorage"]' | yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resources": .}' > '{{ env.TASKV_CACHE }}/services-packages-list.yaml'''',
   "chainsaw test --no-cluster --test-dir tests/render --report-format JUNIT-TEST --report-path .local/reports --report-name render",
   "helm dependency build --skip-refresh charts/bootstrap",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render",
@@ -117,7 +128,7 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "mise run test:account:check",
   "mise run test:bootstrap:inputs",
   '''{% for item in ["open-api", "overlap", "outside-vcn", "service-overlap", "catalogue-shape", "unsupported-oke", "duplicate-placement", "name-length"] %}
-kubectl kustomize tests/invalid/{{ item }} > '{{ env.TASKV_CACHE }}/rejected-{{ item }}.yaml'
+kubectl kustomize --load-restrictor=LoadRestrictionsNone tests/invalid/{{ item }} > '{{ env.TASKV_CACHE }}/rejected-{{ item }}.yaml'
 {% endfor %}''',
   "chainsaw test --no-cluster --set-string crossplaneImage={{ vars.CORE }} --test-dir tests/invalid --report-format JUNIT-TEST --report-path .local/reports --report-name invalid-inputs",
 ]

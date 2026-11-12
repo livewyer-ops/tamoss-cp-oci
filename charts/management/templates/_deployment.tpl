@@ -9,9 +9,6 @@ network:
   adminCidrs: {{ $v.adminCidrs | toJson }}
 oke:
 {{ $v.oke | toYaml | indent 2 }}
-database:
-{{ $v.database | toYaml | indent 2 }}
-  credentialsSecret: database-admin
 storage:
   namespace: {{ $v.storage.namespace | quote }}
   bucket: {{ $v.storage.bucket | default (printf "tamoss-%s-media" $v.name) | quote }}

@@ -182,7 +182,7 @@ spec:
               metadata: {name: bootstrap-check, namespace: tamoss-infra}
               spec:
                 managementPolicies: [Observe]
-                database: {backupRetentionDays: 2}
+                oke: {memoryGiB: 48}
         - patch:
             resource:
               apiVersion: tamoss.livewyer.io/v1alpha1
@@ -190,7 +190,7 @@ spec:
               metadata: {name: bootstrap-check, namespace: tamoss-infra}
               spec:
                 environment:
-                  database: {backupRetentionDays: 3}
+                  oke: {memoryGiB: 64}
         - command:
             entrypoint: env
             env:
@@ -222,7 +222,7 @@ spec:
               metadata: {name: bootstrap-check, namespace: tamoss-infra}
               spec:
                 managementPolicies: [Observe]
-                database: {backupRetentionDays: 2}
+                oke: {memoryGiB: 48}
         - command:
             entrypoint: kubectl
             args: [-n, tamoss-infra, patch, tamossbootstrap/bootstrap-check, --type=merge, --dry-run=server, -p, '{"spec":{"released":false}}']

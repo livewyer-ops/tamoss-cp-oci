@@ -1,9 +1,17 @@
 deploymentId: ''
 region: ''
 vaultId: ''
-databaseId: ''
 databaseAdministrator: postgres
 databaseRefreshRevision: '1'
+# Database and bucket reconciled by Crossplane in this cluster.
+services:
+  name: ''
+  ownerUid: ''
+  compartmentId: ''
+  owner: ''
+  databaseSubnetId: ''
+  storageNamespace: ''
+  database: {}
 tadoss:
   enabled: false
   release: {}

@@ -6,8 +6,9 @@ Run lifecycle commands from the repository root with `mise run`. For the native
 diagnostic commands below, enter a tool-enabled shell with `mise exec -- bash`;
 `exit` returns to your previous shell. Examples use
 `.local/environment`; substitute your original environment directory throughout.
-Kind owns infrastructure and Flux reconciliation throughout the demo. Keep it
-running until teardown has verified cleanup. Retain the deployed Git revision.
+Kind owns the network, OKE, IAM and Vault resources throughout the demo; Crossplane
+in OKE owns the PostgreSQL system and the media bucket. Keep Kind running until
+teardown has verified cleanup. Retain the deployed Git revision.
 
 ## Inspect the installation
 
@@ -68,6 +69,8 @@ Commands print their active stage. Inspect the corresponding controller or resou
 | Bootstrap waiting | Kind `TamossBootstrap` status: `foundationReady`, `credentialsReady`, `bootstrapReady`, `infrastructureReady`, `runtimeAccessReady`; inspect child conditions and HelmReleases |
 | Remote deployment failed | Kind `tamoss-infra` HelmRelease `oke-root`, then OKE `tamoss-infra` HelmRelease `tamoss-gitops` and Kustomization `deployment-ready`; inspect source, OKE access and HelmRelease readiness, then follow [failed-deployment cleanup](#clean-up-a-failed-deployment) |
 | Root release waiting | Kind `tamoss-infra/oke-root` HelmRelease and the `tamoss-runtime` and `oke-bootstrap-facts` ConfigMaps; inspect infrastructure observations |
+| Database or bucket not created | OKE `tamoss-infra` HelmReleases `oke-crossplane`, `oke-oci-family`, `oke-oci-services`, `tamoss-services-api` and `tamoss-services`; `TamossServices` status and its `PsqlDbSystem` and `Bucket` conditions; provider health in OKE `crossplane-system`; the `database-admin` Secret in `tamoss-infra` |
+| Database connection waiting | OKE `tamoss-infra/tamoss-services` ConfigMap, published once the database is ready, then HelmRelease `tamoss-database-connection` |
 | Infrastructure not Ready/Synced | Composite and managed-resource conditions, OCI work requests, quota, image/version compatibility and placement capacity |
 | IAM `PolicyAlreadyExists` with no external-name | Follow [policy binding recovery](#recover-a-policy-binding) using the original managed resource and a verified OCI policy |
 | OKE access timeout | API endpoint allowlist and current workstation/VPN egress address |
@@ -210,8 +213,10 @@ applications and their releases in OKE while the OKE API is available. Remote
 access is revoked after workload cleanup.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
-releases and the load balancer, empties the owned bucket (including versions and
-multipart uploads), and deletes infrastructure and database backups. Kind and
+releases and the load balancer and empties the owned bucket (including versions and
+multipart uploads). It deletes the `TamossServices` composite in OKE and waits for
+Crossplane there to remove the database and bucket, then deletes the remaining
+infrastructure from Kind and the database backups. Kind and
 provider credentials remain until direct OCI inventory confirms that the dedicated
 compartment contains no workload resources.
 

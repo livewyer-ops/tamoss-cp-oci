@@ -31,7 +31,8 @@ spec:
       sourceRef: {kind: GitRepository, name: {{ .Values.sourceName }}}
   valuesFrom:
     - {kind: ConfigMap, name: oke-bootstrap-facts, valuesKey: VAULT_ID, targetPath: facts.vaultId}
-    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: DATABASE_ID, targetPath: facts.databaseId}
+    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: ENVIRONMENT_UID, targetPath: facts.environmentUid}
+    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: DATABASE_SUBNET_ID, targetPath: facts.databaseSubnetId}
     - {kind: ConfigMap, name: tamoss-runtime, valuesKey: PUBLIC_IP, targetPath: facts.publicIp}
     - {kind: ConfigMap, name: tamoss-runtime, valuesKey: LOAD_BALANCER_SUBNET_ID, targetPath: facts.loadBalancerSubnetId}
 {{- if .Values.assets.secretName }}
@@ -46,7 +47,13 @@ spec:
       tadoss: {enabled: {{ .Values.tadoss.enabled }}}
       deploymentId: {{ .Values.deploymentId | quote }}
       region: {{ $environment.region | quote }}
-      databaseAdministrator: {{ $environment.database.administrator | quote }}
+      databaseAdministrator: {{ .Values.database.administrator | quote }}
+      services:
+        name: {{ .Values.name | quote }}
+        compartmentId: {{ $environment.compartmentId | quote }}
+        owner: {{ $environment.owner | quote }}
+        storageNamespace: {{ $environment.storage.namespace | quote }}
+        database: {{ omit .Values.database "administrator" | toJson }}
       runtime:
         bucket: {{ $environment.storage.bucket | quote }}
         objectEndpoint: {{ printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $environment.storage.namespace $environment.region | quote }}

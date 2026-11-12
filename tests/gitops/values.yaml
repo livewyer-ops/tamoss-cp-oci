@@ -1,7 +1,14 @@
 deploymentId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 region: eu-frankfurt-1
 vaultId: ocid1.vault.oc1.eu-frankfurt-1.example
-databaseId: ocid1.postgresqldbsystem.oc1.eu-frankfurt-1.example
+services:
+  name: media-demo
+  ownerUid: 00000000-0000-4000-8000-000000000000
+  compartmentId: ocid1.compartment.oc1..example
+  owner: operator@example.invalid
+  databaseSubnetId: ocid1.subnet.oc1.eu-frankfurt-1.database
+  storageNamespace: example
+  database: {version: '16', shape: VM.Standard.E5.Flex, ocpus: 2, memoryGiB: 32, regionalStorage: true, backupRetentionDays: 1}
 release:
   bundleURL: oci://ghcr.io/example/tamoss-release-assets
   digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
