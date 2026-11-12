@@ -16,7 +16,7 @@ spec:
     spec:
       chart: external-secrets
       version: {{ .Values.dependencies.externalSecrets.version | quote }}
-      sourceRef: {kind: HelmRepository, name: external-secrets}
+      sourceRef: {kind: HelmRepository, name: oke-external-secrets}
   values:
 {{ .Values.externalSecrets | toYaml | indent 4 }}
 ---
