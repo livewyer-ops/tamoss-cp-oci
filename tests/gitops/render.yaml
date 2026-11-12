@@ -14,7 +14,7 @@ kind: Render
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss'] | [0].spec.deletionPolicy): Orphan
 (length(resources[?kind == 'Kustomization' && metadata.name == 'credentials'] | [0].spec.healthChecks)): 9
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 0
-(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 12
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 17
 (resources[?kind == 'Kustomization' && metadata.name == 'application-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls]
 (resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.sourceRef.kind): GitRepository
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss-operator'] | [0].spec.sourceRef.kind): OCIRepository
@@ -24,3 +24,33 @@ kind: Render
 (resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-database-connection'] | [0].spec.targetNamespace): tamoss-infra
 (resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-secrets-tamoss-infra'] | [0].spec.targetNamespace): tamoss-infra
 (length(resources[?kind == 'HelmRelease' || kind == 'Kustomization'].metadata.namespace | [?@ != 'tamoss-infra'])): 0
+(resources[?kind == 'HelmRelease' && (starts_with(metadata.name, 'oke-crossplane') || starts_with(metadata.name, 'oke-oci-') || starts_with(metadata.name, 'tamoss-services'))].metadata.name): [oke-crossplane, oke-oci-family, oke-oci-services, tamoss-services-api, tamoss-services]
+(length(resources[?kind == 'HelmRepository' && metadata.name == 'oke-crossplane'])): 1
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-crossplane'] | [0].spec.dependsOn): null
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-crossplane'] | [0].spec.chart.spec.sourceRef): {kind: HelmRepository, name: oke-crossplane}
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-crossplane'] | [0].spec.targetNamespace): crossplane-system
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-family'] | [0].spec.dependsOn): [{name: oke-crossplane}]
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-family'] | [0].spec.values.family): true
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-family'] | [0].spec.values.services): false
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-family'] | [0].spec.values.workloadIdentityRegion): eu-frankfurt-1
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-services'] | [0].spec.dependsOn): [{name: oke-oci-family}]
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-services'] | [0].spec.values.family): false
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-services'] | [0].spec.values.services): true
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-services'] | [0].spec.values.foundation): false
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-services'] | [0].spec.values.serviceProviders): [psql, objectstorage]
+(resources[?kind == 'HelmRelease' && metadata.name == 'oke-oci-services'] | [0].spec.values.workloadIdentityRegion): eu-frankfurt-1
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services-api'] | [0].spec.dependsOn): [{name: oke-crossplane}]
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.dependsOn): [{name: oke-oci-services}, {name: tamoss-services-api}, {name: tamoss-secrets-tamoss-infra}]
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.kind): TamossServices
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.metadata): {name: media-demo, namespace: tamoss-infra}
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.spec.ownerUid): 00000000-0000-4000-8000-000000000000
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.spec.providerConfigName): oci-workload
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.spec.database.subnetId): ocid1.subnet.oc1.eu-frankfurt-1.database
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.spec.database.credentialsSecret): database-admin
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-services'] | [0].spec.values.services.spec.storage): {namespace: example, bucket: qualification-media}
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-secrets-tamoss-infra'] | [0].spec.values.deliveries[?name == 'database-admin'] | [0].template): {passwordType: PLAIN_TEXT}
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-database-connection'] | [0].spec.dependsOn): [{name: tamoss-services, namespace: tamoss-infra}]
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-database-connection'] | [0].spec.valuesFrom): [{kind: ConfigMap, name: tamoss-services, valuesKey: DATABASE_ID, targetPath: databaseId}]
+(resources[?kind == 'HelmRelease' && metadata.name == 'tamoss-database-connection'] | [0].spec.values.databaseId): null
+(resources[?kind == 'Kustomization' && metadata.name == 'database-connection'] | [0].spec.healthChecks[?kind == 'HelmRelease'].name): [tamoss-database-connection]
+(resources[?kind == 'Kustomization' && metadata.name == 'database-connection'] | [0].spec.healthCheckExprs[?kind == 'ConfigMap'] | [0].current | contains(@, 'data.DATABASE_ID == metadata.annotations[') && contains(@, 'data.CONNECTION_REVISION == metadata.annotations[')): true

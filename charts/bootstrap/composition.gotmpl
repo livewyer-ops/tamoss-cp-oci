@@ -57,8 +57,8 @@
 {{- range (dig "status" "conditions" (list) $environment) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
 {{- end -}}
-{{- $runtimeSecrets := dict "auth" (list "database-admin" "tams-database" "tadoss-database" "tadoss-oauth") "tamoss-infra" (list "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
-{{- $runtimePolicies := concat (keys $runtimeSecrets | sortAlpha) (list "connection") -}}
+{{- $runtimeSecrets := dict "auth" (list "database-admin" "tams-database" "tadoss-database" "tadoss-oauth") "tamoss-infra" (list "database-admin" "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
+{{- $runtimePolicies := concat (keys $runtimeSecrets | sortAlpha) (list "connection" "services") -}}
 {{- $accessReady := true -}}
 {{- if hasKey $p "vaultAuth" -}}
 {{- range $namespace := $runtimePolicies -}}
@@ -232,6 +232,29 @@ spec:
     freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
     statements:
       - {{ printf "Allow any-user to read postgres-db-systems in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'tamoss-infra', request.principal.service_account = 'database-connection'}" $p.environment.compartmentId $cluster | quote }}
+---
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ $p.deploymentId }}-services
+  namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  annotations:
+    {{ setResourceNameAnnotation "runtime-policy-services" }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+spec:
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-services
+    description: Manage the database and media bucket from the cluster
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+{{- range list "manage postgres-db-systems" "read postgres-configurations" "read postgres-work-requests" "use virtual-network-family" "manage buckets" }}
+      - {{ printf "Allow any-user to %s in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'crossplane-system', request.principal.service_account = 'provider-oci'}" . $p.environment.compartmentId $cluster | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if or $environment (not $p.released) }}

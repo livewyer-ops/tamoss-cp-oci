@@ -112,7 +112,7 @@ spec:
             resource:
               apiVersion: v1
               kind: ConfigMap
-              metadata: {name: connection-readiness, namespace: flux-check}
+              metadata: {name: connection-readiness, namespace: flux-check, annotations: {tamoss.livewyer.io/database-id: expected}}
               data: {DATABASE_ID: stale}
         - apply:
             resource:
@@ -131,7 +131,7 @@ spec:
                 healthCheckExprs:
                   - apiVersion: v1
                     kind: ConfigMap
-                    current: "'DATABASE_ID' in data && data.DATABASE_ID == 'expected'"
+                    current: "'DATABASE_ID' in data && data.DATABASE_ID == metadata.annotations['tamoss.livewyer.io/database-id']"
         - assert:
             resource:
               apiVersion: kustomize.toolkit.fluxcd.io/v1

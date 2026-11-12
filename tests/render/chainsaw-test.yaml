@@ -15,12 +15,35 @@ spec:
         - command:
             entrypoint: chainsaw
             args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/ready-list.yaml, -f, ready.yaml]
+    - name: services
+      try:
         - command:
             entrypoint: chainsaw
-            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/database-created-list.yaml, -f, database-binding.yaml]
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-initial-list.yaml, -f, services-initial.yaml]
         - command:
             entrypoint: chainsaw
-            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/database-binding-recovering-list.yaml, -f, database-binding.yaml]
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-created-list.yaml, -f, services-binding.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-created-list.yaml, -f, services-created.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-ready-list.yaml, -f, services-binding.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-ready-list.yaml, -f, services-ready.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-recovering-list.yaml, -f, services-binding.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-recovering-list.yaml, -f, services-ready.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-instance-list.yaml, -f, services-instance.yaml]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, --timeout, 1s, -r, ../../.local/tmp/check/services-packages-list.yaml, -f, services-packages.yaml]
     - name: application
       try:
         - command:

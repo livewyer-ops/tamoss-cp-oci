@@ -1,0 +1,88 @@
+{{- $xr := .observed.composite.resource -}}
+{{- $p := $xr.spec -}}
+{{- $n := $xr.metadata.name -}}
+{{- $ns := $xr.metadata.namespace -}}
+{{- $observed := .observed.resources | default dict -}}
+{{- $tags := dict "tamoss-environment" $n "tamoss-deployment-id" $p.deploymentId "tamoss-composite-uid" $p.ownerUid "tamoss-owner" $p.owner -}}
+{{- $storage := dict "isRegionallyDurable" $p.database.regionalStorage "systemType" "OCI_OPTIMIZED_STORAGE" -}}
+{{- if not $p.database.regionalStorage -}}
+  {{- $_ := set $storage "availabilityDomain" $p.database.availabilityDomain -}}
+{{- end -}}
+{{/* Non-empty instance details survive provider serialisation and retain immutable creation state. */}}
+{{- $databaseCredentials := list (dict "username" $p.database.administrator "passwordDetails" (list (dict "passwordSecretRef" (dict "name" $p.database.credentialsSecret "key" "password") "passwordTypeSecretRef" (dict "name" $p.database.credentialsSecret "key" "passwordType")))) -}}
+{{- $resources := dict
+  "database" (dict "apiVersion" "psql.oci.m.upbound.io/v1alpha1" "kind" "PsqlDbSystem" "parameters" (dict
+    "displayName" (printf "%s-database" $n)
+    "dbVersion" $p.database.version "shape" $p.database.shape "instanceCount" 2 "instanceOcpuCount" $p.database.ocpus "instanceMemorySizeInGbs" $p.database.memoryGiB
+    "instancesDetails" (list (dict "displayName" (printf "%s-database-1" $n)) (dict "displayName" (printf "%s-database-2" $n)))
+    "storageDetails" (list $storage) "networkDetails" (list (dict "subnetId" $p.database.subnetId))
+    "managementPolicy" (list (dict "backupPolicy" (list (dict "kind" "DAILY" "backupStart" "02:00" "retentionDays" $p.database.backupRetentionDays))))))
+  "bucket" (dict "apiVersion" "objectstorage.oci.m.upbound.io/v1alpha1" "kind" "Bucket" "parameters" (dict "name" $p.storage.bucket "namespace" $p.storage.namespace "accessType" "NoPublicAccess" "versioning" "Disabled" "storageTier" "Standard")) -}}
+{{- range $key, $resource := $resources }}
+---
+apiVersion: {{ $resource.apiVersion }}
+kind: {{ $resource.kind }}
+metadata:
+  name: {{ printf "%s-%s" $n $key }}
+  namespace: {{ $ns }}
+  annotations:
+    {{ setResourceNameAnnotation $key }}
+{{- if eq $key "database" }}
+{{/* Retain the provider's observed ID when late initialisation cannot persist its annotation. */}}
+{{- $databaseName := dig $key "resource" "metadata" "annotations" "crossplane.io/external-name" "" $observed | default (dig $key "resource" "status" "atProvider" "id" "" $observed) }}
+{{- if $databaseName }}
+    crossplane.io/external-name: {{ $databaseName | quote }}
+{{- end }}
+{{- end }}
+  labels:
+    tamoss.livewyer.io/environment: {{ $n }}
+spec:
+{{- if eq $key "database" }}
+  managementPolicies: [Observe, Create, Update, Delete]
+  initProvider:
+    credentials:
+{{ toYaml $databaseCredentials | indent 6 }}
+{{- end }}
+  providerConfigRef:
+    kind: ProviderConfig
+    name: {{ $p.providerConfigName }}
+  forProvider:
+    compartmentId: {{ $p.compartmentId | quote }}
+    freeformTags:
+{{ toYaml $tags | indent 6 }}
+{{ toYaml $resource.parameters | indent 4 }}
+{{- end }}
+
+{{- $record := (get $observed "record" | default dict).resource | default dict -}}
+{{- $databaseId := dig "database" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $databaseReady := false -}}
+{{- range (dig "database" "resource" "status" "conditions" (list) $observed) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $databaseReady = true -}}{{- end -}}
+{{- end -}}
+{{- $objectEndpoint := printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $p.storage.namespace $p.region -}}
+{{/* Consumers start from this record, so publish it only once the database accepts connections. */}}
+{{- if or $record (and $databaseId $databaseReady) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-services
+  namespace: {{ $ns }}
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+  annotations:
+    {{ setResourceNameAnnotation "record" }}
+    gotemplating.fn.crossplane.io/ready: "True"
+data:
+  DATABASE_ID: {{ $databaseId | default (dig "data" "DATABASE_ID" "" $record) | quote }}
+{{- end }}
+---
+apiVersion: {{ $xr.apiVersion }}
+kind: {{ $xr.kind }}
+status:
+  outputs:
+    databaseId: {{ $databaseId | quote }}
+    bucket: {{ $p.storage.bucket | quote }}
+    objectEndpoint: {{ $objectEndpoint | quote }}
+{{- $dbNetworks := dig "database" "resource" "status" "atProvider" "networkDetails" (list) $observed }}
+    databaseIp: {{ if $dbNetworks }}{{ (index $dbNetworks 0).primaryDbEndpointPrivateIp | default "" | quote }}{{ else }}""{{ end }}

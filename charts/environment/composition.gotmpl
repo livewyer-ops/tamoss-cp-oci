@@ -120,24 +120,6 @@
   {{- end -}}
 {{- end -}}
 
-{{- $storage := dict "isRegionallyDurable" $p.database.regionalStorage "systemType" "OCI_OPTIMIZED_STORAGE" -}}
-{{- if not $p.database.regionalStorage -}}
-  {{- $_ := set $storage "availabilityDomain" $p.database.availabilityDomain -}}
-{{- end -}}
-{{- $databaseSubnetId := dig "database-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
-{{- $oldNetwork := dig "database" "resource" "spec" "forProvider" "networkDetails" (list) $observed -}}
-{{- if and (not $databaseSubnetId) $oldNetwork -}}
-  {{- $databaseSubnetId = (index $oldNetwork 0).subnetId | default "" -}}
-{{- end -}}
-{{/* Non-empty instance details survive provider serialisation and retain immutable creation state. */}}
-{{- $databaseCredentials := list (dict "username" $p.database.administrator "passwordDetails" (list (dict "passwordSecretRef" (dict "name" $p.database.credentialsSecret "key" "password") "passwordTypeSecretRef" (dict "name" $p.database.credentialsSecret "key" "passwordType")))) -}}
-{{- $_ := set $resources "database" (dict "apiVersion" "psql.oci.m.upbound.io/v1alpha1" "kind" "PsqlDbSystem" "emit" $databaseSubnetId "parameters" (dict
-  "dbVersion" $p.database.version "shape" $p.database.shape "instanceCount" 2 "instanceOcpuCount" $p.database.ocpus "instanceMemorySizeInGbs" $p.database.memoryGiB
-  "instancesDetails" (list (dict "displayName" (printf "%s-database-1" $n)) (dict "displayName" (printf "%s-database-2" $n)))
-  "storageDetails" (list $storage) "networkDetails" (list (dict "subnetId" $databaseSubnetId))
-  "managementPolicy" (list (dict "backupPolicy" (list (dict "kind" "DAILY" "backupStart" "02:00" "retentionDays" $p.database.backupRetentionDays)))))) -}}
-{{- $edges = append $edges (list "database-subnet" "database") -}}
-{{- $_ := set $resources "bucket" (dict "apiVersion" "objectstorage.oci.m.upbound.io/v1alpha1" "kind" "Bucket" "parameters" (dict "name" $p.storage.bucket "namespace" $p.storage.namespace "accessType" "NoPublicAccess" "versioning" "Disabled" "storageTier" "Standard")) -}}
 {{- $_ := set $resources "public-ip" (dict "apiVersion" $net "kind" "PublicIp" "parameters" (dict "lifetime" "RESERVED")) -}}
 
 {{- range $key, $resource := $resources }}
@@ -150,24 +132,10 @@ metadata:
   namespace: {{ $ns }}
   annotations:
     {{ setResourceNameAnnotation $key }}
-{{- if eq $key "database" }}
-{{/* Retain the provider's observed ID when late initialisation cannot persist its annotation. */}}
-{{- $databaseName := dig $key "resource" "metadata" "annotations" "crossplane.io/external-name" "" $observed | default (dig $key "resource" "status" "atProvider" "id" "" $observed) }}
-{{- if $databaseName }}
-    crossplane.io/external-name: {{ $databaseName | quote }}
-{{- end }}
-{{- end }}
   labels:
     tamoss.livewyer.io/environment: {{ $n }}
 spec:
-{{- if eq $key "database" }}
-  managementPolicies: {{ toJson (without (ternary (list "Observe" "Create" "Update" "Delete") $policies (has "*" $policies)) "LateInitialize") }}
-  initProvider:
-    credentials:
-{{ toYaml $databaseCredentials | indent 6 }}
-{{- else }}
   managementPolicies: {{ toJson $policies }}
-{{- end }}
   providerConfigRef:
     kind: ProviderConfig
     name: {{ $p.providerConfigName }}
@@ -175,7 +143,7 @@ spec:
     compartmentId: {{ $p.compartmentId | quote }}
     freeformTags:
 {{ toYaml $tags | indent 6 }}
-{{- if not (has $resource.kind (list "Bucket" "Cluster" "NodePool")) }}
+{{- if not (has $resource.kind (list "Cluster" "NodePool")) }}
     displayName: {{ printf "%s-%s" $n $key | lower }}
 {{- end }}
 {{ toYaml $resource.parameters | indent 4 }}
@@ -227,10 +195,10 @@ spec:
 {{- end -}}
 {{- $bootstrapReady = and $bootstrapReady $ready -}}
 {{- end -}}
-{{- $databaseId := dig "database" "resource" "status" "atProvider" "id" "" $observed -}}
+{{- $databaseSubnet := dig "database-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- $publicIp := dig "public-ip" "resource" "status" "atProvider" "ipAddress" "" $observed -}}
 {{- $loadBalancerSubnet := dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed -}}
-{{- if or $runtime (and $databaseId $publicIp $loadBalancerSubnet) }}
+{{- if or $runtime (and $databaseSubnet $publicIp $loadBalancerSubnet) }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -243,7 +211,8 @@ metadata:
     {{ setResourceNameAnnotation "runtime-values" }}
     gotemplating.fn.crossplane.io/ready: "True"
 data:
-  DATABASE_ID: {{ $databaseId | default (dig "data" "DATABASE_ID" "" $runtime) | quote }}
+  ENVIRONMENT_UID: {{ $creationUID | quote }}
+  DATABASE_SUBNET_ID: {{ $databaseSubnet | default (dig "data" "DATABASE_SUBNET_ID" "" $runtime) | quote }}
   PUBLIC_IP: {{ $publicIp | default (dig "data" "PUBLIC_IP" "" $runtime) | quote }}
   LOAD_BALANCER_SUBNET_ID: {{ $loadBalancerSubnet | default (dig "data" "LOAD_BALANCER_SUBNET_ID" "" $runtime) | quote }}
 {{- end }}
@@ -255,10 +224,8 @@ status:
   bootstrapReady: {{ $bootstrapReady }}
   outputs:
     clusterId: {{ dig "cluster" "resource" "status" "atProvider" "id" "" $observed | quote }}
-    databaseId: {{ dig "database" "resource" "status" "atProvider" "id" "" $observed | quote }}
     publicIp: {{ dig "public-ip" "resource" "status" "atProvider" "ipAddress" "" $observed | quote }}
     bucket: {{ $p.storage.bucket | quote }}
     objectEndpoint: {{ printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $p.storage.namespace $p.region | quote }}
     loadBalancerSubnetId: {{ dig "loadBalancer-subnet" "resource" "status" "atProvider" "id" "" $observed | quote }}
-{{- $dbNetworks := dig "database" "resource" "status" "atProvider" "networkDetails" (list) $observed }}
-    databaseIp: {{ if $dbNetworks }}{{ (index $dbNetworks 0).primaryDbEndpointPrivateIp | default "" | quote }}{{ else }}""{{ end }}
+    databaseSubnetId: {{ $databaseSubnet | quote }}

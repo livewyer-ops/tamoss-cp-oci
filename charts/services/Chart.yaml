@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-services
+description: Database and media bucket reconciled from inside OKE
+type: application
+version: 0.1.0

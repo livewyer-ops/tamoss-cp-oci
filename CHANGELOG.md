@@ -7,6 +7,15 @@
   and continues while Kind is stopped. The database connection Job runs in OKE
   with workload identity, and External Secrets delivers the Authentik values to
   OKE. Existing deployments must be removed with the version that created them.
+- **Breaking:** create the PostgreSQL system and the media bucket from inside OKE.
+  Flux in OKE installs Crossplane and the PostgreSQL and Object Storage providers,
+  which use OKE workload identity under a policy composed in Kind, and a new
+  `TamossServices` composite. `TamossEnvironment` no longer accepts
+  `spec.database`, and its outputs replace `databaseId` and `databaseIp` with
+  `databaseSubnetId`. The database connection release reads the database ID from
+  the `tamoss-services` ConfigMap. `down` deletes the composite in OKE before
+  Kind removes the network and the cluster. Existing deployments must be removed
+  with the version that created them.
 
 - Discover missing OCI settings and the host's public IPv4 allowlist during
   `mise run setup`. Preserve explicit overrides and leave discovery out of `up`.

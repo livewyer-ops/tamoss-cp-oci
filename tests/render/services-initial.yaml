@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind != 'TamossServices'])): 2
+(length(resources[?kind == 'Bucket'])): 1
+(length(resources[?kind == 'ConfigMap'])): 0
+(length(resources[?kind == 'PsqlDbSystem' && to_string(spec.forProvider.instanceCount) == '2'])): 1
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.credentials): null
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.initProvider.credentials[0].username): bootstrap_admin
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.initProvider.credentials[0].passwordDetails[0].passwordSecretRef): {name: database-admin, key: password}
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.initProvider.credentials[0].passwordDetails[0].passwordTypeSecretRef): {name: database-admin, key: passwordType}
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.managementPolicies): [Observe, Create, Update, Delete]
+(resources[?kind == 'PsqlDbSystem'] | [0].metadata.annotations."crossplane.io/external-name"): null
+(length(resources[?kind == 'PsqlDbSystem'].spec.forProvider.instancesDetails[])): 2
+(resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[0].displayName == join('-', [metadata.name, '1'])): true
+(resources[?kind == 'PsqlDbSystem'] | [0] | spec.forProvider.instancesDetails[1].displayName == join('-', [metadata.name, '2'])): true
+(resources[?kind == 'PsqlDbSystem'] | [0].spec.forProvider.networkDetails[0].subnetId): ocid1.subnet.oc1.eu-frankfurt-1.REPLACE
+(resources[?kind == 'TamossServices'] | [0].spec.database.subnetId): ocid1.subnet.oc1.eu-frankfurt-1.REPLACE
+(resources[?kind == 'PsqlDbSystem' || kind == 'Bucket'].spec.forProvider.freeformTags."tamoss-composite-uid"): [00000000-0000-4000-8000-000000000000, 00000000-0000-4000-8000-000000000000]
+(resources[?kind == 'TamossServices'] | [0].spec.ownerUid): 00000000-0000-4000-8000-000000000000
+(length(resources[?kind == 'PsqlDbSystem' || kind == 'Bucket'].spec.providerConfigRef | [?name == 'oci-workload'])): 2
+(resources[?kind == 'Bucket'] | [0].spec.forProvider.name): qualification-media
+(resources[?kind == 'Bucket'] | [0].spec.forProvider.accessType): NoPublicAccess
+(resources[?kind == 'TamossServices'] | [0].status.outputs.objectEndpoint): https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+(length(resources[?kind == 'TamossServices'].status.conditions[] | [?type == 'Ready' && status == 'True'])): 0

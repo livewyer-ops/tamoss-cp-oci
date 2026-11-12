@@ -161,6 +161,10 @@ Limits:
   verified deployments reused a retained Vault.
 - Kind stopped for longer than about eight minutes, and a change to the
   deployment settings in OKE while Kind is stopped, are unverified on OCI.
+- Crossplane inside OKE with workload identity, the `TamossServices` composite
+  that creates the PostgreSQL system and media bucket, and its teardown before
+  Kind removes the network are unverified on OCI. Local checks cover the rendered
+  composition, releases and policy only.
 - Release upgrades, credential rotation, managed-database failover, browser
   logout-button interaction, regional recovery and management-state restoration
   remain unqualified.

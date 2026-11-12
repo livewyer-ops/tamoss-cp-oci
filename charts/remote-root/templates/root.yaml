@@ -86,7 +86,9 @@ spec:
     - {kind: ConfigMap, name: tamoss-assets, valuesKey: values.yaml}
   values:
     vaultId: {{ .Values.facts.vaultId | quote }}
-    databaseId: {{ .Values.facts.databaseId | quote }}
+    services:
+      ownerUid: {{ .Values.facts.environmentUid | quote }}
+      databaseSubnetId: {{ .Values.facts.databaseSubnetId | quote }}
     runtime:
       publicIp: {{ .Values.facts.publicIp | quote }}
       loadBalancerSubnetId: {{ .Values.facts.loadBalancerSubnetId | quote }}

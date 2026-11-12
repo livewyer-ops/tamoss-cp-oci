@@ -19,6 +19,55 @@ spec:
       sourceRef: {kind: HelmRepository, name: oke-external-secrets}
   values:
 {{ .Values.externalSecrets | toYaml | indent 4 }}
+{{- $s := .Values.services }}
+{{- $packages := mergeOverwrite (deepCopy .Values.packages) (dict "family" false "services" false "foundation" false "serviceProviders" (list "psql" "objectstorage") "workloadIdentityRegion" .Values.region) }}
+{{- $instance := dict "apiVersion" "tamoss.livewyer.io/v1alpha1" "kind" "TamossServices" "metadata" (dict "name" $s.name "namespace" "tamoss-infra") "spec" (dict
+  "deploymentId" .Values.deploymentId "ownerUid" $s.ownerUid "region" .Values.region "compartmentId" $s.compartmentId "providerConfigName" "oci-workload" "owner" $s.owner
+  "database" (mergeOverwrite (deepCopy $s.database) (dict "administrator" .Values.databaseAdministrator "credentialsSecret" "database-admin" "subnetId" $s.databaseSubnetId))
+  "storage" (dict "namespace" $s.storageNamespace "bucket" .Values.runtime.bucket)) }}
+{{- $releases := list
+  (dict "name" "oke-crossplane" "release" "crossplane" "repository" "oke-crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" (dict "image" (dict "repository" .Values.dependencies.crossplane.imageRepository)) "needs" list)
+  (dict "name" "oke-oci-family" "release" "oci-family" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "oke-crossplane"))
+  (dict "name" "oke-oci-services" "release" "oci-services" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true)) "needs" (list "oke-oci-family"))
+  (dict "name" "tamoss-services-api" "release" "tamoss-services-api" "chart" "services" "values" dict "needs" (list "oke-crossplane"))
+  (dict "name" "tamoss-services" "release" "tamoss-services" "namespace" "tamoss-infra" "chart" "services-instance" "values" (dict "services" $instance) "needs" (list "oke-oci-services" "tamoss-services-api" "tamoss-secrets-tamoss-infra")) }}
+{{- range $releases }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: {{ .name }}, namespace: tamoss-infra}
+spec:
+  interval: 10m
+  timeout: 10m
+  releaseName: {{ .release }}
+  targetNamespace: {{ .namespace | default "crossplane-system" }}
+  storageNamespace: {{ .namespace | default "crossplane-system" }}
+  install:
+    createNamespace: true
+    disableWait: {{ eq .name "tamoss-services" }}
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWait: {{ eq .name "tamoss-services" }}
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+{{- $needs := list }}
+{{- range .needs }}{{ $needs = append $needs (dict "name" .) }}{{ end }}
+{{- with $needs }}
+  dependsOn: {{ . | toJson }}
+{{- end }}
+  chart:
+    spec:
+{{- if .repository }}
+      chart: {{ .chart }}
+      version: {{ .version | quote }}
+      sourceRef: {kind: HelmRepository, name: {{ .repository }}}
+{{- else }}
+      chart: ./charts/{{ .chart }}
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+{{- end }}
+  values:
+{{ .values | toYaml | indent 4 }}
+{{- end }}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

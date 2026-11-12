@@ -10,7 +10,8 @@ source:
 # Identifiers of resources the base created.
 facts:
   vaultId: ''
-  databaseId: ''
+  environmentUid: ''
+  databaseSubnetId: ''
   publicIp: ''
   loadBalancerSubnetId: ''
 # Deployment settings and pinned releases passed to the gitops chart.
