@@ -104,7 +104,7 @@ mise run up
 
 `up` first checks the settings, Docker, GitHub access for a private repository
 and that the OCI profile can read the compartment. A failed check names the fix
-and changes nothing. `up` then takes about 25 minutes. It starts Kind, creates the OCI resources, installs
+and changes nothing. `up` then takes about 35 minutes. It starts Kind, creates the OCI resources, installs
 the application on OKE and waits for public HTTPS. It then prints the
 application URLs and writes the initial login details to
 `.local/environment/access/ui-login.json`.
