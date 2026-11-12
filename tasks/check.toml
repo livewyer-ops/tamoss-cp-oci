@@ -156,7 +156,7 @@ yq 'select(.kind == "Vault" or .kind == "Key") | del(.status)' {{ env.TASKV_CACH
   '''yq 'del(.metadata.uid) | .metadata.annotations."crossplane.io/paused" = "true"' {{ env.TASKV_CACHE }}/foundation-adoption.yaml > {{ env.TASKV_CACHE }}/foundation-adoption-admission.yaml''',
   "crossplane composition render '{{ env.TASKV_CACHE }}/foundation-adoption.yaml' '{{ env.TASKV_CACHE }}/foundation-composition.yaml' '{{ env.TASKV_CACHE }}/functions.yaml' --include-full-xr --crossplane-image={{ vars.CORE }} > '{{ env.TASKV_CACHE }}/foundation-adoption-render.yaml'",
   '''yq eval-all -e '[select(.kind == "Vault" or .kind == "Key") | .spec.managementPolicies | join(",")] | join(",") == "Observe,Observe"' {{ env.TASKV_CACHE }}/foundation-adoption-render.yaml''',
-  '''yq -e 'select(.kind == "Key") | .metadata.annotations."crossplane.io/external-name" == load("tests/secrets/foundation-adoption.yaml").spec.adoption.keyExternalName' {{ env.TASKV_CACHE }}/foundation-adoption-render.yaml''',
+  '''yq eval-all -e '[select(.kind == "Key") | (.metadata.annotations."crossplane.io/external-name" == load("tests/secrets/foundation-adoption.yaml").spec.adoption.keyExternalName)] | [length > 0, all] | all' {{ env.TASKV_CACHE }}/foundation-adoption-render.yaml''',
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml > '{{ env.TASKV_CACHE }}/secrets.yaml'",
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f tests/secrets/runtime-values.yaml > '{{ env.TASKV_CACHE }}/secrets-runtime.yaml'",
   "helm template secrets charts/secrets -n tamoss-infra -f tests/secrets/values.yaml -f charts/bootstrap/secret-values.yaml --set initialise=true > '{{ env.TASKV_CACHE }}/secrets-bootstrap.yaml'",
