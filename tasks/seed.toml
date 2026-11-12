@@ -35,6 +35,8 @@ kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap 
 kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap get secret oke-bootstrap-token -o json > '{{ vars.ENV_DIR }}/remote-token.json'
 mise run bootstrap:remote-access:render
 kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-access.yaml'""",
+  # The root release failed while this access was missing; request it now rather than wait out its retry delay.
+  """kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate helmrelease -l tamoss.livewyer.io/deployment-id --overwrite reconcile.fluxcd.io/requestedAt="$(date +%s)" > /dev/null""",
 ]
 depends_post = ["bootstrap:remote-access:cleanup"]
 
