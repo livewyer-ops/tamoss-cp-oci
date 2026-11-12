@@ -77,6 +77,7 @@ kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get secret a
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' > '{{ vars.ENV_DIR }}/base-outputs.json'''',
   "printf 'OKE kubeconfig: %s/remote.kubeconfig\nPrivate initial login: %s/access/ui-login.json\nOKE now reconciles itself; the Kind cluster is stopped and kept for removal. Keep %s.\nChange settings with: ENV_DIR=%s mise run apply\nRemove the deployment with: ENV_DIR=%s mise run down\n' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}'",
 ]
+env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''
 
 
 ["bootstrap:observe"]
