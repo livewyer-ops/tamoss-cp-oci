@@ -7,8 +7,9 @@ diagnostic commands below, enter a tool-enabled shell with `mise exec -- bash`;
 `exit` returns to your previous shell. Examples use
 `.local/environment`; substitute your original environment directory throughout.
 Kind owns the network, OKE, IAM and Vault resources throughout the demo; Crossplane
-in OKE owns the PostgreSQL system and the media bucket. Keep Kind running until
-teardown has verified cleanup. Retain the deployed Git revision.
+in OKE owns the PostgreSQL system and the media bucket. `up` stops Kind when the
+deployment is ready, and `down` starts it again. Keep the stopped Kind cluster
+until teardown has verified cleanup. Retain the deployed Git revision.
 
 ## Inspect the installation
 
@@ -273,15 +274,34 @@ the original Kind cluster and deployment directory throughout.
 
 ### Convergence and OKE access
 
-`mise run up` accepts a fresh deployment directory. Crossplane keeps reconciling
-the OCI resources in Kind after the host command exits, and Flux in OKE keeps
-reconciling the platform and applications. OKE's `deployment-ready`
+`mise run up` accepts a fresh deployment directory. It stops Kind once the
+deployment is ready, so the network, cluster, identity and Vault resources are
+not reconciled again until `down` starts Kind. Flux and Crossplane in OKE keep
+reconciling the database, bucket, platform and applications. OKE's `deployment-ready`
 Kustomization checks application health; the host also checks the selected Git
 commit, chart revision and current controller generations.
 
 Kind reaches OKE with a ServiceAccount token that does not expire. It uses the
 token for the `oke-root` release and for teardown. `down` revokes it after
 workload cleanup. A revoked or fully torn-down deployment refuses a new token.
+
+### Change settings
+
+OKE reads its settings from two ConfigMaps in `tamoss-infra`,
+`tamoss-gitops-values` and `tamoss-assets`, which the host renders from
+`values.yaml` and applies during `up`. To change a setting that OKE reconciles,
+such as the database shape or the certificate contact, edit
+`.local/environment/values.yaml` and run:
+
+```bash
+mise run apply
+```
+
+`apply` does not need Kind. It applies the rendered settings to OKE, waits for
+Flux there to take them and then waits for the deployment to be ready. It
+refuses a change to the network, cluster, identity or Vault settings, which
+belong to the resources `up` created, and a change to the TADOSS selection.
+Run it from the deployed Git revision.
 
 ### Interrupted host preparation
 

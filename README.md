@@ -16,9 +16,11 @@ Time-addressable Media Store (TAMS) API.
 | Optional | [TADOSS](deploy/tadoss/README.md) timed metadata services on the same platform |
 
 A local Kind cluster on your workstation runs Flux and Crossplane. They create
-the OCI resources and hand the application to Flux inside OKE, which installs
-and maintains it. Keep the workstation and that Kind cluster until you remove
-the deployment: Kind holds the infrastructure state. See
+the network, the cluster and its identity, then hand over to Flux and Crossplane
+inside OKE, which create the database and bucket and install and maintain the
+application. `up` stops the Kind cluster when it finishes. Keep the stopped
+cluster and the deployment directory until you remove the deployment: Kind holds
+the infrastructure state and `down` restarts it. See
 [architecture](docs/architecture.md).
 
 ## Requirements

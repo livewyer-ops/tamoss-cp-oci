@@ -100,3 +100,46 @@ run = [
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-access:cleanup",
 ]
 
+
+["settings:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  # The management chart derives the OKE settings from the same private values Kind was seeded with.
+  '''umask 077
+helm template management charts/management -f pins.yaml -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/deployment.yaml' --set renderSettings=true --show-only templates/settings.yaml > '{{ vars.ENV_DIR }}/oke-settings.yaml'''',
+]
+
+["settings:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  { task = "settings:render" },
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/oke-settings.yaml'",
+]
+
+["settings:guard"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  # Kind owns the base and is stopped, so a change there cannot be applied from here.
+  '''helm template management charts/management -f pins.yaml -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/deployment.yaml' --show-only templates/instance.yaml | yq 'select(.kind == "ConfigMap") | .data."values.yaml" | from_yaml | .bootstrap' | diff -q - '{{ vars.ENV_DIR }}/bootstrap.yaml' > /dev/null || { echo 'These values change the network, cluster, identity or Vault that up created. apply changes only the settings OKE reconciles; restore the other values, or remove the deployment and create a fresh one.' >&2; exit 1; }''',
+  '''yq -e '(.tadoss.enabled // false) == load("{{ vars.ENV_DIR }}/settings.yaml").tadoss.enabled' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null || { echo 'TADOSS is selected before a fresh deployment and cannot be changed by apply.' >&2; exit 1; }''',
+]
+
+["settings:update"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  { task = "assets:verify" },
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:remote",
+  { task = "settings:guard" },
+  { task = "settings:render" },
+  # Flux in OKE reconciles the release when these ConfigMaps change; wait for it to take the new values before judging readiness.
+  '''export KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig'
+if kubectl diff --server-side -f '{{ vars.ENV_DIR }}/oke-settings.yaml' > /dev/null; then echo 'OKE already has these settings.'; exit 0; fi
+BEFORE="$(kubectl -n tamoss-infra get helmrelease/tamoss-gitops -o jsonpath='{.status.lastAttemptedConfigDigest}')"
+kubectl apply --server-side -f '{{ vars.ENV_DIR }}/oke-settings.yaml'
+BEFORE="$BEFORE" timeout 600 sh -c 'until test "$(kubectl -n tamoss-infra get helmrelease/tamoss-gitops -o jsonpath="{.status.lastAttemptedConfigDigest}")" != "$BEFORE"; do sleep 5; done' || { echo 'OKE did not take the new settings within ten minutes; inspect HelmRelease tamoss-infra/tamoss-gitops.' >&2; exit 1; }''',
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir deploy/gitops/readiness-check --assert-timeout=1800s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name settings-ready",
+]

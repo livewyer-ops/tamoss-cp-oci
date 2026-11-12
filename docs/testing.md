@@ -164,6 +164,9 @@ Limits:
   deployment settings in OKE while Kind is stopped, are unverified on OCI.
 - A change to the database or bucket settings after deployment, and teardown
   after a database that failed to create, are unverified on OCI.
+- `up` stopping Kind when it finishes, `qualify` and `down` from a stopped Kind,
+  and `mise run apply` are unverified on OCI. Local checks cover the rendered
+  settings and the changes `apply` refuses.
 - Release upgrades, credential rotation, managed-database failover, browser
   logout-button interaction, regional recovery and management-state restoration
   remain unqualified.

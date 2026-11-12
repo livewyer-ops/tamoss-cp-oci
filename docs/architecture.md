@@ -5,8 +5,9 @@
 The demo follows Host -> Kind -> OKE. Kind contains Flux, Crossplane, the OCI
 providers and External Secrets. Crossplane in Kind owns the Vault, IAM, networking and
 OKE until teardown. Crossplane in OKE owns the PostgreSQL system and the media bucket.
-Flux in Kind installs one root release on OKE; Flux in OKE installs the platform
-and applications from it. The
+Flux in Kind installs one root release on OKE and the host applies the deployment
+settings there; Flux in OKE installs the platform and applications from them.
+`up` then stops Kind, which stays stopped until `down`. The
 [process table](../deploy/gitops/README.md#process-and-execution-context) identifies
 the execution context and output of each step.
 
@@ -29,10 +30,10 @@ flowchart LR
 | Owner | Responsibility |
 | --- | --- |
 | Account administrator | Dedicated compartment, OCI profile, signing key and prerequisites |
-| Host | Discover setup defaults, start Kind, establish private Git access, issue OKE access, read audit results and remove Kind last |
+| Host | Discover setup defaults, start Kind, establish private Git access, issue OKE access, apply the deployment settings to OKE, stop Kind after deployment, read audit results and remove Kind last |
 | Crossplane in Kind | Vault/key ownership, credentials, storage identity, runtime IAM policies, networking, OKE/workers and reserved public IP |
 | Crossplane in OKE | PostgreSQL system and media bucket, composed by `TamossServices` under OKE workload identity |
-| Flux in Kind | Management releases and the `oke-root` release, which places the Git source, settings and root release in OKE |
+| Flux in Kind | Management releases and the `oke-root` release, which places the Git source, observed resource IDs and root release in OKE |
 | Flux in OKE | Crossplane, the PostgreSQL and Object Storage providers, the `TamossServices` composite, platform releases, overlays, application declarations and readiness |
 | OKE cloud controller | Load balancer created by the ingress Service |
 | Application operators in OKE | Application workloads, migrations, storage and ingest resources |
@@ -55,7 +56,9 @@ and the media bucket. PostgreSQL creation waits for the `database-admin` Secret
 that External Secrets delivers to `tamoss-infra`. The composite publishes the
 database ID in the `tamoss-services` ConfigMap once the database is ready. A Job
 in OKE then reads the database hostname and CA with OKE workload identity; External Secrets delivers the Authentik values that
-Helm needs from Vault. Stopping Kind does not stop reconciliation in OKE.
+Helm needs from Vault. Reconciliation in OKE continues while Kind is stopped.
+The host writes the settings for it to the `tamoss-gitops-values` and
+`tamoss-assets` ConfigMaps in OKE, during `up` and again on `mise run apply`.
 
 Both resources carry the Kind environment UID as their `tamoss-composite-uid` tag,
 so teardown and the cloud audit identify them by the same ownership tags as the

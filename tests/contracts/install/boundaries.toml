@@ -31,3 +31,6 @@ run = [
 env.TASKV_POINT = '''{{ env.POINT | default(value="") }}'''
 env.TASKV_STOP_AT = '''{{ env.STOP_AT | default(value="") }}'''
 
+["management:stop-kind"]
+hide = true
+run = "yq -i '.kindStops += 1' '{{ vars.ENV_DIR }}/identity.yaml'"

@@ -105,6 +105,18 @@ run = [
 ]
 env.TASKV_MANAGEMENT_KUBECONFIG = '''{{ env.MANAGEMENT_KUBECONFIG | default(value="") }}'''
 
+["management:stop-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker stop '{{ item }}' > /dev/null
+{% endif %}{% endfor %}''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kind get nodes --name tamoss-cp-" ~ (env.TASKV_NAME)) }}{% endif %}'''
+
 ["management:start-kind"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

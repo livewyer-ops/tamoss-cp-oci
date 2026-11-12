@@ -73,7 +73,9 @@ run = [
   '''umask 077
 kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n auth get secret authentik -o json | yq -p=json -o=json '.data | {"username": (.AUTHENTIK_BOOTSTRAP_USERNAME | @base64d), "password": (.AUTHENTIK_BOOTSTRAP_PASSWORD | @base64d)}' > '{{ vars.ENV_DIR }}/access/ui-login.json'''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tams get tamoss/tamoss -o json | yq -p=json '.spec | {"api": ("https://api." + .publicEndpoint.baseDomain), "ui": .publicEndpoint.uiURL, "auth": .auth.authentikBlueprints.issuerURL}'''',
-  "printf 'OKE kubeconfig: %s/remote.kubeconfig\nPrivate initial login: %s/access/ui-login.json\nKeep this workstation and its Kind cluster running. Remove the deployment with: ENV_DIR=%s mise run down\n' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}'",
+  # Later commands read these base facts from the record, so they do not need Kind.
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' > '{{ vars.ENV_DIR }}/base-outputs.json'''',
+  "printf 'OKE kubeconfig: %s/remote.kubeconfig\nPrivate initial login: %s/access/ui-login.json\nOKE now reconciles itself; the Kind cluster is stopped and kept for removal. Keep %s.\nChange settings with: ENV_DIR=%s mise run apply\nRemove the deployment with: ENV_DIR=%s mise run down\n' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}'",
 ]
 
 
@@ -263,9 +265,12 @@ run = [
 
 ["bootstrap:ready"]
 hide = true
+dir = "{{ vars.ROOT_DIR }}"
 run = [
-  { task = "bootstrap:remote-guard" },
-  { task = "bootstrap:local-ready" },
+  # Kind is stopped after up, so readiness is judged in OKE alone.
+  "yq -e '.teardownStarted != true and .teardownComplete != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null",
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:remote",
+  "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir deploy/gitops/readiness-check --assert-timeout=1800s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready",
 ]
 
 ["bootstrap:qualify"]
@@ -274,8 +279,7 @@ run = [
   { task = "bootstrap:ready" },
   { task = "assets:restore-runtime" },
   "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:release",
-  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossenvironment/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' > '{{ vars.ENV_DIR }}/outputs.json'''',
-  '''DATABASE_ID="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get tamossservices/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs.databaseId}')" yq -i -o=json '.databaseId = strenv(DATABASE_ID)' '{{ vars.ENV_DIR }}/outputs.json'''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get tamossservices/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' | yq -p=json -o=json 'load("{{ vars.ENV_DIR }}/base-outputs.json") * .' > '{{ vars.ENV_DIR }}/outputs.json'''',
   '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
   { task = "qualification:run" },
 ]
@@ -339,4 +343,4 @@ env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key
 ["bootstrap:converged"]
 hide = true
 depends = ["bootstrap:remote-access"]
-run = [{ task = "bootstrap:local-ready" }]
+run = [{ task = "settings:apply" }, { task = "bootstrap:local-ready" }]
