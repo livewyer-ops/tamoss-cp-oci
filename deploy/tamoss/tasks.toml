@@ -107,7 +107,7 @@ run = [
   '''{% for item in ["deploy/platform/helmfile.yaml.gotmpl", "deploy/platform/values/defaults.yaml", "deploy/instances/multi-server/kustomization.yaml", "tests/fixtures/e2e/tiny-ingest.mp4", "tests/e2e/test_deployed_webhooks_and_ui.py", "src/pyproject.toml", "src/uv.lock"] %}
 test -s '{{ env.TASKV_ASSETS }}/source/{{ item }}'
 {% endfor %}''',
-  '''kubectl kustomize '{{ env.TASKV_ASSETS }}/source/deploy/instances/multi-server' | yq -e 'select(.kind == "Tamoss") | .spec.profile == "multi-server" and .metadata.namespace == "tams" and .spec.fullnameOverride == "tams"' > /dev/null''',
+  '''kubectl kustomize '{{ env.TASKV_ASSETS }}/source/deploy/instances/multi-server' | yq eval-all -e '[select(.kind == "Tamoss") | (.spec.profile == "multi-server" and .metadata.namespace == "tams" and .spec.fullnameOverride == "tams")] | [length > 0, all] | all' > /dev/null''',
 ]
 env.TASKV_ASSETS = '''{{ env.ASSETS | default(value="") }}'''
 
@@ -189,9 +189,9 @@ env.TASKV_BASE = '''{% if env.BASE is defined %}{{ env.BASE }}{% else %}{{ exec(
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''yq -e 'select(.kind == "CustomResourceDefinition" and .metadata.name == "tamosses.tamoss.livewyer.io") | .spec.versions[] | select(.served == true) | .schema.openAPIV3Schema.properties.spec.properties.backends.properties.db.properties.external.properties.tls.properties.caConfigMap != null' {{ env.TASKV_ASSETS }}/install.yaml || { printf '%s\n' "Published TAMOSS release lacks verified TLS/CA configuration for every database consumer; deployment remains blocked" >&2; exit 1; }''',
+  '''yq eval-all -e '[select(.kind == "CustomResourceDefinition" and .metadata.name == "tamosses.tamoss.livewyer.io") | (.spec.versions[] | select(.served == true) | .schema.openAPIV3Schema.properties.spec.properties.backends.properties.db.properties.external.properties.tls.properties.caConfigMap != null)] | [length > 0, all] | all' {{ env.TASKV_ASSETS }}/install.yaml || { printf '%s\n' "Published TAMOSS release lacks verified TLS/CA configuration for every database consumer; deployment remains blocked" >&2; exit 1; }''',
   '''yq -n -e 'load("{{ env.TASKV_ASSETS }}/release.json") as $release | [($release.runtime.version == load("{{ env.TASKV_LOCK }}").tag), ($release.runtime.sourceCommit == $release.sourceCommit), ($release.runtime.images.tamsin | test("@sha256:[a-f0-9]{64}$")), (([load("{{ env.TASKV_ASSETS }}/catalogue.json")[] | select(.version == $release.tag)] | sort_keys(..) | to_json) == ([$release.runtime] | sort_keys(..) | to_json))] | all'''',
-  '''yq -e 'select(.kind == "ConfigMap" and .data."catalogue.json" != null) | ((.data."catalogue.json" | from_json | sort_keys(..) | to_json) == (load("{{ env.TASKV_ASSETS }}/catalogue.json") | sort_keys(..) | to_json))' '{{ env.TASKV_ASSETS }}/install.yaml'''',
+  '''yq eval-all -e '[select(.kind == "ConfigMap" and .data."catalogue.json" != null) | (((.data."catalogue.json" | from_json | sort_keys(..) | to_json) == (load("{{ env.TASKV_ASSETS }}/catalogue.json") | sort_keys(..) | to_json)))] | [length > 0, all] | all' '{{ env.TASKV_ASSETS }}/install.yaml'''',
   "cmp '{{ env.TASKV_ASSETS }}/dependencies.yaml' '{{ env.TASKV_ASSETS }}/source/deploy/platform/dependencies.yaml'",
 ]
 env.TASKV_LOCK = '''{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ env.RELEASE_LOCK | default(value=(vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''

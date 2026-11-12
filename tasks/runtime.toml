@@ -35,6 +35,6 @@ run = [
   '''yq 'select(.kind == "Tamoss")' {{ env.TASKV_RUNTIME_DIR }}/instance.yaml > {{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml''',
   '''yq -e '.spec.version == load("{{ env.TASKV_RUNTIME_DIR }}/tamoss-release.yaml").tag' {{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml''',
   "chainsaw assert -r '{{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml' -f tests/runtime/tamoss.yaml --timeout 1s",
-  '''yq -e 'select(.kind == "StorageBackend") | .spec as $s | load("{{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml").spec.backends.s3.external as $e | $s.bucketName == $e.bucket and $s.region == $e.region and $s.endpoint == $e.endpoint and $s.credentials == $e.auth' '{{ env.TASKV_RUNTIME_DIR }}/instance.yaml'''',
+  '''yq eval-all -e '[select(.kind == "StorageBackend") | (.spec as $s | load("{{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml").spec.backends.s3.external as $e | $s.bucketName == $e.bucket and $s.region == $e.region and $s.endpoint == $e.endpoint and $s.credentials == $e.auth)] | [length > 0, all] | all' '{{ env.TASKV_RUNTIME_DIR }}/instance.yaml'''',
 ]
 env.TASKV_RUNTIME_DIR = "{% if env.RUNTIME_DIR is defined %}{{ env.RUNTIME_DIR }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/runtime{% endif %}"
