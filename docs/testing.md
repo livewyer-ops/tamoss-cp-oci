@@ -161,8 +161,7 @@ Limits:
   with fewer than three availability domains are unverified on OCI.
 - Creating a new Vault and key with the published policy is unverified; the
   verified deployments reused a retained Vault.
-- Kind stopped for longer than about eight minutes, and a change to the
-  deployment settings in OKE while Kind is stopped, are unverified on OCI.
+- Kind stopped for longer than about half an hour is unverified on OCI.
 - Teardown after a database that failed to create is unverified on OCI.
 - A release upgrade through `mise run apply`, and a change to the database shape
   or size, are unverified on OCI.
