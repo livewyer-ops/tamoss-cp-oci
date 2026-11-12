@@ -1,0 +1,28 @@
+{{- /* Rendered by the host and applied to OKE; Kind does not hold these objects. */ -}}
+{{- if .Values.renderSettings }}
+{{- $environment := include "management.environment" . | fromYaml -}}
+{{- $settings := dict
+  "tadoss" (dict "enabled" .Values.tadoss.enabled)
+  "deploymentId" .Values.deploymentId
+  "region" $environment.region
+  "databaseAdministrator" .Values.database.administrator
+  "services" (dict "name" .Values.name "compartmentId" $environment.compartmentId "owner" $environment.owner "storageNamespace" $environment.storage.namespace "database" (omit .Values.database "administrator"))
+  "runtime" (dict "bucket" $environment.storage.bucket "objectEndpoint" (printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $environment.storage.namespace $environment.region) "acmeEmail" (.Values.acmeEmail | default .Values.contactEmail) "adminEmail" (.Values.adminEmail | default .Values.contactEmail)) -}}
+{{- $assets := dict "tadoss" (dict "release" .Values.tadoss.release) "dependencies" .Values.dependencies "packages" .Values.packages "externalSecrets" .Values.externalSecrets "connectionImages" .Values.connectionImages "release" .Values.release "assets" .Values.assets -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tamoss-infra
+{{- range $name, $values := dict "tamoss-gitops-values" $settings "tamoss-assets" $assets }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: tamoss-infra
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+{{ $values | toYaml | indent 4 }}
+{{- end }}
+{{- end }}

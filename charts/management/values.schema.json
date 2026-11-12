@@ -166,6 +166,9 @@
     "global": {
       "type": "object"
     },
+    "renderSettings": {
+      "type": "boolean"
+    },
     "sourceName": {
       "type": "string"
     }

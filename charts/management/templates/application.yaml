@@ -43,22 +43,4 @@ spec:
     source:
       url: {{ .Values.assets.url | quote }}
       commit: {{ .Values.assets.commit | quote }}
-    settings:
-      tadoss: {enabled: {{ .Values.tadoss.enabled }}}
-      deploymentId: {{ .Values.deploymentId | quote }}
-      region: {{ $environment.region | quote }}
-      databaseAdministrator: {{ .Values.database.administrator | quote }}
-      services:
-        name: {{ .Values.name | quote }}
-        compartmentId: {{ $environment.compartmentId | quote }}
-        owner: {{ $environment.owner | quote }}
-        storageNamespace: {{ $environment.storage.namespace | quote }}
-        database: {{ omit .Values.database "administrator" | toJson }}
-      runtime:
-        bucket: {{ $environment.storage.bucket | quote }}
-        objectEndpoint: {{ printf "https://%s.compat.objectstorage.%s.oci.customer-oci.com" $environment.storage.namespace $environment.region | quote }}
-        acmeEmail: {{ .Values.acmeEmail | default .Values.contactEmail | quote }}
-        adminEmail: {{ .Values.adminEmail | default .Values.contactEmail | quote }}
-    assets:
-{{ dict "tadoss" (dict "release" .Values.tadoss.release) "dependencies" .Values.dependencies "packages" .Values.packages "externalSecrets" .Values.externalSecrets "connectionImages" .Values.connectionImages "release" .Values.release "assets" .Values.assets | toYaml | indent 6 }}
 {{- end }}

@@ -16,6 +16,12 @@
   the `tamoss-services` ConfigMap. `down` deletes the composite in OKE before
   Kind removes the network and the cluster. Existing deployments must be removed
   with the version that created them.
+- **Breaking:** stop Kind at the end of `up`. The host now applies the deployment
+  settings to OKE as the `tamoss-gitops-values` and `tamoss-assets` ConfigMaps,
+  and the root release Kind installs no longer carries them. `down` starts Kind
+  again; `qualify` no longer needs it.
+- Add `mise run apply`, which applies changed settings to OKE without Kind and
+  waits for readiness. It refuses changes to the resources `up` created.
 
 - Discover missing OCI settings and the host's public IPv4 allowlist during
   `mise run setup`. Preserve explicit overrides and leave discovery out of `up`.

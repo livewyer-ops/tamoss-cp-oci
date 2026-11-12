@@ -55,6 +55,9 @@ externalSecrets: {}
 connectionImages: {}
 release: {}
 
+# The host sets this to render the settings it applies to OKE.
+renderSettings: false
+
 sourceName: tamoss-bootstrap-product
 # A complete TamossBootstrap replaces the one derived from the settings above.
 instance: {}

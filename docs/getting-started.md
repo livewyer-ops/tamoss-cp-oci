@@ -4,7 +4,8 @@
 
 Run commands from the repository root. The default deployment directory is
 `.local/environment`. Keep that directory, this checkout and the Kind cluster
-created by `up` until teardown has finished.
+created by `up` until teardown has finished. `up` leaves the Kind cluster
+stopped; do not delete it.
 
 ## 1. Prepare the workstation
 
@@ -106,8 +107,9 @@ mise run up
 and that the OCI profile can read the compartment. A failed check names the fix
 and changes nothing. `up` then takes about 35 minutes. It starts Kind, creates the OCI resources, installs
 the application on OKE and waits for public HTTPS. It then prints the
-application URLs and writes the initial login details to
-`.local/environment/access/ui-login.json`.
+application URLs, writes the initial login details to
+`.local/environment/access/ui-login.json` and stops Kind. OKE keeps reconciling
+the database, bucket and application without it.
 
 `up` accepts only a fresh deployment directory. If it fails, follow
 [failed-deployment cleanup](operations.md#clean-up-a-failed-deployment) before

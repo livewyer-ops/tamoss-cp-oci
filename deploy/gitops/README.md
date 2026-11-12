@@ -6,8 +6,8 @@ Flux runs in both clusters and reads this repository at the committed revision
 selected by `up`. Flux in Kind installs the controllers, the infrastructure
 claims and one root release on OKE. Flux in OKE installs External Secrets,
 Crossplane with the `TamossServices` composite, the platform and the applications.
-Keep Kind until teardown has completed: it holds
-the infrastructure state and `down` needs it.
+`up` stops Kind once the deployment is ready. Keep the stopped cluster until
+teardown has completed: it holds the infrastructure state and `down` needs it.
 
 ## Process and execution context
 
@@ -20,13 +20,14 @@ the infrastructure state and `down` needs it.
 | Install controllers | Flux in Kind | Fetch the pinned Git commit; install the management chart with the settings; install official Crossplane and External Secrets charts, OCI provider packages and the local composition charts. |
 | Create infrastructure | Crossplane in Kind -> OCI | Create or adopt the recorded Vault/key; provision credentials, IAM, networking and OKE/workers. Compose the policy that lets the provider workload principal in OKE manage the database and bucket. |
 | Establish OKE access | Host -> OKE and Kind | Use OCI's exec kubeconfig to verify the OKE identity, install the Flux controllers on OKE and create a non-expiring ServiceAccount token; submit a self-contained kubeconfig Secret to Kind. |
-| Install the root | Flux in Kind -> OKE | Install the `oke-root` release: Git source, read-only Git key when the repository is private, settings, observed resource IDs and the `tamoss-gitops` release. |
+| Install the root | Flux in Kind -> OKE | Install the `oke-root` release: Git source, read-only Git key when the repository is private, observed resource IDs and the `tamoss-gitops` release. |
+| Apply settings | Host -> OKE | Render the deployment settings and pinned releases from the private values and apply them to OKE as the `tamoss-gitops-values` and `tamoss-assets` ConfigMaps. `mise run apply` repeats this step for a later change. |
 | Create the database and bucket | Flux and Crossplane in OKE -> OCI | Install Crossplane, the PostgreSQL and Object Storage providers and the `TamossServices` API; create the composite. Crossplane authenticates with OKE workload identity, creates the PostgreSQL system and media bucket and publishes the database ID in the `tamoss-services` ConfigMap once the database is ready. |
 | Discover database connection | Job in OKE -> OCI | Fetch the database hostname and CA with OKE workload identity under a composed policy; publish validated connection data in OKE. |
 | Install the platform | Flux in OKE | Install External Secrets, ingress, certificates, Authentik and database initialisation. |
 | Install the application | Flux in OKE | Apply the upstream TAMOSS operator and the checked-in instance overlay; include TADOSS when enabled. |
-| Observe | Host reads Kind and OKE | Wait for the root release in Kind, then check current source/chart revisions and workload health in OKE. Print application URLs and the location of private login details. |
-| Remove workloads | Host and Kind -> OKE | Suspend reconciliation in both clusters, run application finalisers and uninstall the releases in OKE while their operators remain available. |
+| Observe | Host reads Kind and OKE | Wait for the root release in Kind, then check current source/chart revisions and workload health in OKE. Print application URLs and the location of private login details, record the infrastructure outputs for later commands and stop Kind. |
+| Remove workloads | Host and Kind -> OKE | Start Kind. Suspend reconciliation in both clusters, run application finalisers and uninstall the releases in OKE while their operators remain available. |
 | Remove infrastructure | OKE and Kind -> OCI | Empty owned storage; delete the `TamossServices` composite in OKE so Crossplane there removes the database and bucket; delete the remaining infrastructure from Kind and the backups, retire credentials and schedule Vault secret deletion. Host reads OCI inventory to verify cleanup. |
 | Remove management | Host | Revoke the per-deployment Git key and delete Kind after the cleanup audit passes; retain local records and the Vault/key ownership record. |
 

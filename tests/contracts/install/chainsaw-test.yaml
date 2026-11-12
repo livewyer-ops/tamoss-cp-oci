@@ -55,7 +55,7 @@ spec:
         env: *id001
         args:
         - -e
-        - .observations == 1 and .provisions == 1 and .accessReads == 1
+        - .observations == 1 and .provisions == 1 and .accessReads == 1 and .kindStops == 1
         - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
     - command: &id007
         entrypoint: cp

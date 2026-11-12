@@ -90,6 +90,16 @@ run = [
   { task = "preflight" },
   { task = "bootstrap:install" },
   { task = "bootstrap:access" },
+  { task = "management:stop-kind" },
+]
+
+[tasks."apply"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Apply changed deployment settings to OKE and wait for readiness"
+run = [
+  "mise run verify:tools",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run settings:update",
 ]
 
 
