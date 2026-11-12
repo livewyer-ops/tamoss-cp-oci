@@ -145,6 +145,7 @@ resource repair.
 | Git delivery and readiness | Private SSH fetch with a temporary read-only deploy key, chart packaging from the selected commit and current-revision readiness. One unattended `up` completes in about 35 minutes |
 | Reconciliation inside OKE | Flux in OKE installs the platform and applications from the selected commit. The database connection Job reads its details with workload identity, and External Secrets delivers the Authentik values from Vault |
 | Services inside OKE | Crossplane in OKE creates the PostgreSQL system and the media bucket with workload identity under the policy composed in Kind. `down` deletes both from inside OKE before Kind removes the network and the cluster |
+| Settings without Kind | `up` stops Kind when the deployment is ready. With Kind stopped, `mise run apply` changes the database backup retention and OCI takes the new value, and it refuses a change to the admin allowlist. `qualify` passes with Kind stopped, and `down` restarts Kind and removes the deployment |
 | Kind stopped | With Kind stopped for about eight minutes, OKE keeps the database, bucket and workloads ready, serves the public endpoints and restores a deleted Secret and a deleted PodDisruptionBudget. Kind's releases are ready again after it restarts |
 | Worker placement | One worker in each of three availability domains, in separate fault domains |
 | Remote access | The host issues a non-expiring ServiceAccount token; teardown removes it with the remote access after application removal |
@@ -162,11 +163,9 @@ Limits:
   verified deployments reused a retained Vault.
 - Kind stopped for longer than about eight minutes, and a change to the
   deployment settings in OKE while Kind is stopped, are unverified on OCI.
-- A change to the database or bucket settings after deployment, and teardown
-  after a database that failed to create, are unverified on OCI.
-- `up` stopping Kind when it finishes, `qualify` and `down` from a stopped Kind,
-  and `mise run apply` are unverified on OCI. Local checks cover the rendered
-  settings and the changes `apply` refuses.
+- Teardown after a database that failed to create is unverified on OCI.
+- A release upgrade through `mise run apply`, and a change to the database shape
+  or size, are unverified on OCI.
 - Release upgrades, credential rotation, managed-database failover, browser
   logout-button interaction, regional recovery and management-state restoration
   remain unqualified.

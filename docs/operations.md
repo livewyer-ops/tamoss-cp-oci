@@ -303,6 +303,13 @@ refuses a change to the network, cluster, identity or Vault settings, which
 belong to the resources `up` created, and a change to the TADOSS selection.
 Run it from the deployed Git revision.
 
+`apply` can return before a database change has finished: the database stays
+ready while OCI updates it. Watch the change with:
+
+```bash
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get psqldbsystems
+```
+
 ### Interrupted host preparation
 
 The host records the selected release and prepares the Kind seed. Once

@@ -180,6 +180,11 @@ run = [
   '''yq eval-all -e '[select(.metadata.name == "oke-root")] | .[0] | [.spec.kubeConfig.secretRef.name == "oke-bootstrap-access", .spec.targetNamespace == "tamoss-infra", .spec.chart.spec.chart == "./charts/remote-root", ([.spec.valuesFrom[] | select(.kind == "ConfigMap") | .targetPath] | sort | join(",")) == "facts.databaseSubnetId,facts.environmentUid,facts.loadBalancerSubnetId,facts.publicIp,facts.vaultId", ([.spec.valuesFrom[] | select(.kind == "Secret") | .name + "/" + .valuesKey] | join(",")) == "deployment-git/values.yaml", .spec.values.source.url == load("tests/source/source.yaml").url, .spec.values.source.commit == load("tests/source/source.yaml").commit, .spec.values.settings == null, .spec.values.assets == null] | all' '{{ env.TASKV_DIRECTORY }}/management.yaml'''',
   # The host renders the OKE settings from the same values; Kind's own release does not carry them.
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run settings:render",
+  # A dry run renders every template, so a variable a task does not define fails here and not at the end of a deployment.
+  '''install -d -m 700 '{{ env.TASKV_DIRECTORY }}/rendered' && echo 'environment: {name: setup-test}' > '{{ env.TASKV_DIRECTORY }}/rendered/identity.yaml'''',
+  '''{% for item in ["bootstrap:access", "bootstrap:ready", "bootstrap:qualify", "settings:update", "settings:apply", "management:stop-kind"] %}
+ENV_DIR='{{ env.TASKV_DIRECTORY }}/rendered' NODES=fixture-node mise run --dry-run {{ item }} > /dev/null
+{% endfor %}''',
   # apply accepts a change OKE reconciles and refuses one that belongs to the base or to the TADOSS selection.
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run settings:guard",
   "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/values.recorded.yaml'",
