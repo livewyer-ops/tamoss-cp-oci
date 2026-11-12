@@ -289,6 +289,7 @@ run = [
   "hurlfmt --check tests/http/tadoss.hurl tests/http/tadoss-persistence.hurl",
   '''RELEASE_LOCK={{ ((vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") | quote }} OUTPUT={{ ((env.TASKV_CACHE) ~ "/gitops-pins.yaml") | quote }} mise run gitops:pins''',
   "helm template tamoss-gitops charts/gitops -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml > '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml'",
+  '''yq eval-all -e '[select(.kind == "HelmRepository") | .metadata.name] as $have | [select(.kind == "HelmRelease") | .spec.chart.spec.sourceRef | select(.kind == "HelmRepository") | .name] | unique | . - $have | length == 0' {{ env.TASKV_CACHE }}/tadoss-gitops.yaml > /dev/null''',
   "helm template tamoss-gitops charts/gitops -n flux-system -f '{{ env.TASKV_ASSETS }}/source/deploy/platform/values/defaults.yaml' -f tests/gitops/values.yaml -f '{{ env.TASKV_CACHE }}/gitops-pins.yaml' -f tests/tadoss/values.yaml --set tadoss.enabled=false > '{{ env.TASKV_CACHE }}/tadoss-disabled.yaml'",
   '''yq 'select(.kind == "CustomResourceDefinition")' {{ env.TASKV_CACHE }}/tadoss-operator.yaml > {{ env.TASKV_CACHE }}/schemas/tadoss.yaml''',
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/tadoss-gitops.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
