@@ -30,7 +30,7 @@ the infrastructure state and `down` restarts it. See
   [account permissions](deploy/oci/README.md#policy).
 - While this repository is private: GitHub access that can manage its deploy keys.
 
-Deployment takes about 35 minutes and removal about 15 minutes. The resources
+Deployment takes about 35 minutes and removal about 20 minutes. The resources
 are billable while they exist; [posted billing](docs/operations.md#posted-billing)
 shows how to check the charges.
 
