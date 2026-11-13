@@ -83,7 +83,8 @@ references supply credentials; validated non-secret outputs use ConfigMaps.
 | Database hostname and CA retrieval | OKE, using workload identity |
 | SQL initialisation and application migrations | OKE |
 | Workload finalisation and deletion | Kind Jobs targeting OKE |
-| Object/version/upload cleanup, backup deletion and secret retirement | Kind Jobs targeting OCI |
+| Object/version/upload cleanup and backup deletion | OKE Jobs targeting OCI, using workload identity |
+| Secret retirement | Kind Jobs targeting OCI |
 
 The local operation charts share [operation-common](../charts/operation-common/).
 Flux resolves that dependency from Git; no custom chart publication is required.

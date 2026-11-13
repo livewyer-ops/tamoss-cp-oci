@@ -214,10 +214,12 @@ applications and their releases in OKE while the OKE API is available. Remote
 access is revoked after workload cleanup.
 
 TAMOSS finalises while its operator remains available. Teardown removes platform
-releases and the load balancer and empties the owned bucket (including versions and
-multipart uploads). It deletes the `TamossServices` composite in OKE and waits for
-Crossplane there to remove the database and bucket, then deletes the remaining
-infrastructure from Kind and the database backups. Kind and
+releases and the load balancer. Jobs in OKE then empty the owned bucket (including
+versions and multipart uploads) with workload identity. Teardown deletes the
+`TamossServices` composite in OKE and waits for Crossplane there to remove the
+database and bucket, and Jobs in OKE delete the database backups. Kind then
+deletes the remaining infrastructure. If the cluster is already gone, these Jobs
+cannot run and the closing inventory reports any bucket or backup left. Kind and
 provider credentials remain until direct OCI inventory confirms that the dedicated
 compartment contains no workload resources.
 

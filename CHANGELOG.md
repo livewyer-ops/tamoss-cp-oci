@@ -20,6 +20,11 @@
   settings to OKE as the `tamoss-gitops-values` and `tamoss-assets` ConfigMaps,
   and the root release Kind installs no longer carries them. `down` starts Kind
   again; `qualify` no longer needs it.
+- **Breaking:** empty the media bucket and delete the database backups from Jobs
+  in OKE during `down`. They use OKE workload identity under a new policy composed in Kind,
+  `<deployment>-retirement`, and no longer use the provisioner key in Kind.
+  `down` deletes the backups before Kind removes the cluster. Existing deployments
+  must be removed with the version that created them.
 - Add `mise run apply`, which applies changed settings to OKE without Kind and
   waits for readiness. It refuses changes to the resources `up` created.
 

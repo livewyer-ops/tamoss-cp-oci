@@ -229,8 +229,9 @@ run = [
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run bootstrap:remote-revoke",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:prepare-deletion",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-services",
-  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{ env.TASKV_NAME }} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
+  # OKE purges the backups while it still exists; Kind then deletes the base.
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:delete-backups",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete tamossenvironment/{{ env.TASKV_NAME }} --ignore-not-found --cascade=foreground --wait=true --timeout=1800s",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:audit",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:remove-access",
   "mise run storage:retire",

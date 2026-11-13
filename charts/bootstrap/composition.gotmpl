@@ -58,7 +58,7 @@
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
 {{- end -}}
 {{- $runtimeSecrets := dict "auth" (list "database-admin" "tams-database" "tadoss-database" "tadoss-oauth") "tamoss-infra" (list "database-admin" "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
-{{- $runtimePolicies := concat (keys $runtimeSecrets | sortAlpha) (list "connection" "services") -}}
+{{- $runtimePolicies := concat (keys $runtimeSecrets | sortAlpha) (list "connection" "services" "retirement") -}}
 {{- $accessReady := true -}}
 {{- if hasKey $p "vaultAuth" -}}
 {{- range $namespace := $runtimePolicies -}}
@@ -254,6 +254,29 @@ spec:
     statements:
 {{- range list "manage postgres-db-systems" "read postgres-configurations" "read postgres-work-requests" "use virtual-network-family" "manage buckets" }}
       - {{ printf "Allow any-user to %s in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'crossplane-system', request.principal.service_account = 'provider-oci'}" . $p.environment.compartmentId $cluster | quote }}
+{{- end }}
+---
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ $p.deploymentId }}-retirement
+  namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  annotations:
+    {{ setResourceNameAnnotation "runtime-policy-retirement" }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+spec:
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-retirement
+    description: Empty the media bucket and delete database backups from the cluster at teardown
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+{{- range list "manage objects" "manage postgres-backups" "read postgres-work-requests" }}
+      - {{ printf "Allow any-user to %s in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'tamoss-infra', request.principal.service_account = 'services-retirement'}" . $p.environment.compartmentId $cluster | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

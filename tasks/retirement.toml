@@ -3,3 +3,13 @@ hide = true
 run = [
   "TAMOSS_ENV_DIR='{{ vars.ENV_DIR }}' helmfile --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -f deploy/secrets/operations-helmfile.yaml.gotmpl sync",
 ]
+
+["retirement:run:remote"]
+hide = true
+# With the cluster already deleted there is nowhere to run the Jobs; the teardown audit then reports anything left.
+skip_if = """(yq -e '[(tag == "!!seq"), ([.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length == 0)] | all' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null)"""
+run = [
+  # The Jobs run in OKE under the workload identity of the services-retirement service account.
+  "yq -i '.workloadIdentity.serviceAccount = \"services-retirement\"' '{{ vars.ENV_DIR }}/retirement-values.yaml'",
+  "TAMOSS_ENV_DIR='{{ vars.ENV_DIR }}' helmfile --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -f deploy/secrets/operations-helmfile.yaml.gotmpl sync",
+]
