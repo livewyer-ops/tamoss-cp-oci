@@ -11,6 +11,9 @@ images:
   yq: ''
 
 verifySecrets: true
+# Set in OKE: the Jobs then use this service account's workload identity instead of the provisioner key.
+workloadIdentity:
+  serviceAccount: ''
 bucket: {}
 backups: []
 secretDeletions: []

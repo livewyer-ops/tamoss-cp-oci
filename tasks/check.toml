@@ -209,6 +209,9 @@ run = [
   "helm dependency build --skip-refresh charts/retirement",
   '''helm template retirement charts/retirement -n tamoss-infra -f tests/retirement/values.yaml --set images.oci="$(yq -r .oci.image dependencies.yaml)",images.kubectl="$(yq -r .connectionDetails.kubectlImage dependencies.yaml)" > '{{ env.TASKV_CACHE }}/retirement.yaml' ''',
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/retirement.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
+  '''helm template retirement charts/retirement -n tamoss-infra -f tests/retirement/values.yaml --set workloadIdentity.serviceAccount=services-retirement,images.oci="$(yq -r .oci.image dependencies.yaml)",images.kubectl="$(yq -r .connectionDetails.kubectlImage dependencies.yaml)" > '{{ env.TASKV_CACHE }}/retirement-workload.yaml' ''',
+  '''yq eval-all -e '[select(.kind == "Job" and (.metadata.name | test("^retire-(bulk|abort|backup)-")))] | [length == 4, ([.[].spec.template.spec | select(.serviceAccountName == "services-retirement" and .automountServiceAccountToken == null and (.volumes | map(select(.secret)) | length == 0) and .containers[0].args[0] == "--auth" and .containers[0].args[1] == "oke_workload_identity" and (.containers[0].env | map(select(.valueFrom)) | length == 0))] | length == 4)] | all' '{{ env.TASKV_CACHE }}/retirement-workload.yaml' > /dev/null''',
+  '''yq eval-all -e '[select(.kind == "ServiceAccount")] | [length == 1, .[0].metadata.name == "services-retirement"] | all' '{{ env.TASKV_CACHE }}/retirement-workload.yaml' > /dev/null''',
   "chainsaw test --no-cluster --test-dir tests/operations/render --report-format JUNIT-TEST --report-path .local/reports --report-name operations",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"

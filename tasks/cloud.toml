@@ -144,7 +144,7 @@ run = [
   '''test -n {{ env.TASKV_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: NAMESPACE" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   '''yq -n '{"bucket": {"name": "{{ env.TASKV_BUCKET }}", "namespace": "{{ env.TASKV_NAMESPACE }}", "uploads": load("{{ vars.ENV_DIR }}/uploads.json").data}}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
-  { task = "retirement:run" },
+  { task = "retirement:run:remote" },
 ]
 env.TASKV_BUCKET = '''{{ env.BUCKET | default(value="") }}'''
 env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
@@ -177,7 +177,7 @@ run = [
   '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   '''yq -n '{"backups": [load("{{ vars.ENV_DIR }}/backups.json").data.items[] | select(."lifecycle-state" != "DELETED") | select(."db-system-id" as $id | load_str("{{ vars.ENV_DIR }}/database-ids.txt") | split("\n") | contains([$id]))]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
-  { task = "retirement:run" },
+  { task = "retirement:run:remote" },
 ]
 env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
 env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
