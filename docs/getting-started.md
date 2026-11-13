@@ -150,7 +150,7 @@ authenticated API requests, see [Operations](operations.md#first-api-request).
 mise run down
 ```
 
-`down` takes about 15 minutes and deletes application data. Read
+`down` takes about 20 minutes and deletes application data. Read
 [teardown and retention](operations.md#destroy-the-environment) first.
 
 ## Another deployment

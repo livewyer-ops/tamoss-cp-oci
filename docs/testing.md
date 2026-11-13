@@ -152,7 +152,7 @@ resource repair.
 | TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, the selected browser tests, replica placement and network policy |
 | Worker disruption | API and login-path sampling across the worker drain has no failed requests; post-drain media reads pass |
 | TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after pod replacement |
-| Teardown | One `down` removes workloads, cloud resources, application IAM, the Git deploy key and Kind in about 15 minutes. An independent OCI inventory finds no remaining workload resources |
+| Teardown | One `down` removes workloads, cloud resources, application IAM, the Git deploy key and Kind in about 20 minutes. Jobs in OKE abort an unfinished multipart upload, empty the bucket and delete a manual database backup with workload identity. An independent OCI inventory finds no remaining workload resources |
 | Retained foundation | A pre-existing compartment, Vault and key are retained. The deployment's Vault secrets are scheduled for deletion |
 
 Limits:
@@ -163,8 +163,6 @@ Limits:
   verified deployments reused a retained Vault.
 - Kind stopped for longer than about ten minutes is unverified on OCI.
 - Teardown after a database that failed to create is unverified on OCI.
-- Emptying the bucket and deleting the backups from Jobs in OKE during `down` is
-  unverified on OCI.
 - A release upgrade through `mise run apply`, and a change to the database shape
   or size, are unverified on OCI.
 - Release upgrades, credential rotation, managed-database failover, browser
