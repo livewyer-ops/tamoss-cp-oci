@@ -21,7 +21,7 @@ run = [
   "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
   "cmp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
-  "OCI_CONFIG='{{ vars.ROOT }}/tests/setup/oci-config' OCI_PROFILE=demo ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --skip-deps setup:resolve",
+  "OCI_CLI_CONFIG_FILE='{{ vars.ROOT }}/tests/setup/oci-config' OCI_CLI_PROFILE=demo ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --skip-deps setup:resolve",
   '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/discovery/credentials.json')" = 600''',
   '''yq -p=json -o=yaml -e '.user_ocid == "ocid1.user.oc1.fixture" and .tenancy_ocid == "ocid1.tenancy.oc1.fixture" and .private_key == load_str("tests/setup/signing-key") and .private_key_password == "fixture-passphrase"' '{{ env.TASKV_DIRECTORY }}/discovery/credentials.json'''',
   "cmp '{{ env.TASKV_DIRECTORY }}/discovery/privatekey' tests/setup/signing-key",

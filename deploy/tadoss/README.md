@@ -70,17 +70,11 @@ external PostgreSQL database with verified TLS and two replicas each of the
 server and worker. They cover repeat application and recovery after an invalid
 blueprint without pod replacement.
 
-For a running deployment with TADOSS enabled, run:
-
-```bash
-ENV_DIR=.local/environment mise run tadoss:baseline
-ENV_DIR=.local/environment mise run qualify
-ENV_DIR=.local/environment mise run tadoss:qualify
-```
-
-Use the original environment directory for all commands. The TAMOSS qualification
-creates the ingest source used by the TADOSS checks; read its
-[effects](../../docs/testing.md#deployed-qualification) before running it.
+For a running deployment with TADOSS enabled, `mise run qualify` captures an
+infrastructure baseline, runs the TAMOSS qualification and then the TADOSS
+checks. The TAMOSS qualification creates the ingest source the TADOSS checks
+use; read its [effects](../../docs/testing.md#deployed-qualification) before
+running it.
 
 TADOSS qualification uses Hurl to create a schema, track and timed
 events linked to the actual TAMOSS ingest source and segment time range. It
