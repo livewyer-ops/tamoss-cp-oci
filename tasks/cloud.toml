@@ -1,30 +1,5 @@
 
 
-["cloud:credentials"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-quiet = true
-run = [
-  '''test -n {{ env.TASKV_CREDENTIAL_DIR | quote }} || { printf '%s\n' "Missing required input: CREDENTIAL_DIR" >&2; exit 1; }''',
-  '''test -f '{{ env.TASKV_OCI_CONFIG }}' && test -z "$(find '{{ env.TASKV_OCI_CONFIG }}' -perm /077 -print)" || { printf '%s\n' "OCI config must have owner-only permissions" >&2; exit 1; }''',
-  '''test -f '{{ env.TASKV_OCI_KEY_FILE }}' && test -z "$(find '{{ env.TASKV_OCI_KEY_FILE }}' -perm /077 -print)" || { printf '%s\n' "OCI key must exist and have owner-only permissions" >&2; exit 1; }''',
-  '''yq -n -e 'strenv(OCI_KEY_FILE) | test("^/")' || { printf '%s\n' "OCI key_file must be an absolute path" >&2; exit 1; }''',
-  '''yq -p=ini -e 'strenv(OCI_PROFILE) == "DEFAULT" or has(strenv(OCI_PROFILE))' {{ (env.TASKV_OCI_CONFIG) | quote }} || { printf '%s\n' "Selected OCI profile is missing" >&2; exit 1; }''',
-  "mkdir -p -m 700 '{{ env.TASKV_CREDENTIAL_DIR }}'",
-  "install -m 600 /dev/null '{{ env.TASKV_CREDENTIAL_DIR }}/credentials.json'",
-  '''yq -p=ini -o=json '(. * (.[strenv(OCI_PROFILE)] // {})) | {"auth": "ApiKey", "tenancy_ocid": .tenancy, "user_ocid": .user, "fingerprint": .fingerprint, "region": .region, "private_key": load_str(strenv(OCI_KEY_FILE)), "private_key_password": .pass_phrase} | with_entries(select(.value != null))' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ env.TASKV_CREDENTIAL_DIR }}/credentials.json'''',
-  "cp deploy/credentials/kustomization.yaml deploy/credentials/namespace.yaml '{{ env.TASKV_CREDENTIAL_DIR }}/'",
-  "yq -i '.resources = []' {{ env.TASKV_CREDENTIAL_DIR }}/kustomization.yaml",
-]
-env.TASKV_CREDENTIAL_DIR = '''{{ env.CREDENTIAL_DIR | default(value="") }}'''
-env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
-env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
-env.TASKV_OCI_KEY_FILE = '''{% if env.OCI_KEY_FILE is defined %}{{ env.OCI_KEY_FILE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "OCI_PROFILE=" ~ ((env.TASKV_OCI_PROFILE) | quote) ~ " yq -p=ini -oy -r '(. * (.[strenv(OCI_PROFILE)] // {})).key_file' " ~ ((env.TASKV_OCI_CONFIG) | quote)) }}{% endif %}'''
-env.OCI_CLI_CONFIG_FILE = "{{ env.TASKV_OCI_CONFIG }}"
-env.OCI_CLI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
-env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
-env.OCI_KEY_FILE = "{{ env.TASKV_OCI_KEY_FILE }}"
-
 ["cloud:inventory"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
