@@ -241,6 +241,7 @@ run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:retained-foundation",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "mise run source:revoke",
+  "mise run environment:revoke",
   "kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'",
   "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
   "yq -i '.teardownComplete = true' '{{ vars.ENV_DIR }}/identity.yaml'",
@@ -337,6 +338,7 @@ skip_if = "yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /
 run = [
   "mise run identity:management",
   "mise run source:revoke",
+  "mise run environment:revoke",
   "kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'",
   "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig'"
 ]

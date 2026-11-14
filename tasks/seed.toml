@@ -131,6 +131,7 @@ run = [
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
+  { task = "environment:local" },
   { task = "assets:verify" },
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:remote",
   { task = "settings:guard" },

@@ -163,6 +163,8 @@ Limits:
   verified deployments reused a retained Vault.
 - Kind stopped for longer than about ten minutes is unverified on OCI.
 - Teardown after a database that failed to create is unverified on OCI.
+- `handover` and a settings change pushed to the environment repository are
+  unverified on OCI.
 - A release upgrade through `mise run apply`, and a change to the database shape
   or size, are unverified on OCI.
 - Release upgrades, credential rotation, managed-database failover, browser

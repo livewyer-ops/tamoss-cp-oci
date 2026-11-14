@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-environment-source
+description: Flux source in OKE for deployment settings held in a private environment repository
+type: application
+version: 0.1.0
