@@ -146,6 +146,7 @@ resource repair.
 | Reconciliation inside OKE | Flux in OKE installs the platform and applications from the selected commit. The database connection Job reads its details with workload identity, and External Secrets delivers the Authentik values from Vault |
 | Services inside OKE | Crossplane in OKE creates the PostgreSQL system and the media bucket with workload identity under the policy composed in Kind. `down` deletes both from inside OKE before Kind removes the network and the cluster |
 | Settings without Kind | `up` stops Kind when the deployment is ready. With Kind stopped, `mise run apply` changes the database backup retention and OCI takes the new value, and it refuses a change to the admin allowlist. `qualify` passes with Kind stopped, and `down` restarts Kind and removes the deployment |
+| Environment repository | `handover` moves the settings to a private GitHub repository without changing them, and `apply` then refuses. A backup retention change pushed to the repository reaches OKE within a minute and OCI takes it. `down` removes the repository's deploy key |
 | Kind stopped | With Kind stopped for about eight minutes, OKE keeps the database, bucket and workloads ready, serves the public endpoints and restores a deleted Secret and a deleted PodDisruptionBudget. Kind's releases are ready again after it restarts |
 | Worker placement | One worker in each of three availability domains, in separate fault domains |
 | Remote access | The host issues a non-expiring ServiceAccount token; teardown removes it with the remote access after application removal |
@@ -163,8 +164,6 @@ Limits:
   verified deployments reused a retained Vault.
 - Kind stopped for longer than about ten minutes is unverified on OCI.
 - Teardown after a database that failed to create is unverified on OCI.
-- `handover` and a settings change pushed to the environment repository are
-  unverified on OCI.
 - A release upgrade through `mise run apply`, and a change to the database shape
   or size, are unverified on OCI.
 - Release upgrades, credential rotation, managed-database failover, browser
