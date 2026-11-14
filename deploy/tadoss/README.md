@@ -86,9 +86,9 @@ TADOSS qualification uses Hurl to create a schema, track and timed
 events linked to the actual TAMOSS ingest source and segment time range. It
 checks anonymous and insufficient-scope rejection, retained events after pod
 replacement and continued media access. Replacement is verified by comparing
-pod UIDs before and after deletion. Keep Kind running. The checks compare OCI IDs
-against the captured baseline and record the selected Git commit. These checks
-passed in the Kind-owned OCI run; see
+pod UIDs before and after deletion. The checks compare OCI IDs against the
+captured baseline and record the selected Git commit. These checks have passed
+on OCI with Kind stopped; see
 [verified coverage](../../docs/testing.md#verified-coverage-and-limits).
 These checks require an authorised live environment; local passes alone do not
 establish them.

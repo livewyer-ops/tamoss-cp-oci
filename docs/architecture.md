@@ -143,7 +143,7 @@ protects the user until its key has been revoked. OCI and provider reconciliatio
 enforce removal of membership before the group can be deleted.
 
 Worker-drain availability has passed live checks. That result does not establish
-managed-database failover, regional recovery or management-state restoration.
+managed-database failover or regional recovery.
 See the [coverage limits](testing.md#verified-coverage-and-limits).
 
 ## Secrets and retained state

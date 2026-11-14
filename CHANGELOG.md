@@ -2,166 +2,25 @@
 
 ## Unreleased
 
-- **Breaking:** run Flux for the platform and applications inside OKE. Kind
-  installs Flux on OKE and one root release there; OKE then reconciles itself
-  and continues while Kind is stopped. The database connection Job runs in OKE
-  with workload identity, and External Secrets delivers the Authentik values to
-  OKE. Existing deployments must be removed with the version that created them.
-- **Breaking:** create the PostgreSQL system and the media bucket from inside OKE.
-  Flux in OKE installs Crossplane and the PostgreSQL and Object Storage providers,
-  which use OKE workload identity under a policy composed in Kind, and a new
-  `TamossServices` composite. `TamossEnvironment` no longer accepts
-  `spec.database`, and its outputs replace `databaseId` and `databaseIp` with
-  `databaseSubnetId`. The database connection release reads the database ID from
-  the `tamoss-services` ConfigMap. `down` deletes the composite in OKE before
-  Kind removes the network and the cluster. Existing deployments must be removed
-  with the version that created them.
-- **Breaking:** stop Kind at the end of `up`. The host now applies the deployment
-  settings to OKE as the `tamoss-gitops-values` and `tamoss-assets` ConfigMaps,
-  and the root release Kind installs no longer carries them. `down` starts Kind
-  again; `qualify` no longer needs it.
-- **Breaking:** empty the media bucket and delete the database backups from Jobs
-  in OKE during `down`. They use OKE workload identity under a new policy composed in Kind,
-  `<deployment>-retirement`, and no longer use the provisioner key in Kind.
-  `down` deletes the backups before Kind removes the cluster. Existing deployments
-  must be removed with the version that created them.
-- Add `mise run handover`, which moves the deployment settings to a private
-  GitHub repository that Flux in OKE follows, after which settings change by
-  pushing to it. `apply` then refuses, and `down` removes the repository's
-  deploy key.
-- Add `mise run apply`, which applies changed settings to OKE without Kind and
-  waits for readiness. It refuses changes to the resources `up` created.
+First public release.
 
-- Discover missing OCI settings and the host's public IPv4 allowlist during
-  `mise run setup`. Preserve explicit overrides and leave discovery out of `up`.
-- Keep Flux and Crossplane in Kind through deployment and teardown. Flux deploys
-  the platform and applications remotely to OKE.
-- Read this repository at a pushed Git commit and build chart directories with
-  Flux. Remove custom deployment bundle/chart publication and ownership handover.
-- Add removable read-only SSH deploy-key authentication for the private repository;
-  public deployments use anonymous HTTPS.
-- Run database metadata lookup and retirement operations in Kind. Retain OKE
-  access until remote cleanup finishes.
-- Select optional TADOSS before a fresh deployment. Existing deployments must use
-  their recorded installer revision for operations and cleanup.
-- Allow Authentik server health checks 30 seconds, matching worker probes, to
-  avoid premature restarts during database activity.
-- Remove the environment adoption inputs, remote workload-identity provider
-  option, unused contracts and checks left from the ownership-handover design.
-  `TamossEnvironment` no longer accepts `spec.adoption` or `Observe,Delete`.
-- Seed Kind with one Kustomize overlay. Flux installs the management chart from
-  Git with settings from a generated ConfigMap, and the chart derives the
-  `TamossBootstrap` root in-cluster. The host-only `setup`, `deployment-inputs`
-  templates and the local release copy are removed; the three API charts install
-  as one `tamoss-bootstrap-api` release.
-- Give Kind a non-expiring ServiceAccount token for OKE and remove
-  `bootstrap:remote-access:renew`. Teardown still revokes the token.
-- Compose the three runtime IAM policies directly in `TamossBootstrap` and remove
-  the `runtime-access` chart and its HelmRelease.
-- Stop recording infrastructure external names in Vault. Nothing consumed the
-  snapshot; bootstrap readiness no longer waits for its readback.
-- Run the S3 credential Job with the pinned upstream OCI CLI and kubectl images.
-  Remove the project tooling image and its publication workflow.
-  `storageCredentials.image` becomes `storageCredentials.images`.
-- Run `mise run check` in a GitHub workflow on pull requests and `main`. Build
-  the browser test image during `qualify` instead of `check`.
-- Accept `--compartment-id` and `--contact-email` on `mise run setup`. `up` checks
-  the settings, Docker, GitHub access and the OCI profile before it starts.
-- Look up the OKE image in the deployment compartment when `compartmentId` is
-  set, so a compartment-scoped provisioner can run `setup`. The published policy
-  no longer includes tenancy-wide instance inspection.
-- Run the `qualify` browser tests with `docker run`; only `check` needs the
-  Docker Compose plugin. The test selection moves to
-  `deploy/tamoss/browser/tests.txt`.
-- Add `mise run account:create` and `account:remove` for an administrator to
-  create and remove the scoped provisioner user, group, policy and API key.
-  `deploy/oci/policy.txt` holds the policy statements.
-- Remove `check:storage` and `check:storage:cleanup`; every deployment already
-  creates and deletes a real bucket. Remove the Helm-to-Flux adoption steps from
-  the Kind suites.
-- Separate end-user and contributor documentation. Add `CONTRIBUTING.md` and
-  `docs/configuration.md`; publish the provisioner policy as one statement block.
-
-
-### Earlier development
-
-These notes record earlier implementations superseded by the Kind-owned Git flow above.
-
-- Fresh deployments consume public OCI manifest bundles and packaged Helm charts
-  by digest. Removed the private asset bucket, its reader IAM and credential
-  delivery, upload, publication and retirement tasks. Existing bucket deployments
-  require their original tooling for cleanup; new deployments require a newly
-  published bundle and pin.
-- Supply the identity domain, Object Storage namespace, service network, worker
-  image OCID and placements in private deployment settings. Remove installation
-  discovery queries and catalogue checks; keep signing credentials out of setup
-  render inputs.
-
-- Allow teardown of an empty media bucket when OCI's version listing contains
-  only prefix metadata and omits its empty data array.
-
-- Install a pinned CI deployment bundle. Normal installation no longer assembles
-  a release from the checkout.
-- Seed the full Kind graph once and supply temporary OKE access. Crossplane
-  records credential completion; Flux aggregates bootstrap and application health.
-  Remove install-time inventories, repeated asset readback and intermediate host
-  readiness checks. Git export occurs only during `handover`.
-- Require a dedicated compartment without workload resources. Teardown audits
-  final absence instead of comparing a pre-installation inventory. Interrupted
-  host preparation requires explicit cleanup before a fresh attempt.
-- Use an atomic ConfigMap claim for the bounded S3 key Job. Key creation and
-  staging need three native commands; replay cannot issue a second key.
-
-- Create the readiness report directory on a fresh deployment. Let native Flux
-  own its namespace when attaching Git, and use a consistent policy patch when
-  returning deletion authority to Kind.
-- Fetch the existing Crossplane and function versions directly from their official
-  GHCR origin, avoiding the unavailable registry proxy. Package digests are unchanged.
-
-- Export `assets.lock.yaml` separately from client values. Optional Git selects
-  the published bundle and chart digests.
-- This is a new-deployment layout. Existing environments retain their original
-  tooling and state for teardown; no automatic state migration is provided.
-
-- The host establishes temporary OKE ServiceAccount access in Kind. Native Flux
-  Kustomizations install and seed OKE; `up` retires their authority after successful
-  deployment. Git attachment requires retirement first.
-- Initial deployment and Git export share one Kustomize base. Crossplane supplies
-  observed Vault information in Kind. Remove the OKE bootstrap Job and connection
-  receipt. Existing environments require their recorded product revision
-  for recovery and teardown.
-- Crossplane creates the storage user, group and bucket policy in Kind using the
-  configured Default identity domain. Setup no longer accepts `storage.userId`.
-  Storage IAM remains with retained Kind after handover. Existing deployments
-  must use their pinned product revision; existing users are not adopted.
-- Generate the deployment's S3 credential in a bounded Kind Job, persist it through
-  ESO and OCI Vault, and revoke its recorded key before deleting storage IAM.
-- mise replaces Aqua and Task for pinned tools and namespaced commands. Use
-  `mise run setup`, `mise run up`, `mise run handover`, `mise run qualify` and
-  `mise run down`; pass environment inputs before the command.
-- Quick deployment needs no environment repository, GitHub App or registry
-  credentials. Product bundles are public; `mise run up` renders one local deployment
-  seed and prints access details after readiness succeeds.
-- Optional `mise run handover` publishes the same configuration to private Git and
-  uses native Flux bootstrap with a read-only SSH deploy key persisted in Vault.
-  Git adoption precedes the existing single-writer infrastructure transfer.
-- Setup defaults to `media-demo`; its private settings include the compartment,
-  contact email, administrator CIDRs and prepared OCI values. Git settings are
-  separate and used only for handover.
-- `mise run setup` prepares a single `values.yaml` and the pinned OCI CLI. Deployment
-  supplies HA capacity defaults and release bundle pins and renders the supplied
-  OCI settings. After handover, operational
-  changes belong in environment Git.
-- Budget, cost worksheets, environment expiry and UTC-midnight gates are removed
-  from the product. Bootstrap Jobs retain bounded execution and retry controls.
-- Published bundle references are recorded alongside their application release
-  locks. Existing deployments must retain their selected product revision.
-- `mise run up` now completes deployment with Kind retaining infrastructure ownership.
-  Run `mise run handover` separately to transfer ownership to OKE and stop original
-  Kind. Update automation that previously relied on `up` performing both steps.
-- Deployment readiness now requires current, ready public certificates for
-  Authentik, TAMOSS and enabled TADOSS. Certificate issuance failures prevent
-  successful completion; cert-manager owns retries.
-
-Existing environments retain their deployed product revision for operations and
-teardown. These changes do not migrate existing environment layouts.
+- `mise run setup` prepares the private deployment settings and discovers the
+  missing OCI values: identity domain, Object Storage namespace, service
+  network, OKE image, worker placements and the workstation's public IPv4
+  allowlist.
+- `mise run up` creates a fresh deployment from a pushed commit of this
+  repository. A local Kind cluster creates the Vault secrets, IAM, network and
+  OKE cluster, then stops. Flux and Crossplane in OKE create the PostgreSQL
+  system and media bucket with OKE workload identity and install the platform,
+  TAMOSS and optional TADOSS.
+- `mise run apply` applies changed settings to OKE without Kind and refuses
+  changes to the resources `up` created.
+- `mise run handover` moves the settings to a private GitHub repository that
+  Flux in OKE follows.
+- `mise run down` starts Kind again, removes the applications, empties the
+  bucket and deletes the database backups from Jobs in OKE, removes the
+  infrastructure, retires the credentials and audits the compartment.
+- `mise run account:create` and `account:remove` let an administrator create
+  and remove a provisioner limited to the published policy.
+- `mise run check`, `check:management` and `qualify` cover local contracts,
+  controller behaviour in disposable Kind clusters and a running deployment.

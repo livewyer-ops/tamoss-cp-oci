@@ -128,20 +128,67 @@ released and paused before deleting its children. Keep it paused if cleanup fail
 
 Native OCI requests, Flux installation and readiness observations have bounded
 timeouts. A failure stops the command and preserves the environment for diagnosis.
-There is no OKE bootstrap Job or connection receipt in Kind. Inspect the root and
-remote controllers with their native tools:
+Inspect the root and remote controllers with their native tools:
 
 ```bash
 mise exec -- kubectl --kubeconfig .local/environment/management.kubeconfig -n tamoss-infra get tamossbootstrap
 mise exec -- flux --kubeconfig .local/environment/management.kubeconfig get all --all-namespaces
 ```
 
-This Kind-owned flow applies to new environments. Existing environments must retain their
-recorded product commit for operations and teardown; bootstrap state is not migrated.
-
 A failed `qualify` leaves the environment running. Preserve reports before a rerun
 overwrites them and continue independent checks where appropriate. Remove the
 environment explicitly with `down` when it is no longer needed.
+
+## Change settings
+
+OKE reads its settings from two ConfigMaps in `tamoss-infra`,
+`tamoss-gitops-values` and `tamoss-assets`, which the host renders from
+`values.yaml` and applies during `up`. To change a setting that OKE reconciles,
+such as the database shape or the certificate contact, edit
+`.local/environment/values.yaml` and run:
+
+```bash
+mise run apply
+```
+
+`apply` does not need Kind. It applies the rendered settings to OKE, waits for
+Flux there to take them and then waits for the deployment to be ready. It
+refuses a change to the network, cluster, identity or Vault settings, which
+belong to the resources `up` created, and a change to the TADOSS selection.
+Run it from the deployed Git revision.
+
+`apply` can return before a database change has finished: the database stays
+ready while OCI updates it. Watch the change with:
+
+```bash
+kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get psqldbsystems
+```
+
+### Keep settings in an environment repository
+
+To change settings by pushing to Git instead of running `apply`, create an empty
+private GitHub repository and run:
+
+```bash
+mise run handover --repository OWNER/NAME
+```
+
+`handover` commits the two ConfigMaps OKE holds now to `settings.yaml` on the
+`main` branch, with a `kustomization.yaml` beside it. It adds a read-only deploy
+key to the repository, gives the key to OKE and creates the `tamoss-environment`
+GitRepository and Kustomization in `tamoss-infra`. It returns once Flux in OKE
+has applied the commit. The settings do not change.
+
+From then on, edit `settings.yaml` and push to `main`; Flux in OKE applies each
+commit within about a minute. `apply` refuses, and `values.yaml` no longer
+affects the deployment. The fields that belong to the resources `up` created,
+such as the deployment ID, region and compartment, must not be changed in the
+repository. Deleting `settings.yaml` from the repository does not delete the
+ConfigMaps from OKE. There is no way back to `apply` for the same deployment.
+
+`handover` needs the GitHub CLI signed in with permission to push to the
+repository and add deploy keys. `down` removes the deploy key and leaves the
+repository and its history to you.
 
 ## Native OCI CLI
 
@@ -225,7 +272,7 @@ compartment contains no workload resources.
 
 | Deleted | Retained |
 | --- | --- |
-| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, source Git repository and local records |
+| Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, source Git repository, any environment repository and local records |
 
 After the cloud audit, teardown revokes the deployment's S3 key, verifies its
 absence, deletes the generated storage policy, membership, group and user through Crossplane,
@@ -241,8 +288,9 @@ temporary IAM prerequisites using [account retirement](../deploy/oci/README.md#r
 Keep access until deletion is confirmed. Retain the foundation's compartment and
 owner access; local exported credentials remain your responsibility.
 
-The source repository and upstream release artifacts remain available. The
-per-deployment Git deploy key is revoked before Kind is removed.
+The source repository, any environment repository and upstream release artifacts
+remain available. The per-deployment deploy keys on both repositories are revoked
+before Kind is removed.
 
 ### Interrupted teardown
 
@@ -286,57 +334,6 @@ commit, chart revision and current controller generations.
 Kind reaches OKE with a ServiceAccount token that does not expire. It uses the
 token for the `oke-root` release and for teardown. `down` revokes it after
 workload cleanup. A revoked or fully torn-down deployment refuses a new token.
-
-### Change settings
-
-OKE reads its settings from two ConfigMaps in `tamoss-infra`,
-`tamoss-gitops-values` and `tamoss-assets`, which the host renders from
-`values.yaml` and applies during `up`. To change a setting that OKE reconciles,
-such as the database shape or the certificate contact, edit
-`.local/environment/values.yaml` and run:
-
-```bash
-mise run apply
-```
-
-`apply` does not need Kind. It applies the rendered settings to OKE, waits for
-Flux there to take them and then waits for the deployment to be ready. It
-refuses a change to the network, cluster, identity or Vault settings, which
-belong to the resources `up` created, and a change to the TADOSS selection.
-Run it from the deployed Git revision.
-
-`apply` can return before a database change has finished: the database stays
-ready while OCI updates it. Watch the change with:
-
-```bash
-kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get psqldbsystems
-```
-
-### Keep settings in an environment repository
-
-To change settings by pushing to Git instead of running `apply`, create an empty
-private GitHub repository and run:
-
-```bash
-mise run handover --repository OWNER/NAME
-```
-
-`handover` commits the two ConfigMaps OKE holds now to `settings.yaml` on the
-`main` branch, with a `kustomization.yaml` beside it. It adds a read-only deploy
-key to the repository, gives the key to OKE and creates the `tamoss-environment`
-GitRepository and Kustomization in `tamoss-infra`. It returns once Flux in OKE
-has applied the commit. The settings do not change.
-
-From then on, edit `settings.yaml` and push to `main`; Flux in OKE applies each
-commit within about a minute. `apply` refuses, and `values.yaml` no longer
-affects the deployment. The fields that belong to the resources `up` created,
-such as the deployment ID, region and compartment, must not be changed in the
-repository. Deleting `settings.yaml` from the repository does not delete the
-ConfigMaps from OKE. There is no way back to `apply` for the same deployment.
-
-`handover` needs the GitHub CLI signed in with permission to push to the
-repository and add deploy keys. `down` removes the deploy key and leaves the
-repository and its history to you.
 
 ### Interrupted host preparation
 
