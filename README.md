@@ -20,8 +20,11 @@ the network, the cluster and its identity, then hand over to Flux and Crossplane
 inside OKE, which create the database and bucket and install and maintain the
 application. `up` stops the Kind cluster when it finishes. Keep the stopped
 cluster and the deployment directory until you remove the deployment: Kind holds
-the infrastructure state and `down` restarts it. See
-[architecture](docs/architecture.md).
+the infrastructure state and `down` restarts it. `down` cannot work without
+that cluster. If it is lost, the network, cluster, IAM and Vault secrets it
+created must be removed by hand; see
+[manual cleanup](docs/operations.md#manual-cleanup-after-losing-the-kind-cluster).
+See [architecture](docs/architecture.md).
 
 ## Requirements
 
