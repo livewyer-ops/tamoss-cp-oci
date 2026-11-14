@@ -127,9 +127,9 @@ A failed qualification leaves the deployment running for investigation. Preserve
 evidence and continue independent checks as appropriate. Follow
 [operations](operations.md).
 
-`qualify` exercises TAMOSS. When TADOSS is enabled, follow the
-[shared-platform qualification sequence](../deploy/tadoss/README.md#verification-and-removal)
-to capture the infrastructure baseline and run its OAuth and persistence checks too.
+When TADOSS is enabled, `qualify` also captures an infrastructure baseline first
+and runs the [TADOSS checks](../deploy/tadoss/README.md#verification-and-removal)
+afterwards.
 
 ## Verified coverage and limits
 

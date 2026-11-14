@@ -8,13 +8,10 @@ run = [
   '''test "$(stat -c '%a:%u' '{{ vars.ENV_DIR }}')" = "700:$(id -u)" || { printf '%s\n' "The private environment directory must be owned by the current user with mode 700" >&2; exit 1; }''',
   "install -m 600 /dev/null '{{ vars.ENV_DIR }}/identity-inputs.yaml'",
   '''yq -n '(load("{{ vars.ENV_DIR }}/environment.yaml")) as $e | {"environment": {"name": $e.metadata.name, "namespace": $e.metadata.namespace, "region": $e.spec.region, "compartmentId": $e.spec.compartmentId, "providerConfigName": $e.spec.providerConfigName, "storage": $e.spec.storage}}' > '{{ vars.ENV_DIR }}/identity-inputs.yaml'''',
-  '''yq -p=ini -oy '(. * (.[strenv(OCI_PROFILE)] // {})) | {"oci": {"tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "region": .region}}' {{ (env.TASKV_OCI_CONFIG) | quote }} > '{{ vars.ENV_DIR }}/identity-oci.yaml'''',
+  '''yq -p=ini -oy '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | {"oci": {"tenancy": .tenancy, "user": .user, "fingerprint": .fingerprint, "region": .region}}' {{ (env.OCI_CLI_CONFIG_FILE) | quote }} > '{{ vars.ENV_DIR }}/identity-oci.yaml'''',
   '''yq -i '. * load("{{ vars.ENV_DIR }}/identity-oci.yaml")' {{ vars.ENV_DIR }}/identity-inputs.yaml''',
   '''yq -e '.oci.tenancy != null and .oci.user != null and .oci.fingerprint != null and .oci.region == .environment.region and (.environment.compartmentId | test("^ocid1\\.compartment\\."))' {{ vars.ENV_DIR }}/identity-inputs.yaml > /dev/null''',
 ]
-env.TASKV_OCI_CONFIG = '''{% if env.OCI_CONFIG is defined %}{{ env.OCI_CONFIG }}{% else %}{{ env.OCI_CLI_CONFIG_FILE | default(value=(env.HOME) ~ "/.oci/config") }}{% endif %}'''
-env.TASKV_OCI_PROFILE = '''{% if env.OCI_PROFILE is defined %}{{ env.OCI_PROFILE }}{% else %}{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}{% endif %}'''
-env.OCI_PROFILE = "{{ env.TASKV_OCI_PROFILE }}"
 
 ["identity:initialise:apply"]
 hide = true

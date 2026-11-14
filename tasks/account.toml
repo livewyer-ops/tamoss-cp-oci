@@ -18,8 +18,8 @@ DIRECTORY='{{ vars.ROOT_DIR }}/.local/account/'"$NAME"
 test ! -e "$DIRECTORY" || { echo "Account records already exist in $DIRECTORY. Remove that account first: mise run account:remove --name $NAME" >&2; exit 1; }
 install -d -m 700 "$DIRECTORY"
 export NAME COMPARTMENT EMAIL DIRECTORY
-export TENANCY="$(OCI_PROFILE={{ env.OCI_CLI_PROFILE | quote }} yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_PROFILE)] // {})) | .tenancy | select(test("^ocid1[.]tenancy[.]"))' {{ env.OCI_CLI_CONFIG_FILE | quote }})"
-REGION="$(OCI_PROFILE={{ env.OCI_CLI_PROFILE | quote }} yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_PROFILE)] // {})) | .region' {{ env.OCI_CLI_CONFIG_FILE | quote }})"
+export TENANCY="$(yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | .tenancy | select(test("^ocid1[.]tenancy[.]"))' {{ env.OCI_CLI_CONFIG_FILE | quote }})"
+REGION="$(yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | .region' {{ env.OCI_CLI_CONFIG_FILE | quote }})"
 oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam domain list --compartment-id "$TENANCY" --all > "$DIRECTORY/domains.json"
 ENDPOINT="$(yq -p=json -o=yaml -e '[.data[] | select(.type == "DEFAULT" and ."lifecycle-state" == "ACTIVE")] | select(length == 1) | .[0].url' "$DIRECTORY/domains.json")"
 printf '%s\n' "$ENDPOINT" > "$DIRECTORY/endpoint"
@@ -36,7 +36,7 @@ openssl rsa -in "$DIRECTORY/api-key.pem" -pubout -out "$DIRECTORY/api-key-public
 oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam user api-key upload --user-id "$USER_ID" --key-file "$DIRECTORY/api-key-public.pem" > "$DIRECTORY/api-key.json"
 FINGERPRINT="$(yq -p=json -o=yaml -e '.data.fingerprint' "$DIRECTORY/api-key.json")"
 printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=%s\n' "$USER_ID" "$FINGERPRINT" "$TENANCY" "$REGION" "$DIRECTORY/api-key.pem" > "$DIRECTORY/oci-config"
-printf 'Provisioner profile: %s/oci-config\nOCI can take a few minutes to accept the new key. Then run:\n  OCI_CONFIG=%s/oci-config mise run setup --compartment-id %s --contact-email %s\n' "$DIRECTORY" "$DIRECTORY" "$COMPARTMENT" "$EMAIL"
+printf 'Provisioner profile: %s/oci-config\nOCI can take a few minutes to accept the new key. Then run:\n  OCI_CLI_CONFIG_FILE=%s/oci-config mise run setup --compartment-id %s --contact-email %s\n' "$DIRECTORY" "$DIRECTORY" "$COMPARTMENT" "$EMAIL"
 ''',
 ]
 

@@ -63,7 +63,7 @@ spec:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CLI_CONFIG_FILE=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_CLI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
         - command:
             entrypoint: yq
             env: *paths
@@ -71,7 +71,7 @@ spec:
         - command:
             entrypoint: env
             env: *paths
-            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CONFIG=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CLI_CONFIG_FILE=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_CLI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
             check:
               ($error != null): true
               (contains($stderr, 'userId')): true

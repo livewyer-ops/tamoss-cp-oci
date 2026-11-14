@@ -16,8 +16,8 @@ min_version = "2026.11.3"
 "pypi:oci-cli" = { "version" = "{{ vars.OCI_VERSION }}", "python" = "3.12" }
 
 [env]
-OCI_CLI_CONFIG_FILE = '{{ env.OCI_CONFIG | default(value=env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config")) }}'
-OCI_CLI_PROFILE = '{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | default(value="DEFAULT")) }}'
+OCI_CLI_CONFIG_FILE = '{{ env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config") }}'
+OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
@@ -30,6 +30,7 @@ ROOT = "{{config_root}}"
 ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR | absolute }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
 ENV_PATH = "{{vars.ENV_DIR | absolute}}"
 CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.crossplane.imageRepository }}:v{{ dependencies.crossplane.version }}'''
+OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
 OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.oci.version }}'''
 
 [tasks."setup"]
@@ -117,12 +118,14 @@ run = [
 [tasks."qualify"]
 hide = false
 dir = "{{ vars.ROOT_DIR }}"
-description = "Contributor: qualify ingest, media reads and availability during one worker drain"
+description = "Contributor: qualify ingest, media reads, availability during one worker drain and enabled TADOSS"
 run = [
   '''test -s '{{ vars.ENV_PATH }}/tamoss-release.yaml' || { printf '%s\n' "Selected environment has no TAMOSS release record" >&2; exit 1; }''',
   "mise run verify:tools",
   "mise run verify:privacy",
+  "if yq -e '.tadoss.enabled == true' '{{ vars.ENV_PATH }}/settings.yaml' >/dev/null; then ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run tadoss:baseline; fi",
   "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run bootstrap:qualify",
+  "if yq -e '.tadoss.enabled == true' '{{ vars.ENV_PATH }}/settings.yaml' >/dev/null; then ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run tadoss:qualify; fi",
 ]
 
 [tasks."down"]

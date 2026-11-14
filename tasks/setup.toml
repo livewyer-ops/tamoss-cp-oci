@@ -28,7 +28,7 @@ run = [
   '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
 {% if not v | get(key="storageIdentity", default={}) | get(key="domainId", default="") or not v | get(key="storageIdentity", default={}) | get(key="idcsEndpoint", default="") %}
 umask 077
-OCI_PROFILE={{ env.OCI_CLI_PROFILE | quote }} yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_PROFILE)] // {})) | .tenancy | select(test("^ocid1[.]tenancy[.]"))' {{ env.OCI_CLI_CONFIG_FILE | quote }} > '{{ vars.ENV_DIR }}/discovery/tenancy'
+yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | .tenancy | select(test("^ocid1[.]tenancy[.]"))' {{ env.OCI_CLI_CONFIG_FILE | quote }} > '{{ vars.ENV_DIR }}/discovery/tenancy'
 oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam domain list --compartment-id "$(cat '{{ vars.ENV_DIR }}/discovery/tenancy')" --all > '{{ vars.ENV_DIR }}/discovery/identity-domains.json'
 yq -e -i '.storageIdentity as $supplied |
   [load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data[] |
@@ -103,13 +103,11 @@ run = [
   "install -d -m 700 '{{ vars.ENV_DIR }}/discovery' '{{ vars.ENV_DIR }}/reports' '{{ vars.ENV_DIR }}/access'",
   # Private signing material stays in discovery/ only until the seed is applied.
   '''umask 077
-OCI_PROFILE={{ env.TASKV_PROFILE | quote }} yq -p=ini -o=json '(. * (.[strenv(OCI_PROFILE)] // {})) | {"auth": "ApiKey", "tenancy_ocid": .tenancy, "user_ocid": .user, "fingerprint": .fingerprint, "region": .region, "private_key": load_str(.key_file), "private_key_password": (.pass_phrase // "")}' {{ env.TASKV_CONFIG | quote }} > '{{ vars.ENV_DIR }}/discovery/credentials.json'
+yq -p=ini -o=json '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | {"auth": "ApiKey", "tenancy_ocid": .tenancy, "user_ocid": .user, "fingerprint": .fingerprint, "region": .region, "private_key": load_str(.key_file), "private_key_password": (.pass_phrase // "")}' {{ env.OCI_CLI_CONFIG_FILE | quote }} > '{{ vars.ENV_DIR }}/discovery/credentials.json'
 yq -p=json -r '.private_key | @base64' '{{ vars.ENV_DIR }}/discovery/credentials.json' | base64 -d > '{{ vars.ENV_DIR }}/discovery/privatekey'
 yq -p=json -o=yaml -r '"fingerprint=" + .fingerprint, "user=" + .user_ocid, "tenancy=" + .tenancy_ocid, "passphrase=" + .private_key_password' '{{ vars.ENV_DIR }}/discovery/credentials.json' > '{{ vars.ENV_DIR }}/discovery/vault.env'
 ''',
 ]
-env.TASKV_CONFIG = '''{{ env.OCI_CONFIG | default(value=env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config")) }}'''
-env.TASKV_PROFILE = '''{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | default(value="DEFAULT")) }}'''
 
 ["setup:render"]
 hide = true
