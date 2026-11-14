@@ -86,25 +86,6 @@ run = [
 ]
 env.TASKV_CHECK_NAME = '''{% if env.CHECK_NAME is defined %}{{ env.CHECK_NAME }}{% else %}tamoss-cp-check-{{ now() | date(format="%s") }}{% endif %}'''
 
-["management:install"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ env.TASKV_MANAGEMENT_KUBECONFIG | quote }} || { printf '%s\n' "Missing required input: MANAGEMENT_KUBECONFIG" >&2; exit 1; }''',
-  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=crossplane sync",
-  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=family sync",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait provider.pkg.crossplane.io/oracle-provider-family-oci --for=condition=Healthy --timeout=300s",
-  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=services sync",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait providers.pkg.crossplane.io --all --for=condition=Healthy --timeout=600s",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait functions.pkg.crossplane.io --all --for=condition=Healthy --timeout=300s",
-  "helmfile --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' -f deploy/management/helmfile.yaml.gotmpl -l stage=api sync",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait compositeresourcedefinition/tamossenvironments.tamoss.livewyer.io --for='jsonpath={.status.conditions}' --timeout=120s",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait compositeresourcedefinition/tamossenvironments.tamoss.livewyer.io --for=condition=Established --timeout=120s",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait crd/tamossenvironments.tamoss.livewyer.io --for='jsonpath={.status.conditions}' --timeout=120s",
-  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' wait crd/tamossenvironments.tamoss.livewyer.io --for=condition=Established --timeout=120s",
-]
-env.TASKV_MANAGEMENT_KUBECONFIG = '''{{ env.MANAGEMENT_KUBECONFIG | default(value="") }}'''
-
 ["management:stop-kind"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
