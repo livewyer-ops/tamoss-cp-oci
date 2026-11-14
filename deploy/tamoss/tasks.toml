@@ -115,7 +115,6 @@ env.TASKV_ASSETS = '''{{ env.ASSETS | default(value="") }}'''
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test ! -e '{{ vars.ENV_DIR }}/identity.yaml' || test -s '{{ vars.ENV_DIR }}/tamoss-release.yaml' || { printf '%s\n' "Existing environment has no TAMOSS release record; recover its original selection before continuing" >&2; exit 1; }''',
   '''test ! -e '{{ vars.ENV_DIR }}/tamoss-release.yaml' || yq -n -e '(load("{{ vars.ENV_DIR }}/tamoss-release.yaml") | sort_keys(.) | to_json) == (load("{{ env.TASKV_LOCK }}") | sort_keys(.) | to_json)' > /dev/null || { printf '%s\n' "Environment TAMOSS release differs from the repository pin; use its original selection or tear down before changing releases" >&2; exit 1; }''',
 ]
@@ -162,7 +161,6 @@ env.TASKV_LOCK = '''{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ env.R
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -s '{{ vars.ENV_DIR }}/tamoss-release.yaml' || (test ! -e '{{ vars.ENV_DIR }}/tamoss-release.yaml' && test ! -e '{{ vars.ENV_DIR }}/identity.yaml' && test ! -e '{{ vars.ENV_DIR }}/management.kubeconfig' && test ! -e '{{ vars.ENV_DIR }}/inventory-before') || { printf '%s\n' "Recover the missing release record for this existing environment" >&2; exit 1; }''',
   "mise run tamoss:record:apply",
 ]

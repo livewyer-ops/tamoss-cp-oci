@@ -25,8 +25,6 @@ includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/accou
 
 [vars]
 ROOT_DIR = "{{config_root}}"
-PROJECT_ROOT = "{{config_root}}"
-ROOT = "{{config_root}}"
 ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR | absolute }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
 ENV_PATH = "{{vars.ENV_DIR | absolute}}"
 CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.crossplane.imageRepository }}:v{{ dependencies.crossplane.version }}'''
