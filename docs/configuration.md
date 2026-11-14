@@ -64,7 +64,10 @@ against the settings schema. Keep subnets inside the selected VCN. Reuse an
 owned Vault and key through `foundation.name` and the recorded
 `foundation.adoption` fields; a matching name is not proof of ownership.
 
-Change settings only before `up`. Keep them unchanged during installation.
+Keep the settings unchanged while `up` runs. Afterwards, change the settings OKE
+reconciles with [`apply`](operations.md#change-settings), or in the environment
+repository after [`handover`](operations.md#keep-settings-in-an-environment-repository).
+Settings that describe the resources `up` created cannot be changed.
 
 ## Generated records
 
@@ -76,6 +79,8 @@ Change settings only before `up`. Keep them unchanged during installation.
 | Local copies of the resources Kind derives | `bootstrap.yaml`, `environment.yaml`, `foundation.yaml`, `settings.yaml` |
 | Temporary protected OCI signing material | `discovery/`, removed after seeding Kind |
 | Management and OKE access | `management.kubeconfig`, `remote.kubeconfig` |
+| Settings applied to OKE and the base resource outputs | `oke-settings.yaml`, `base-outputs.json` |
+| Environment repository and its deploy key, after `handover` | `environment-source.json` |
 | Initial login details | `access/ui-login.json` |
 | Installed release and deployment identity | `tamoss-release.yaml`, `identity.yaml` |
 | Ownership and teardown records | `identity.yaml`, `foundation-record.yaml`, `inventory-after/` |

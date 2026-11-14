@@ -23,8 +23,8 @@ In addition to the [deployment prerequisites](docs/getting-started.md#1-prepare-
 | `mise run check:management` | `check`, then controller reconciliation in disposable Kind clusters | Docker; no OCI credentials |
 | `mise run qualify` | Test ingest, access, network isolation and a worker drain on a running deployment | A dedicated deployment; changes its data |
 
-`mise tasks` lists `setup`, `up`, `down`, the commands marked "Contributor" and
-the two account commands marked "Administrator".
+`mise tasks` lists `setup`, `up`, `apply`, `handover`, `down`, the commands
+marked "Contributor" and the two account commands marked "Administrator".
 
 A GitHub workflow runs `mise run check` on pull requests and on `main`. Run
 `check:management` on a quiet host before merging a change to tasks, charts or

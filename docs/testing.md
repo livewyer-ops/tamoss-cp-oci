@@ -167,7 +167,8 @@ Limits:
 - A release upgrade through `mise run apply`, and a change to the database shape
   or size, are unverified on OCI.
 - Release upgrades, credential rotation, managed-database failover, browser
-  logout-button interaction, regional recovery and management-state restoration
-  remain unqualified.
+  logout-button interaction and regional recovery remain unqualified.
+- Recovery after losing the Kind cluster is not supported; follow
+  [manual cleanup](operations.md#manual-cleanup-after-losing-the-kind-cluster).
 - The TADOSS OAuth blueprint Job has failed its first attempt once and completed
   on its automatic retry; the cause is unconfirmed.
