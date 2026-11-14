@@ -1,19 +1,11 @@
 
-["tadoss:baseline:apply"]
+["tadoss:baseline"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "(test -f '{{ vars.ENV_DIR }}/tadoss-inventory-before/.complete')"
 run = [
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} INVENTORY_DIR={{ ((vars.ENV_DIR) ~ "/tadoss-inventory-before") | quote }} mise run cloud:inventory''',
-]
-
-["tadoss:baseline"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "mise run tadoss:baseline:apply",
 ]
 
 ["tadoss:tls:protected:protected"]
@@ -97,7 +89,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run qualification:credentials",
   "install -m 600 /dev/null '{{ vars.ENV_DIR }}/tadoss-http-secrets.env'",
   "cp '{{ vars.ENV_DIR }}/http-secrets.env' '{{ vars.ENV_DIR }}/tadoss-http-secrets.env'",
@@ -136,7 +127,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "rm -f '{{ vars.ENV_DIR }}/api-token' '{{ vars.ENV_DIR }}/api.curl' '{{ vars.ENV_DIR }}/targets.jsonl' '{{ vars.ENV_DIR }}/http-secrets.env' '{{ vars.ENV_DIR }}/tadoss-http-secrets.env' '{{ vars.ENV_DIR }}/tadoss-segments.json'",
 ]
 
@@ -145,7 +135,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''yq -e '.tadoss.enabled == true' '{{ vars.ENV_DIR }}/settings.yaml' || { printf '%s\n' "Set tadoss.enabled before deploying this environment" >&2; exit 1; }''',
   '''test -f '{{ vars.ENV_DIR }}/tadoss-inventory-before/.complete' || { printf '%s\n' "Capture the infrastructure baseline before qualification" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:ready",
@@ -168,7 +157,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_DOMAIN | quote }} || { printf '%s\n' "Missing required input: DOMAIN" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_DEPLOYMENT | quote }} || { printf '%s\n' "Missing required input: DEPLOYMENT" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_SCHEMA_ID | quote }} || { printf '%s\n' "Missing required input: SCHEMA_ID" >&2; exit 1; }''',
@@ -184,21 +172,13 @@ env.TASKV_FLOW = '''{% if env.FLOW is defined %}{{ env.FLOW }}{% else %}{{ exec(
 env.TASKV_SCHEMA_ID = '''{{ env.SCHEMA_ID | default(value="") }}'''
 env.TASKV_TRACK_ID = '''{{ env.TRACK_ID | default(value="") }}'''
 
-["tadoss:remove-instance:apply"]
+["tadoss:remove-instance"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = '''((CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd tadosses.tadoss.livewyer.io --ignore-not-found -o name)" && test -z "$CRD") || (RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tads get tadoss/tadoss --ignore-not-found -o name)" && test -z "$RESOURCE"))'''
 run = [
   '''yq -n '{"workloads": [{"namespace": "tads", "resource": "tadosses.tadoss.livewyer.io", "name": "tadoss"}]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
   { task = "retirement:run" },
-]
-
-["tadoss:remove-instance"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "mise run tadoss:remove-instance:apply",
 ]
 
 ["tadoss:fetch"]

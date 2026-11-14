@@ -3,7 +3,7 @@
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  "chainsaw test --no-cluster --test-dir '{{ vars.ROOT }}/tests/setup/contracts' --exec-timeout 120s --set-string root='{{ vars.ROOT }}' --report-format JUNIT-TEST --report-path '{{ vars.ROOT }}/.local/reports' --report-name setup",
+  "chainsaw test --no-cluster --test-dir '{{ vars.ROOT_DIR }}/tests/setup/contracts' --exec-timeout 120s --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path '{{ vars.ROOT_DIR }}/.local/reports' --report-name setup",
   "mise run test:setup:discovery:prepare",
   "mise run test:setup:preflight:prepare",
   "chainsaw test --no-cluster --test-dir tests/setup/discovery --exec-timeout 60s --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name setup-discovery",
@@ -21,7 +21,7 @@ run = [
   "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
   "cmp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
-  "OCI_CLI_CONFIG_FILE='{{ vars.ROOT }}/tests/setup/oci-config' OCI_CLI_PROFILE=demo ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --skip-deps setup:resolve",
+  "OCI_CLI_CONFIG_FILE='{{ vars.ROOT_DIR }}/tests/setup/oci-config' OCI_CLI_PROFILE=demo ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --skip-deps setup:resolve",
   '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/discovery/credentials.json')" = 600''',
   '''yq -p=json -o=yaml -e '.user_ocid == "ocid1.user.oc1.fixture" and .tenancy_ocid == "ocid1.tenancy.oc1.fixture" and .private_key == load_str("tests/setup/signing-key") and .private_key_password == "fixture-passphrase"' '{{ env.TASKV_DIRECTORY }}/discovery/credentials.json'''',
   "cmp '{{ env.TASKV_DIRECTORY }}/discovery/privatekey' tests/setup/signing-key",
@@ -29,7 +29,7 @@ run = [
   "yq -o=json . tests/source/source.yaml > '{{ env.TASKV_DIRECTORY }}/source.json'",
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:facts",
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:render"]
 hide = true
@@ -37,7 +37,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:render",
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:defaults"]
 hide = true
@@ -51,7 +51,7 @@ run = [
   '''yq -e '.spec.region == "eu-frankfurt-1" and .spec.owner == "operator@example.test"' '{{ env.TASKV_DIRECTORY }}/foundation.yaml'''',
   '''yq -e '.spec as $s | load("{{ env.TASKV_DIRECTORY }}/values.yaml") as $v | ($s.oke.placements | sort_keys(..) | to_json(0)) == ($v.oke.placements | sort_keys(..) | to_json(0)) and $s.oke.imageId == $v.oke.imageId and $s.network.ociServiceId == $v.network.ociServiceId and $s.network.ociServiceCidr == $v.network.ociServiceCidr and $s.storage.namespace == $v.storage.namespace' '{{ env.TASKV_DIRECTORY }}/environment.yaml'''',
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:explicit"]
 hide = true
@@ -61,7 +61,7 @@ run = [
   "mise run test:setup:render",
   '''yq -e '.spec.oke.imageId == "ocid1.image.oc1.custom-fixture" and (.spec.oke.placements | sort_keys(..) | to_json(0)) == (load("{{ env.TASKV_DIRECTORY }}/values.yaml").oke.placements | sort_keys(..) | to_json(0)) and .spec.oke.placements[0].availabilityDomain == "fixture:AD-3"' '{{ env.TASKV_DIRECTORY }}/environment.yaml'''',
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:bad-input"]
 hide = true
@@ -71,7 +71,7 @@ run = [
   "mise run test:setup:render",
 ]
 env.TASKV_CHANGE = '''{{ env.CHANGE | default(value="") }}'''
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:recorded"]
 hide = true
@@ -83,7 +83,7 @@ run = [
   "test ! -e '{{ env.TASKV_DIRECTORY }}/recorded/values.yaml'",
   "test ! -e '{{ env.TASKV_DIRECTORY }}/recorded/discovery'",
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:existing"]
 hide = true
@@ -93,7 +93,7 @@ run = [
   "touch '{{ env.TASKV_DIRECTORY }}/old/identity.yaml'",
   '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/old") | quote }} mise run setup:initialise''',
 ]
-env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT }}/.local/tmp/check/setup{% endif %}"
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
 ["test:setup:interrupted"]
 hide = true

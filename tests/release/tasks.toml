@@ -84,4 +84,4 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''CACHE={{ ((vars.ENV_DIR) ~ "/download") | quote }} TARGET={{ ("release.json") | quote }} URL={{ ("file://" ~ (vars.ENV_DIR) ~ "/candidate/release.yaml") | quote }} SHA={{ ((env.TASKV_SHA)) | quote }} mise run verify:artifact''',
 ]
-env.TASKV_SHA = '''{% if env.SHA is defined %}{{ env.SHA }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.PROJECT_ROOT) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
+env.TASKV_SHA = '''{% if env.SHA is defined %}{{ env.SHA }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''

@@ -14,7 +14,6 @@ env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''(test -s '{{ vars.ENV_DIR }}/management.kubeconfig' && kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").managementUID' > /dev/null) || (test ! -e '{{ vars.ENV_DIR }}/management.kubeconfig' && yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || { printf '%s\n' "Existing management state is unavailable or has a different identity; restart the original Kind or use the manual OCI cleanup procedure" >&2; exit 1; }''',
   "mise run lifecycle:create-management:apply",
 ]

@@ -4,7 +4,6 @@
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_INVENTORY_DIR | quote }} || { printf '%s\n' "Missing required input: INVENTORY_DIR" >&2; exit 1; }''',
   "mkdir -p -m 700 '{{ env.TASKV_INVENTORY_DIR }}'",
   '''{% for item in read_yaml(path=vars.ROOT_DIR ~ "/deploy/oci/inventory.yaml") %}
@@ -38,7 +37,6 @@ run = [
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "{{ vars.OCI }} lb load-balancer list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ vars.ENV_DIR }}/load-balancers.json",
   '''yq -r '.data[] | select(."lifecycle-state" != "DELETED") | .id' {{ vars.ENV_DIR }}/load-balancers.json | sort > {{ vars.ENV_DIR }}/load-balancers.json.ids''',
@@ -53,7 +51,7 @@ run = [
 env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.compartmentId " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
 env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.namespace " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
 
-["cloud:empty-bucket:apply"]
+["cloud:empty-bucket"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 skip_if = "(yq -e '[.data[] | select(.name == strenv(BUCKET_NAME))] | length == 0' {{ vars.ENV_DIR }}/buckets.json)"
@@ -81,21 +79,10 @@ env.TASKV_BUCKET = '''{% if env.BUCKET is defined %}{{ env.BUCKET }}{% else %}{{
 env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.namespace " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
 env.BUCKET_NAME = "{{ env.TASKV_BUCKET }}"
 
-["cloud:empty-bucket"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
-  "mise run cloud:empty-bucket:apply",
-]
-env.TASKV_BUCKET = '''{% if env.BUCKET is defined %}{{ env.BUCKET }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .spec.storage.bucket " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
-env.BUCKET_NAME = "{{ env.TASKV_BUCKET }}"
-
 ["cloud:purge-objects"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_BUCKET | quote }} || { printf '%s\n' "Missing required input: BUCKET" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: NAMESPACE" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
@@ -109,7 +96,6 @@ env.TASKV_NAMESPACE = '''{{ env.NAMESPACE | default(value="") }}'''
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "{{ vars.OCI }} psql backup-collection list-backups --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --all > {{ vars.ENV_DIR }}/backups.json",
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:purge-backups",
@@ -120,7 +106,6 @@ env.TASKV_COMPARTMENT = '''{% if env.COMPARTMENT is defined %}{{ env.COMPARTMENT
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   '''yq -n '{"backups": [load("{{ vars.ENV_DIR }}/backups.json").data.items[] | select(."lifecycle-state" != "DELETED") | select(."db-system-id" as $id | load_str("{{ vars.ENV_DIR }}/database-ids.txt") | split("\n") | contains([$id]))]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
   { task = "retirement:run:remote" },
@@ -131,7 +116,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} INVENTORY_DIR={{ ((vars.ENV_DIR) ~ "/inventory-current") | quote }} mise run cloud:inventory''',
   '''yq eval-all '[.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | .[] | select(."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and ."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID)) | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED")]' {{ vars.ENV_DIR }}/inventory-current/*.json > '{{ vars.ENV_DIR }}/owned-current.yaml'''',
@@ -175,7 +159,6 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''yq -e '[.[] | select(.id | test("^ocid1[.]cluster[.]"))] | length <= 1' {{ vars.ENV_DIR }}/owned-current.yaml || { printf '%s\n' "Expected at most one owned OKE cluster" >&2; exit 1; }''',
   '''test -z '{{ env.TASKV_CLUSTER_ID }}' || yq -e '.clusterID == null or .clusterID == "{{ env.TASKV_CLUSTER_ID }}"' '{{ vars.ENV_DIR }}/identity.yaml' || { printf '%s\n' "OKE identity changed; retain management state and investigate" >&2; exit 1; }''',
   '''test -z '{{ env.TASKV_CLUSTER_ID }}' || yq -e 'map(.id) | contains(["{{ env.TASKV_CLUSTER_ID }}"])' '{{ vars.ENV_DIR }}/owned-current.yaml' > /dev/null || { printf '%s\n' "OKE cluster is not in the owned resource inventory" >&2; exit 1; }''',
@@ -187,7 +170,6 @@ env.TASKV_CLUSTER_ID = '''{% if env.CLUSTER_ID is defined %}{{ env.CLUSTER_ID }}
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
   "{{ vars.OCI }} os bucket get --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --name {{ (env.TASKV_BUCKET) | quote }} > {{ vars.ENV_DIR }}/fixture-bucket.json",
   '''yq -e '.data."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID)' {{ vars.ENV_DIR }}/fixture-bucket.json''',
@@ -201,7 +183,6 @@ env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% 
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "{{ vars.OCI }} vault secret list --compartment-id {{ (env.TASKV_COMPARTMENT) | quote }} --vault-id {{ (env.TASKV_VAULT) | quote }} --all > {{ vars.ENV_DIR }}/vault-secrets.json",
   '''yq -p=json -o=json '[.data[] | select(."secret-name" | test("^" + load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID + "-"))]' '{{ vars.ENV_DIR }}/vault-secrets.json' > '{{ vars.ENV_DIR }}/environment-secrets.json'''',
@@ -213,7 +194,6 @@ env.TASKV_VAULT = '''{% if env.VAULT is defined %}{{ env.VAULT }}{% else %}{{ ex
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   '''yq -n '{"deletionTime": "{{ env.TASKV_DELETION_TIME }}", "secretDeletions": [load("{{ vars.ENV_DIR }}/environment-secrets.json")[] | select(."lifecycle-state" == "ACTIVE")]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
   { task = "retirement:run" },
@@ -227,7 +207,6 @@ env.TASKV_DELETION_TIME = '''{% if env.DELETION_TIME is defined %}{{ env.DELETIO
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
   "{{ vars.OCI }} kms management vault get --vault-id {{ (env.TASKV_VAULT) | quote }} > {{ vars.ENV_DIR }}/retained-vault.json",
   "{{ vars.OCI }} kms management key get --endpoint {{ (env.TASKV_ENDPOINT) | quote }} --key-id {{ (env.TASKV_KEY) | quote }} > {{ vars.ENV_DIR }}/retained-key.json",

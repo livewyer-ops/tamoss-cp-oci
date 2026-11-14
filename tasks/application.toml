@@ -16,7 +16,6 @@ env.TASKV_URL = '''{% if env.URL is defined %}{{ env.URL }}{% else %}{{ exec(com
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} RESOURCE_NAMESPACE={{ ("tams") | quote }} CRD={{ ("ingestruns.tamoss.livewyer.io") | quote }} RESOURCE={{ ("ingestrun/qualification") | quote }} mise run application:remove-resource''',
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} RESOURCE_NAMESPACE={{ ("tams") | quote }} CRD={{ ("storagebackends.tamoss.livewyer.io") | quote }} RESOURCE={{ ("storagebackend/tams-storage-default") | quote }} mise run application:remove-resource''',
   '''ENV_DIR={{ ((vars.ENV_DIR)) | quote }} RESOURCE_NAMESPACE={{ ("tams") | quote }} CRD={{ ("tamosses.tamoss.livewyer.io") | quote }} RESOURCE={{ ("tamoss/tamoss") | quote }} mise run application:remove-resource''',
@@ -39,7 +38,6 @@ env.TASKV_RESOURCE_NAMESPACE = '''{{ env.RESOURCE_NAMESPACE | default(value="") 
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
-  '''test -n {{ vars.ENV_DIR | quote }} || { printf '%s\n' "Missing required input: ENV_DIR" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_RESOURCE_NAMESPACE | quote }} || { printf '%s\n' "Missing required input: RESOURCE_NAMESPACE" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_CRD | quote }} || { printf '%s\n' "Missing required input: CRD" >&2; exit 1; }''',
   '''test -n {{ env.TASKV_RESOURCE | quote }} || { printf '%s\n' "Missing required input: RESOURCE" >&2; exit 1; }''',

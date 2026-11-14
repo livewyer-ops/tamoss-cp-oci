@@ -99,6 +99,6 @@ run = [
 hide = true
 run = [
   "mkdir -p '{{ env.DIRECTORY }}'",
-  '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"normalise": {"run": (."cloud:empty-bucket:apply".run | map(select(test("^yq ") and contains("/versions.json"))))}}}' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
+  '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"normalise": {"run": (."cloud:empty-bucket".run | map(select(test("^yq ") and contains("/versions.json"))))}}}' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
   "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
 ]
