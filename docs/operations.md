@@ -312,6 +312,32 @@ ready while OCI updates it. Watch the change with:
 kubectl --kubeconfig .local/environment/remote.kubeconfig -n tamoss-infra get psqldbsystems
 ```
 
+### Keep settings in an environment repository
+
+To change settings by pushing to Git instead of running `apply`, create an empty
+private GitHub repository and run:
+
+```bash
+mise run handover --repository OWNER/NAME
+```
+
+`handover` commits the two ConfigMaps OKE holds now to `settings.yaml` on the
+`main` branch, with a `kustomization.yaml` beside it. It adds a read-only deploy
+key to the repository, gives the key to OKE and creates the `tamoss-environment`
+GitRepository and Kustomization in `tamoss-infra`. It returns once Flux in OKE
+has applied the commit. The settings do not change.
+
+From then on, edit `settings.yaml` and push to `main`; Flux in OKE applies each
+commit within about a minute. `apply` refuses, and `values.yaml` no longer
+affects the deployment. The fields that belong to the resources `up` created,
+such as the deployment ID, region and compartment, must not be changed in the
+repository. Deleting `settings.yaml` from the repository does not delete the
+ConfigMaps from OKE. There is no way back to `apply` for the same deployment.
+
+`handover` needs the GitHub CLI signed in with permission to push to the
+repository and add deploy keys. `down` removes the deploy key and leaves the
+repository and its history to you.
+
 ### Interrupted host preparation
 
 The host records the selected release and prepares the Kind seed. Once

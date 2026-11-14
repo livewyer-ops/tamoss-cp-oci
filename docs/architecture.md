@@ -7,6 +7,8 @@ providers and External Secrets. Crossplane in Kind owns the Vault, IAM, networki
 OKE until teardown. Crossplane in OKE owns the PostgreSQL system and the media bucket.
 Flux in Kind installs one root release on OKE and the host applies the deployment
 settings there; Flux in OKE installs the platform and applications from them.
+After the optional `handover`, Flux in OKE reads those settings from a private
+environment repository instead.
 `up` then stops Kind, which stays stopped until `down`. Kind holds the only
 management state for the resources it created, so `down` requires the original
 cluster; a lost cluster means

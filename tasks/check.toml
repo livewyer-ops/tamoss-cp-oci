@@ -289,6 +289,16 @@ run = [
   '''yq 'select(.kind == "Tamoss")' {{ env.TASKV_CACHE }}/gitops-instance.yaml > {{ env.TASKV_CACHE }}/gitops-tamoss.yaml''',
   '''yq -e '[.spec.version == load("deploy/tamoss/release.yaml").tag, .spec.backends.db.external.host == "fixture.postgresql.oci.oraclecloud.com", .spec.ingest.sources[0].s3.pathStyle == true] | all' {{ env.TASKV_CACHE }}/gitops-tamoss.yaml''',
   "chainsaw test --no-cluster --test-dir tests/gitops --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ env.TASKV_CACHE }}/gitops-export-test' --report-format JUNIT-TEST --report-path .local/reports --report-name gitops",
+  "helm lint charts/environment-source --set deploymentId=fixture,url=ssh://git@github.com/fixture/environment.git",
+  "helm template environment-source charts/environment-source -n tamoss-infra --set deploymentId=fixture,url=ssh://git@github.com/fixture/environment.git > '{{ env.TASKV_CACHE }}/environment-source.yaml'",
+  '''yq eval-all -e '[select(.kind == "GitRepository" or .kind == "Kustomization")] | [length == 2, ([.[] | select(.metadata.namespace == "tamoss-infra" and .metadata.labels."tamoss.livewyer.io/deployment-id" == "fixture")] | length == 2), ([.[] | select(.kind == "GitRepository" and .spec.secretRef.name == "environment-git" and .spec.ref.branch == "main" and .spec.url == "ssh://git@github.com/fixture/environment.git")] | length == 1), ([.[] | select(.kind == "Kustomization" and .spec.prune == false and .spec.sourceRef.name == "tamoss-environment" and .spec.targetNamespace == "tamoss-infra")] | length == 1)] | all' '{{ env.TASKV_CACHE }}/environment-source.yaml' > /dev/null''',
+  "! helm template environment-source charts/environment-source -n tamoss-infra --set url=ssh://git@github.com/fixture/environment.git > /dev/null 2>&1",
+  # apply must refuse once settings come from an environment repository, and the handover task must render.
+  '''rm -rf '{{ env.TASKV_CACHE }}/environment-handover' && install -d -m 700 '{{ env.TASKV_CACHE }}/environment-handover' && yq -n '{"deploymentUID": "fixture", "deploymentReady": true, "environment": {"name": "fixture"}}' > '{{ env.TASKV_CACHE }}/environment-handover/identity.yaml' ''',
+  "ENV_DIR='{{ env.TASKV_CACHE }}/environment-handover' mise run environment:local",
+  '''echo '{"repository": "fixture/environment"}' > '{{ env.TASKV_CACHE }}/environment-handover/environment-source.json' ''',
+  "! ENV_DIR='{{ env.TASKV_CACHE }}/environment-handover' mise run environment:local > /dev/null 2>&1",
+  "ENV_DIR='{{ env.TASKV_CACHE }}/environment-handover' REPOSITORY=fixture/environment mise run --dry-run environment:handover > /dev/null",
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
 env.TASKV_CHART = "{% if env.CHART is defined %}{{ env.CHART }}{% else %}{{ vars.ROOT_DIR }}/charts/gitops{% endif %}"

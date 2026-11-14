@@ -73,6 +73,8 @@ backups. See [teardown and retention](docs/operations.md#destroy-the-environment
 | --- | --- |
 | `mise run setup` | Prepare private deployment settings and discover OCI values. |
 | `mise run up` | Create a fresh deployment and wait for public HTTPS. |
+| `mise run apply` | Apply changed deployment settings to OKE and wait for readiness. |
+| `mise run handover --repository OWNER/NAME` | Move the deployment settings to a private GitHub repository that Flux in OKE follows. |
 | `mise run down` | Remove the application and OCI resources, then retire credentials. |
 
 `ENV_DIR` selects another private deployment directory; the default is

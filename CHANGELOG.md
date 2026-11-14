@@ -25,6 +25,10 @@
   `<deployment>-retirement`, and no longer use the provisioner key in Kind.
   `down` deletes the backups before Kind removes the cluster. Existing deployments
   must be removed with the version that created them.
+- Add `mise run handover`, which moves the deployment settings to a private
+  GitHub repository that Flux in OKE follows, after which settings change by
+  pushing to it. `apply` then refuses, and `down` removes the repository's
+  deploy key.
 - Add `mise run apply`, which applies changed settings to OKE without Kind and
   waits for readiness. It refuses changes to the resources `up` created.
 

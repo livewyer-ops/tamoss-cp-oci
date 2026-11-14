@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_PROFILE | default(value=env.OCI_CLI_PROFILE | defa
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/retirement.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tasks/storage.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/contracts/install/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/retirement.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/environment.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tasks/storage.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/contracts/install/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -102,6 +102,17 @@ run = [
   "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run settings:update",
 ]
 
+[tasks."handover"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Move the deployment settings to a private GitHub repository that Flux in OKE follows"
+usage = '''
+flag "--repository <owner/name>" required=#true help="Existing, empty, private GitHub repository"
+'''
+run = [
+  "mise run verify:tools",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} REPOSITORY=\"${usage_repository}\" mise run environment:handover",
+]
 
 [tasks."qualify"]
 hide = false
