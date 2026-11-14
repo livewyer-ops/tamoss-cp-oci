@@ -430,11 +430,13 @@ Preserve the policy, managed resource and finalisers throughout recovery. This i
 an operator recovery procedure for the [reported upstream defect](https://github.com/crossplane/upjet/issues/632),
 not an automatic build step or proof that unattended installation is reliable.
 
-### Manual cleanup after management state loss
+### Manual cleanup after losing the Kind cluster
 
-Management-state restoration is outside this environment's supported lifecycle.
-If Kind state is lost, stop normal deployment operations. Use retained identity
-and inventory records with the native OCI CLI or Console:
+Kind is required for managed teardown of everything except the services Flux and
+Crossplane manage inside OKE. If the Kind cluster or its state is lost, `down`
+cannot run and the cluster cannot be rebuilt or replaced. Stop normal deployment
+operations and remove the deployment by hand. Use retained identity and
+inventory records with the native OCI CLI or Console:
 
 1. Confirm tenancy, region and compartment against `identity.yaml`. Discover
    resources by recorded deployment/composite UID tags and IDs; compare with the

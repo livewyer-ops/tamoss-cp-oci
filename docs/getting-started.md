@@ -5,7 +5,8 @@
 Run commands from the repository root. The default deployment directory is
 `.local/environment`. Keep that directory, this checkout and the Kind cluster
 created by `up` until teardown has finished. `up` leaves the Kind cluster
-stopped; do not delete it.
+stopped; do not delete it. `down` needs it to remove the resources Kind created,
+and a lost cluster cannot be rebuilt.
 
 ## 1. Prepare the workstation
 
