@@ -68,7 +68,7 @@ spec:
               yq -e '(.data | tag == "!!seq") and ([.data[] | select(."lifecycle-state" != "DELETED")] | length == 0)' /work/lbs > /dev/null
 {{- if and $drain .bucketId }}
               yq -e '.data.id == strenv(BUCKET_ID) and .data.name == strenv(BUCKET) and .data.namespace == strenv(NAMESPACE) and .data."compartment-id" == strenv(COMPARTMENT) and .data."freeform-tags"."tamoss-deployment-id" == strenv(DEPLOYMENT) and .data."freeform-tags"."tamoss-composite-uid" == strenv(OWNER_UID)' /work/bucket > /dev/null
-              yq -e '(.data | tag == "!!seq") and ([.data[] | (.object | length > 0) and (."upload-id" | length > 0)] | all)' /work/uploads > /dev/null
+              yq -e '(.data | tag == "!!seq") and ([.data[] | [(.object | length > 0), (."upload-id" | length > 0)] | all] | all)' /work/uploads > /dev/null
               yq -o=json -I=0 '.data[] | {"objectName": .object, "uploadId": ."upload-id"}' /work/uploads > /work/targets
 {{- else }}
               yq -e '(.data | tag == "!!seq") and ([.data[] | select(.name == strenv(BUCKET))] | length == 0)' /work/buckets > /dev/null

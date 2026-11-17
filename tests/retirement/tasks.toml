@@ -26,6 +26,19 @@ yq 'select(.kind == "Composition")' "$RETIREMENT_DIR/services-api.yaml" > "$RETI
   '''yq ea -e '[.] | [([.[] | select(.kind == "Bucket" or .kind == "PsqlDbSystem")] | length == 0), ([.[] | select(.kind == "HelmRelease") | .spec.values.serviceRetirement.step] | join(",") == "verify")] | all' "$RETIREMENT_DIR/verify" > /dev/null''',
   '''yq 'select(.kind == "HelmRelease") | .spec.values' "$RETIREMENT_DIR/verify" > "$RETIREMENT_DIR/verify-values"''',
   '''helm template retirement charts/retirement -n tamoss-infra -f "$RETIREMENT_DIR/verify-values" > "$RETIREMENT_DIR/verify-jobs"''',
+  '''export DEPLOYMENT=fixture USER_ID=storage OCI_CLI_USER=provisioner ATTEMPT=attempt KEY_ID=''
+yq -n '{"data":{"resources":[{"ocid":"storage","external-id":"fixture"}]}}' > "$RETIREMENT_DIR/users"
+yq -e --from-file charts/retirement/files/storage-user.yq "$RETIREMENT_DIR/users" > /dev/null
+if USER_ID=other yq -e --from-file charts/retirement/files/storage-user.yq "$RETIREMENT_DIR/users" >/dev/null 2>&1; then exit 1; fi
+yq -i '.data.resources = []' "$RETIREMENT_DIR/users"
+USER_ID= yq -e --from-file charts/retirement/files/storage-user.yq "$RETIREMENT_DIR/users" > /dev/null
+yq -n '{"data":[{"id":"key","display-name":"tamoss-fixture-attempt"}]}' > "$RETIREMENT_DIR/keys"
+yq -e --from-file charts/retirement/files/storage-key.yq "$RETIREMENT_DIR/keys" > /dev/null
+yq -i '.data += [{"id":"unrelated","display-name":"other"}]' "$RETIREMENT_DIR/keys"
+if yq -e --from-file charts/retirement/files/storage-key.yq "$RETIREMENT_DIR/keys" >/dev/null 2>&1; then exit 1; fi
+yq -i '.data = []' "$RETIREMENT_DIR/keys"
+if yq -e --from-file charts/retirement/files/storage-key.yq "$RETIREMENT_DIR/keys" >/dev/null 2>&1; then exit 1; fi
+KEY_ID=key yq -e --from-file charts/retirement/files/storage-key.yq "$RETIREMENT_DIR/keys" > /dev/null''',
   # Exercise the same inventory filters that run under the OKE workload identity.
   '''mkdir -p "$RETIREMENT_DIR/cloud"
 yq -r 'select(.kind == "Job") | .spec.template.spec.initContainers[] | select(.name == "select-owned") | .args[0]' "$RETIREMENT_DIR/verify-jobs" > "$RETIREMENT_DIR/cloud/select"

@@ -101,10 +101,10 @@ spec:
               yq -o=json -I=0 '.data[] | select(."secret-name" | test("^" + strenv(DEPLOYMENT) + "-")) | select(."lifecycle-state" == "ACTIVE") | {"secretId": .id}' /work/secrets > /work/targets
 {{- end }}
 {{- if .endpoint }}
-              yq -e '(.data.resources | tag == "!!seq") and (.data.resources | length == {{ ternary 1 0 (not (empty .userId)) }}) and ([.data.resources[] | .ocid == strenv(USER_ID) and ."external-id" == strenv(DEPLOYMENT) and .ocid != strenv(OCI_CLI_USER)] | all)' /work/users > /dev/null
+              yq -e {{ $.Files.Get "files/storage-user.yq" | trim | replace "\n" " " | squote }} /work/users > /dev/null
 {{- end }}
 {{- if $claim }}
-              yq -e '(.data | tag == "!!seq") and (.data | length <= 1) and (strenv(KEY_ID) != "" or (.data | length == 1)) and ([.data[] | ."display-name" == "tamoss-" + strenv(DEPLOYMENT) + "-" + strenv(ATTEMPT) and (.id | length > 0) and (strenv(KEY_ID) == "" or .id == strenv(KEY_ID))] | all)' /work/keys > /dev/null
+              yq -e {{ $.Files.Get "files/storage-key.yq" | trim | replace "\n" " " | squote }} /work/keys > /dev/null
               yq -o=json -I=0 '.data[] | {"customerSecretKeyId": .id}' /work/keys > /work/owned-key
               yq -o=json '(.data[0].id // strenv(KEY_ID)) as $id | [{"op":"test","path":"/metadata/uid","value":strenv(RECEIPT_UID)},{"op":"test","path":"/metadata/resourceVersion","value":strenv(RECEIPT_VERSION)},{"op":"add","path":"/data/keyId","value":$id}]' /work/keys > /work/bind.json
 {{- else if .userId }}
