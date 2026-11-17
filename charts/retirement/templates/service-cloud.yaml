@@ -121,8 +121,10 @@ spec:
             - |
               :
 {{- if and $drain .bucketId }}
-              yq -e '((.data | tag == "!!seq") or (.data == null and (.prefixes | tag == "!!seq"))) and (.data | length == 0)' /work/objects > /dev/null
-              yq -e '((.data | tag == "!!seq") or (.data == null and (.prefixes | tag == "!!seq"))) and (.data | length == 0)' /work/versions > /dev/null
+              # OCI can return just an empty prefixes array when data is absent.
+              for page in /work/objects /work/versions; do
+                yq -e {{ $.Files.Get "files/empty-object-page.yq" | trim | replace "\n" " " | squote }} "$page" > /dev/null
+              done
               yq -e '(.data | tag == "!!seq") and (.data | length == 0)' /work/remaining > /dev/null
 {{- else if not $drain }}
               yq -e '(.data.items | tag == "!!seq") and ([.data.items[] | select(."db-system-id" == strenv(DATABASE_ID) and ."lifecycle-state" != "DELETED")] | length == 0)' /work/remaining > /dev/null

@@ -14,6 +14,16 @@ yq 'select(.kind == "Composition")' "$RETIREMENT_DIR/services-api.yaml" > "$RETI
   '''yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/blocked" > /dev/null''',
   '''yq 'select(.kind == "HelmRelease") | .spec.values' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/drain-values"''',
   '''helm template retirement charts/retirement -n tamoss-infra -f "$RETIREMENT_DIR/drain-values" > "$RETIREMENT_DIR/drain-jobs"''',
+  '''mkdir -p "$RETIREMENT_DIR/drain-check"
+yq -r 'select(.metadata.name == "retire-services-drain") | .spec.template.spec.containers[0].args[0]' "$RETIREMENT_DIR/drain-jobs" > "$RETIREMENT_DIR/drain-check/confirm"
+printf '%s\n' '{"data":[]}' > "$RETIREMENT_DIR/drain-check/remaining"
+printf '%s\n' '{"prefixes":[]}' > "$RETIREMENT_DIR/drain-check/objects"
+cp "$RETIREMENT_DIR/drain-check/objects" "$RETIREMENT_DIR/drain-check/versions"
+docker run --rm --network none --read-only --user "$(id -u):$(id -g)" -v "$RETIREMENT_DIR/drain-check:/work:ro" --entrypoint /bin/sh "$(yq -r .connectionImages.yq pins.yaml)" -ec '. /work/confirm'
+for invalid in '{}' '{"data":[{"name":"remains"}]}' '{"data":[],"prefixes":["more/"]}'; do
+  printf '%s\n' "$invalid" > "$RETIREMENT_DIR/drain-check/objects"
+  if docker run --rm --network none --read-only --user "$(id -u):$(id -g)" -v "$RETIREMENT_DIR/drain-check:/work:ro" --entrypoint /bin/sh "$(yq -r .connectionImages.yq pins.yaml)" -ec '. /work/confirm'; then exit 1; fi
+done''',
   '''yq 'select(.kind == "TamossServices")' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/root"''',
   '''yq 'select(.kind != "TamossServices") | with(select(.kind == "HelmRelease"); .metadata.generation = 7 | .status.observedGeneration = 6 | .status.conditions = [{"type":"Ready","status":"True"}])' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/result"''',
   '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/result" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/stale"''',

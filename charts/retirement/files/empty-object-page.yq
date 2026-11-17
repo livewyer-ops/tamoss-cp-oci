@@ -1,0 +1,2 @@
+[.data, .prefixes] | map(select(. != null)) |
+[(length > 0), (map([(tag == "!!seq"), (length == 0)] | all) | all)] | all
