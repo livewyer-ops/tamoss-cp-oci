@@ -94,6 +94,13 @@ spec:
           metadata:
             name: source-controller
             namespace: flux-system
+  - name: require a current retirement acknowledgement from a reachable remote API
+    try:
+    - command:
+        entrypoint: mise
+        timeout: 6m
+        env: *id001
+        args: [run, "test:retirement:remote"]
   - name: reject a changed cluster identity
     try:
     - command:

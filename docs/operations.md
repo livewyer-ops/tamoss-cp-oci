@@ -255,33 +255,32 @@ Use the retained installer and private environment records:
 ENV_DIR=.local/environment mise run down
 ```
 
-`down` verifies the original Kind identity, suspends reconciliation in Kind and
-in OKE and releases the bootstrap's authority to recreate children. It removes
-applications and their releases in OKE while the OKE API is available. Remote
-access is revoked after workload cleanup.
+After verifying the original Kind cluster, `down` submits a retirement request
+for the deployment ID. Flux carries it to OKE, including after a settings
+handover. Once Kind accepts the request, the terminal can disconnect. Run
+`down` again with the same directory to collect the results and remove Kind.
 
-TAMOSS finalises while its operator remains available. Teardown removes platform
-releases and the load balancer. Jobs in OKE then empty the owned bucket (including
-versions and multipart uploads) with workload identity. Teardown deletes the
-`TamossServices` composite in OKE and waits for Crossplane there to remove the
-database and bucket, and Jobs in OKE delete the database backups. Kind then
-deletes the remaining infrastructure. If the cluster is already gone, these Jobs
-cannot run and the closing inventory reports any bucket or backup left. Kind and
-provider credentials remain until direct OCI inventory confirms that the dedicated
-compartment contains no workload resources.
+OKE withdraws the TAMOSS and TADOSS declarations and Traefik. The operators
+finalise the workloads. A Job checks that the load balancer has gone and that
+the database and bucket match their recorded IDs and ownership tags. It aborts
+multipart uploads and empties the bucket, including object versions. Crossplane
+then removes the database and bucket. A second Job checks OCI for their absence,
+deletes backups belonging to that database and verifies the result.
+
+Kind waits for `TamossServices.status.retirement.phase` to reach `Retired` for
+the requested deployment and current generation. It records the acknowledgement
+before revoking OKE access. An unreachable OKE API leaves Kind waiting.
 
 | Deleted | Retained |
 | --- | --- |
 | Workloads, OKE/workers, load balancer, PostgreSQL/backups, media bucket, reserved IP, networking and runtime IAM grants, then Kind | Precreated compartment, retained Vault/key and owner record, source Git repository, any environment repository and local records |
 
-After the cloud audit, teardown revokes the deployment's S3 key, verifies its
-absence, deletes the generated storage policy, membership, group and user through Crossplane,
-and verifies their absence through OCI. Unrelated keys block user deletion.
-It schedules environment secrets for deletion.
-A bounded Kubernetes Job waits for OCI to report `PENDING_DELETION` or `DELETED`;
-a timeout retains Kind and the Job for diagnosis. `retained-foundation.yaml`
-records the owner, Vault/key and scheduled deletion times. The compartment still
-contains that foundation.
+Kind verifies the S3 operation receipt and the storage user's keys. An uncertain
+creation attempt or an unrelated key blocks deletion. Kind schedules the
+deployment's Vault secrets for deletion and waits for OCI to confirm their state.
+Crossplane removes the storage identity, runtime policies and base infrastructure.
+The host independently checks OCI and writes `retained-foundation.yaml` with
+the Vault, key and scheduled secret deletions.
 
 After the audit succeeds, the account administrator can retire run-owned keys and
 temporary IAM prerequisites using [account retirement](../deploy/oci/README.md#retirement).
@@ -294,15 +293,16 @@ before Kind is removed.
 
 ### Interrupted teardown
 
-Resolve the failure and repeat `mise run down` with the same directory. Preserve
-`identity.yaml`, `tamoss-release.yaml`, `qualification.sha256`, `resources.yaml`,
-`owned-cloud.yaml`, `storage-inventory.yaml`, the final inventory and credentials until cleanup completes.
-Do not edit records to bypass mismatches or remove finalisers to simulate deletion.
+Inspect the `status.retirement` field on `TamossBootstrap` in Kind and
+`TamossServices` in OKE. Flux reports failed retirement hooks on the associated
+HelmRelease. Preserve the original environment directory and repeat `mise run
+down` after resolving the failure. The host records the successful audit and
+deploy-key revocation before deleting Kind.
 
-Before any cloud providers or deployment composites were installed, `down` can
-audit OCI without a foundation record. If provider
-CRDs or deployment identities exist, it requires the original foundation record;
-it does not infer that a partially started environment is empty.
+If installation stopped before handing access to OKE, the management release
+records that fact and can retire the resources Kind created. Kind can recover
+the retained foundation record from its owned resources. Earlier product
+revisions use the teardown procedure in their original checkout.
 
 ## Retained management state
 

@@ -114,6 +114,7 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render",
   "mise run test:s3:render",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render-native",
+  "mise run test:retirement:render",
   "mise run test:bootstrap:credential-completion",
   "mise run test:bootstrap:seed-inputs",
   "mise run test:s3:composition",

@@ -6,6 +6,9 @@
     "name"
   ],
   "properties": {
+    "accessIssued": {"type": "boolean"},
+    "retirementBeforeAccess": {"type": "boolean"},
+    "retirementId": {"type": "string", "pattern": "^(|[a-f0-9]{32})$"},
     "source": {
       "type": "object",
       "additionalProperties": false,

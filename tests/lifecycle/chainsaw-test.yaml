@@ -29,52 +29,6 @@ spec:
             entrypoint: env
             env: *paths
             args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:repeat-bootstrap"]
-    - name: require a successful empty inventory before skipping absent OKE cleanup
-      try:
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/remote.kubeconfig, $CHECK_DIRECTORY/remote.saved.kubeconfig]
-        - command: &absentApplication
-            entrypoint: env
-            env: *paths
-            args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=bootstrap:remove-application", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/owned-current.yaml, $CHECK_DIRECTORY/owned-current.saved.yaml]
-        - command:
-            <<: *absentApplication
-            check: {($error != null): true}
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=bootstrap:remove-operator", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-            check: {($error != null): true}
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["KUBECONFIG=$CHECK_DIRECTORY/remote.kubeconfig", "NAMESPACE=auth", "NAME=fixture", "STATUS_TASK=bootstrap:remove-release", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-            check: {($error != null): true}
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["ENV_DIR=$CHECK_DIRECTORY", "RESOURCE_NAMESPACE=tams", "CRD=tamosses.tamoss.livewyer.io", "RESOURCE=tamoss/tamoss", "STATUS_TASK=application:remove-resource", "STATUS_FILE=tasks/application.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-            check: {($error != null): true}
-        - command:
-            entrypoint: env
-            env: *paths
-            args: ["ENV_DIR=$CHECK_DIRECTORY", "STATUS_TASK=tadoss:remove-instance", "STATUS_FILE=deploy/tadoss/tasks.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-            check: {($error != null): true}
-      finally:
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/owned-current.saved.yaml, $CHECK_DIRECTORY/owned-current.yaml]
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/remote.saved.kubeconfig, $CHECK_DIRECTORY/remote.kubeconfig]
     - name: reject stale local configuration after write authority is relinquished
       try:
         - apply:
@@ -231,51 +185,11 @@ spec:
               kind: IngestRun
               metadata: {name: qualification, namespace: tams}
         - command: *remove
-    - name: runtime access cleanup distinguishes remaining policies from failed discovery
+    - name: refuse to finalise Kind without a deployment-bound audit checkpoint
       try:
-        - apply:
-            resource:
-              apiVersion: identity.oci.m.upbound.io/v1alpha1
-              kind: Policy
-              metadata:
-                name: runtime-access-fixture
-                namespace: tamoss-infra
-                labels: {tamoss.livewyer.io/iam-role: runtime}
-                annotations: {crossplane.io/paused: "true"}
-              spec:
-                providerConfigRef: {kind: ProviderConfig, name: oci}
-                forProvider:
-                  compartmentId: ocid1.compartment.oc1..fixture
-                  name: runtime-access-fixture
-                  description: Fixture
-                  statements: ["Allow any-user to read secret-bundles in compartment id ocid1.compartment.oc1..fixture"]
         - command:
             entrypoint: env
             env: *paths
-            args: &runtimeStatusArgs ["ENV_DIR=$CHECK_DIRECTORY", "ROOT_DIR=$PROJECT_ROOT", "STATUS_TASK=bootstrap:remove-access", "STATUS_FILE=tasks/bootstrap.toml", "mise", "-C", "$PROJECT_ROOT", "run", "test:status"]
-            check:
-              ($error != null): true
-        - command: &removeRuntimeFixture
-            entrypoint: kubectl
-            env: *paths
-            args: [--kubeconfig, $MANAGEMENT_KUBECONFIG, delete, policy.identity.oci.m.upbound.io/runtime-access-fixture, -n, tamoss-infra, --ignore-not-found, --timeout=60s]
-        - command: &runtimeStatus
-            entrypoint: env
-            env: *paths
-            args: *runtimeStatusArgs
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [$CHECK_DIRECTORY/management.kubeconfig, $CHECK_DIRECTORY/management.saved.kubeconfig]
-        - command:
-            <<: *runtimeStatus
-            check:
-              ($error != null): true
-      finally:
-        - command:
-            entrypoint: mv
-            env: *paths
-            args: [-f, $CHECK_DIRECTORY/management.saved.kubeconfig, $CHECK_DIRECTORY/management.kubeconfig]
-            check:
-              ($error == null || contains($stderr, 'No such file')): true
-        - command: *removeRuntimeFixture
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "bootstrap:down:finish"]
+            check: {($error != null): true}
+        - command: *management

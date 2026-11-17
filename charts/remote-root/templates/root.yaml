@@ -37,6 +37,15 @@ spec:
   path: ./deploy/gitops/platform-defaults
   sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
 ---
+{{- if .Values.retirementId }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: tamoss-retirement-values, namespace: {{ .Release.Namespace }}}
+data:
+  values.yaml: |
+{{ required "Kind must supply its retained deployment values for retirement" .Values.retirementValues | toYaml | indent 4 }}
+---
+{{- end }}
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -62,9 +71,18 @@ spec:
       sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-platform-defaults, valuesKey: values.yaml}
+{{- if .Values.retirementId }}
+    - {kind: ConfigMap, name: tamoss-retirement-values, valuesKey: values.yaml}
+{{- else }}
     - {kind: ConfigMap, name: tamoss-gitops-values, valuesKey: values.yaml}
     - {kind: ConfigMap, name: tamoss-assets, valuesKey: values.yaml}
+{{- end }}
   values:
+    deploymentId: {{ .Values.deploymentId | quote }}
+    {{- with .Values.connectionImages }}
+    connectionImages: {{ . | toJson }}
+    {{- end }}
+    retirementId: {{ .Values.retirementId | quote }}
     vaultId: {{ .Values.facts.vaultId | quote }}
     services:
       ownerUid: {{ .Values.facts.environmentUid | quote }}

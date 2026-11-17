@@ -1,0 +1,73 @@
+{{- with .Values.serviceRetirement }}
+{{- $s := . }}
+{{- $root := $ }}
+{{- $drain := eq .step "drain" }}
+{{- $account := printf "services-retirement-%s" .step }}
+{{- if $drain }}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: {{ $account }}, namespace: {{ $.Release.Namespace }}}
+{{/* Helm looks up the exact objects on every attempt. An absent CRD is normal for an optional workload. */}}
+{{- range $index, $item := list
+    (list "tadoss.livewyer.io" "Tadoss" "tadosses" "tadoss" "tads")
+    (list "tamoss.livewyer.io" "IngestRun" "ingestruns" "qualification" "tams")
+    (list "tamoss.livewyer.io" "StorageBackend" "storagebackends" "tams-storage-default" "tams")
+    (list "tamoss.livewyer.io" "Tamoss" "tamosses" "tamoss" "tams") }}
+{{- $group := index $item 0 }}{{- $kind := index $item 1 }}{{- $resource := index $item 2 }}{{- $name := index $item 3 }}{{- $ns := index $item 4 }}
+{{- $target := printf "%s.%s" $resource $group }}
+{{- $role := printf "retire-%s" $resource }}
+{{- if and (lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" $target) (lookup (printf "%s/v1alpha1" $group) $kind $ns $name) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: {{ $role }}, namespace: {{ $ns }}}
+rules:
+  - apiGroups: [{{ $group }}]
+    resources: [{{ $resource }}]
+    resourceNames: [{{ $name }}]
+    verbs: [get, patch, delete, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: {{ $role }}, namespace: {{ $ns }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $role }}}
+subjects: [{kind: ServiceAccount, name: {{ $account }}, namespace: {{ $.Release.Namespace }}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $role }}
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: {{ $index | quote }}
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: 980
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: {{ $account }}
+      restartPolicy: Never
+      securityContext:
+        {{- include "operation-common.podSecurity" $ | nindent 8 }}
+      initContainers:
+        - name: confirm
+          image: {{ $.Values.images.kubectl | quote }}
+          command: [kubectl]
+          args: [patch, {{ $target }}/{{ $name }}, -n, {{ $ns }}, --type=merge, -p, {{ ternary "{\"spec\":{\"deletionProtection\":false}}" "{\"metadata\":{\"annotations\":{\"confirmation.tamoss.livewyer.io/deletion\":\"true\"}}}" (eq $kind "Tadoss") | quote }}]
+          securityContext: &security
+            {{- include "operation-common.containerSecurity" $ | nindent 12 }}
+          resources: &resources
+            {{- include "operation-common.resources" $ | nindent 12 }}
+      containers:
+        - name: delete
+          image: {{ $.Values.images.kubectl | quote }}
+          command: [kubectl]
+          args: [delete, {{ $target }}/{{ $name }}, -n, {{ $ns }}, --ignore-not-found, --wait=true, --timeout=900s]
+          securityContext: *security
+          resources: *resources
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

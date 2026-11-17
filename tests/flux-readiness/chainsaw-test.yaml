@@ -340,22 +340,16 @@ spec:
             file: ../../.local/tmp/check/flux-readiness-readiness.yaml
             template: false
         - assert: *aggregateReady
-    - name: resume a frozen release for finalisation and allow repeated removal
+    - name: withdrawing the HelmRelease uninstalls its resources
       try:
-        - patch:
-            resource:
+        - delete:
+            ref:
               apiVersion: helm.toolkit.fluxcd.io/v2
               kind: HelmRelease
-              metadata: {name: authentik-bootstrap, namespace: flux-check}
-              spec: {suspend: true}
-        - command: &removeRelease
-            entrypoint: env
-            env:
-              - {name: PROJECT_ROOT, value: ($values.root)}
-            args: ["NAMESPACE=flux-check", "NAME=authentik-bootstrap", "mise", "-C", "$PROJECT_ROOT", "run", "bootstrap:remove-release"]
+              name: authentik-bootstrap
+              namespace: flux-check
         - error:
             resource:
               apiVersion: v1
               kind: Secret
               metadata: {name: authentik, namespace: flux-check}
-        - command: *removeRelease

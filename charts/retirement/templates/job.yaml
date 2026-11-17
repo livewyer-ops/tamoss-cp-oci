@@ -25,7 +25,8 @@ spec:
             - >-
               oci --auth api_key --connection-timeout 10 --read-timeout 30 --max-retries 0
               vault secret list --compartment-id "$COMPARTMENT_ID" --vault-id "$VAULT_ID" --all
-              > /work/secrets.json
+              > /work/secrets.json &&
+              { test -s /work/secrets.json || echo '{"data":[]}' > /work/secrets.json; }
           env:
             - {name: COMPARTMENT_ID, value: {{ required "compartment is required" .Values.oracle.compartment | quote }}}
             - {name: VAULT_ID, value: {{ required "vault is required" .Values.oracle.vault | quote }}}
@@ -35,6 +36,9 @@ spec:
             - name: OCI_CLI_FINGERPRINT
               valueFrom:
                 secretKeyRef: {name: oci-vault-bootstrap, key: fingerprint}
+            - name: OCI_CLI_PASSPHRASE
+              valueFrom:
+                secretKeyRef: {name: oci-vault-bootstrap, key: passphrase}
             - name: OCI_CLI_KEY_CONTENT
               valueFrom:
                 secretKeyRef: {name: oci-vault-bootstrap, key: privatekey}
@@ -51,7 +55,7 @@ spec:
           args:
             - --exit-status
             - >-
-              [((.data // []) | tag == "!!seq"),
+              [(.data | tag == "!!seq"),
               ([(.data // [])[] | select(."secret-name" | test("^" + strenv(DEPLOYMENT_ID) + "-")) |
               (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all)] | all
             - /work/secrets.json

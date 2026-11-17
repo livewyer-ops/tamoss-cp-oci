@@ -3,6 +3,7 @@
 {{- $n := $xr.metadata.name -}}
 {{- $ns := $xr.metadata.namespace -}}
 {{- $observed := .observed.resources | default dict -}}
+__RETIREMENT__
 {{- $tags := dict "tamoss-environment" $n "tamoss-deployment-id" $p.deploymentId "tamoss-composite-uid" $p.ownerUid "tamoss-owner" $p.owner -}}
 {{- $storage := dict "isRegionallyDurable" $p.database.regionalStorage "systemType" "OCI_OPTIMIZED_STORAGE" -}}
 {{- if not $p.database.regionalStorage -}}
@@ -19,6 +20,7 @@
     "managementPolicy" (list (dict "backupPolicy" (list (dict "kind" "DAILY" "backupStart" "02:00" "retentionDays" $p.database.backupRetentionDays))))))
   "bucket" (dict "apiVersion" "objectstorage.oci.m.upbound.io/v1alpha1" "kind" "Bucket" "parameters" (dict "name" $p.storage.bucket "namespace" $p.storage.namespace "accessType" "NoPublicAccess" "versioning" "Disabled" "storageTier" "Standard")) -}}
 {{- range $key, $resource := $resources }}
+{{- if or (not $retiring) (and (eq $phase "Draining") (hasKey $observed $key)) }}
 ---
 apiVersion: {{ $resource.apiVersion }}
 kind: {{ $resource.kind }}
@@ -37,6 +39,9 @@ metadata:
   labels:
     tamoss.livewyer.io/environment: {{ $n }}
 spec:
+{{- if $retiring }}
+{{ mergeOverwrite (deepCopy (get $observed $key).resource.spec) (dict "managementPolicies" (list "Observe" "Delete")) | toYaml | indent 2 }}
+{{- else }}
 {{- if eq $key "database" }}
   managementPolicies: [Observe, Create, Update, Delete]
   initProvider:
@@ -52,9 +57,9 @@ spec:
 {{ toYaml $tags | indent 6 }}
 {{ toYaml $resource.parameters | indent 4 }}
 {{- end }}
-
+{{- end }}
+{{- end }}
 {{- $record := (get $observed "record" | default dict).resource | default dict -}}
-{{- $databaseId := dig "database" "resource" "status" "atProvider" "id" "" $observed -}}
 {{- $databaseReady := false -}}
 {{- range (dig "database" "resource" "status" "conditions" (list) $observed) -}}
 {{- if and (eq .type "Ready") (eq .status "True") -}}{{- $databaseReady = true -}}{{- end -}}
@@ -80,9 +85,27 @@ data:
 apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 status:
+{{- if $retiring }}
+  retirement:
+    deploymentId: {{ $p.deploymentId | quote }}
+    observedGeneration: {{ $xr.metadata.generation | default 1 }}
+    phase: {{ $next }}
+    databaseId: {{ $databaseId | quote }}
+    bucketId: {{ $bucketId | quote }}
+{{- end }}
   outputs:
     databaseId: {{ $databaseId | quote }}
     bucket: {{ $p.storage.bucket | quote }}
+    bucketId: {{ $bucketId | quote }}
     objectEndpoint: {{ $objectEndpoint | quote }}
 {{- $dbNetworks := dig "database" "resource" "status" "atProvider" "networkDetails" (list) $observed }}
     databaseIp: {{ if $dbNetworks }}{{ (index $dbNetworks 0).primaryDbEndpointPrivateIp | default "" | quote }}{{ else }}""{{ end }}
+{{- if $retiring }}
+---
+apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+kind: ClaimConditions
+conditions:
+  - type: Retired
+    status: {{ eq $next "Retired" | toString | title | quote }}
+    reason: {{ $next }}
+{{- end }}

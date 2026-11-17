@@ -4,7 +4,7 @@
   (dict "name" "external-secrets" "repository" "external-secrets" "chart" "external-secrets" "version" .Values.dependencies.externalSecrets.version "values" .Values.externalSecrets "needs" list)
   (dict "name" "oci-family" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "crossplane"))
   (dict "name" "oci-services" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true "foundation" true)) "needs" (list "oci-family"))
-  (dict "name" "tamoss-bootstrap-api" "chart" "bootstrap" "values" dict "needs" (list "crossplane")) -}}
+  (dict "name" "tamoss-bootstrap-api" "chart" "bootstrap" "values" (dict "connectionImages" .Values.connectionImages) "needs" (list "crossplane")) -}}
 {{- range $releases }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2

@@ -37,7 +37,29 @@ spec:
                   message: Storage credential ownership cannot change
                 - rule: '!has(self.storageCredentials) || has(self.vaultAuth)'
                   message: Automatic storage identity requires the Kind provisioner
+                - rule: "!has(self.retirementId) || self.retirementId == '' || self.retirementId == self.deploymentId"
+                  message: Retirement must target this deployment
+                - rule: "!has(oldSelf.retirementId) || oldSelf.retirementId == '' || has(self.retirementId)"
+                  message: An accepted retirement request cannot be removed
+                - rule: "!has(self.retirementBeforeAccess) || !self.retirementBeforeAccess || (has(self.retirementId) && self.retirementId != '')"
+                  message: Access evidence applies only to an accepted request
+                - rule: "!has(oldSelf.retirementId) || oldSelf.retirementId == '' || self.retirementBeforeAccess == oldSelf.retirementBeforeAccess"
+                  message: A pending remote check cannot be bypassed
               properties:
+                retirementBeforeAccess:
+                  type: boolean
+                  default: false
+                  x-kubernetes-validations:
+                    - rule: '!oldSelf || self'
+                      message: The recorded access decision cannot change
+                retirementId:
+                  type: string
+                  default: ''
+                  maxLength: 32
+                  pattern: '^(|[a-f0-9]{32})$'
+                  x-kubernetes-validations:
+                    - rule: oldSelf == '' || self == oldSelf
+                      message: An accepted retirement request is permanent
                 storageCredentials:
                   type: object
                   required: [domainId, idcsEndpoint, email, images]
@@ -97,6 +119,15 @@ spec:
             status:
               type: object
               properties:
+                retirement:
+                  type: object
+                  properties:
+                    deploymentId: {type: string}
+                    observedGeneration: {type: integer, format: int64}
+                    foundationAbsent: {type: boolean}
+                    observerUid: {type: string}
+                    revision: {type: string}
+                    phase: {type: string}
                 observedGeneration: {type: integer, format: int64}
                 foundationReady: {type: boolean}
                 credentialsReady: {type: boolean}

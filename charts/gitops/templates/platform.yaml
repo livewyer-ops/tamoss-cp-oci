@@ -19,6 +19,7 @@
   (dict "name" "authentik" "namespace" "auth" "chart" "authentik" "source" "authentik" "version" $bom.authentik.chartVersion "values" $platform.authentikChart "connection" true "needs" (list (dict "name" "tamoss-database-init" "namespace" "tamoss-infra")))
   (dict "name" "tamoss-platform-config" "namespace" "tamoss-platform" "chart" "tamoss-platform-config" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart "tls" $platform.tls "clusterIssuer" $platform.clusterIssuer) "needs" (list (dict "name" "cert-manager" "namespace" "tamoss-infra") (dict "name" "authentik" "namespace" "tamoss-infra"))) -}}
 {{ range $releases }}
+{{ if and $.Values.retirementId (eq .name "traefik") }}{{ continue }}{{ end }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

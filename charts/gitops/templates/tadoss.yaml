@@ -56,7 +56,7 @@ spec:
   timeout: 10m
   prune: false
   deletionPolicy: Orphan
-  dependsOn: [{name: platform}, {name: oke-prerequisites}]
+  dependsOn: {{ if .Values.retirementId }}[{name: oke-prerequisites}]{{ else }}[{name: platform}, {name: oke-prerequisites}]{{ end }}
   path: ./
   sourceRef: {kind: OCIRepository, name: tadoss-operator-source}
   healthChecks:
@@ -85,6 +85,7 @@ spec:
                     - labelSelector:
                         matchLabels: {app.kubernetes.io/name: tadoss-operator}
                       topologyKey: kubernetes.io/hostname
+{{- if not .Values.retirementId }}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -115,4 +116,5 @@ spec:
         has(status.readyReplicas) && status.readyReplicas == spec.api.replicaCount &&
         has(status.workerReadyReplicas) && status.workerReadyReplicas == spec.worker.replicaCount &&
         has(status.conditions) && status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+{{- end }}
 {{- end }}

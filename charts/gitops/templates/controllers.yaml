@@ -25,11 +25,15 @@ spec:
   "deploymentId" .Values.deploymentId "ownerUid" $s.ownerUid "region" .Values.region "compartmentId" $s.compartmentId "providerConfigName" "oci-workload" "owner" $s.owner
   "database" (mergeOverwrite (deepCopy $s.database) (dict "administrator" .Values.databaseAdministrator "credentialsSecret" "database-admin" "subnetId" $s.databaseSubnetId))
   "storage" (dict "namespace" $s.storageNamespace "bucket" .Values.runtime.bucket)) }}
+{{- if .Values.retirementId }}
+{{- if ne .Values.retirementId .Values.deploymentId }}{{ fail "Retirement request belongs to a different deployment" }}{{ end }}
+{{- $_ := set $instance.spec "retirementId" .Values.retirementId }}
+{{- end }}
 {{- $releases := list
   (dict "name" "oke-crossplane" "release" "crossplane" "repository" "oke-crossplane" "chart" "crossplane" "version" .Values.dependencies.crossplane.version "values" (dict "image" (dict "repository" .Values.dependencies.crossplane.imageRepository)) "needs" list)
   (dict "name" "oke-oci-family" "release" "oci-family" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "family" true)) "needs" (list "oke-crossplane"))
   (dict "name" "oke-oci-services" "release" "oci-services" "chart" "packages" "values" (mergeOverwrite (deepCopy $packages) (dict "services" true)) "needs" (list "oke-oci-family"))
-  (dict "name" "tamoss-services-api" "release" "tamoss-services-api" "chart" "services" "values" dict "needs" (list "oke-crossplane"))
+  (dict "name" "tamoss-services-api" "release" "tamoss-services-api" "chart" "services" "values" (dict "connectionImages" .Values.connectionImages) "needs" (list "oke-crossplane"))
   (dict "name" "tamoss-services" "release" "tamoss-services" "namespace" "tamoss-infra" "chart" "services-instance" "values" (dict "services" $instance) "needs" (list "oke-oci-services" "tamoss-services-api" "tamoss-secrets-tamoss-infra")) }}
 {{- range $releases }}
 ---
@@ -79,3 +83,9 @@ spec:
   deletionPolicy: Orphan
   sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
   path: ./deploy/bootstrap/remote
+{{- if .Values.retirementId }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: services-retirement, namespace: tamoss-infra}
+{{- end }}

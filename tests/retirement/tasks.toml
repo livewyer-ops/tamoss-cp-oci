@@ -1,0 +1,82 @@
+["test:retirement:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ env.RETIREMENT_DIR }}'",
+  '''helm template services charts/services -f pins.yaml > "$RETIREMENT_DIR/services-api.yaml"
+yq 'select(.kind == "Composition")' "$RETIREMENT_DIR/services-api.yaml" > "$RETIREMENT_DIR/composition"''',
+  '''yq '.spec.retirementId = .spec.deploymentId | .metadata.generation = 4' environments/example/services.yaml > "$RETIREMENT_DIR/root"''',
+  '''yq 'with(select(.kind == "Bucket"); .status.atProvider.bucketId = "ocid1.bucket.oc1.fixture")' "$CACHE/services-ready-observed.yaml" > "$RETIREMENT_DIR/observed"''',
+  '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/observed" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/drain"''',
+  '''yq ea -e '[.] | [([.[] | select(.kind == "Bucket" or .kind == "PsqlDbSystem") | .spec.managementPolicies | join("+")] | join(",") == "Observe+Delete,Observe+Delete"), ([.[] | select(.kind == "HelmRelease") | .spec.values.serviceRetirement.step] | join(",") == "drain")] | all' "$RETIREMENT_DIR/drain" > /dev/null''',
+  '''yq -n '{"apiVersion":"kustomize.toolkit.fluxcd.io/v1","kind":"Kustomization","metadata":{"name":"tamoss","namespace":"tamoss-infra"}}' > "$RETIREMENT_DIR/writer"''',
+  '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/writer" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/blocked"''',
+  '''yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/blocked" > /dev/null''',
+  '''yq 'select(.kind == "HelmRelease") | .spec.values' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/drain-values"''',
+  '''helm template retirement charts/retirement -n tamoss-infra -f "$RETIREMENT_DIR/drain-values" > "$RETIREMENT_DIR/drain-jobs"''',
+  '''yq 'select(.kind == "TamossServices")' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/root"''',
+  '''yq 'select(.kind != "TamossServices") | with(select(.kind == "HelmRelease"); .metadata.generation = 7 | .status.observedGeneration = 6 | .status.conditions = [{"type":"Ready","status":"True"}])' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/result"''',
+  '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/result" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/stale"''',
+  '''yq -e 'select(.kind == "TamossServices") | .status.retirement.phase == "Draining"' "$RETIREMENT_DIR/stale" > /dev/null''',
+  '''yq -i 'with(select(.kind == "HelmRelease"); .status.observedGeneration = 7)' "$RETIREMENT_DIR/result"''',
+  '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/result" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/ack"''',
+  '''yq -e 'select(.kind == "TamossServices") | .status.retirement.phase == "Deleting"' "$RETIREMENT_DIR/ack" > /dev/null''',
+  '''yq 'select(.kind == "TamossServices")' "$RETIREMENT_DIR/ack" > "$RETIREMENT_DIR/deleting"''',
+  '''crossplane composition render "$RETIREMENT_DIR/deleting" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/verify"''',
+  '''yq ea -e '[.] | [([.[] | select(.kind == "Bucket" or .kind == "PsqlDbSystem")] | length == 0), ([.[] | select(.kind == "HelmRelease") | .spec.values.serviceRetirement.step] | join(",") == "verify")] | all' "$RETIREMENT_DIR/verify" > /dev/null''',
+  '''yq 'select(.kind == "HelmRelease") | .spec.values' "$RETIREMENT_DIR/verify" > "$RETIREMENT_DIR/verify-values"''',
+  '''helm template retirement charts/retirement -n tamoss-infra -f "$RETIREMENT_DIR/verify-values" > "$RETIREMENT_DIR/verify-jobs"''',
+  # Exercise the same inventory filters that run under the OKE workload identity.
+  '''mkdir -p "$RETIREMENT_DIR/cloud"
+yq -r 'select(.kind == "Job") | .spec.template.spec.initContainers[] | select(.name == "select-owned") | .args[0]' "$RETIREMENT_DIR/verify-jobs" > "$RETIREMENT_DIR/cloud/select"
+yq -r 'select(.kind == "Job") | .spec.template.spec.containers[0].args[0]' "$RETIREMENT_DIR/verify-jobs" > "$RETIREMENT_DIR/cloud/confirm"
+yq -n -o=json '{"data":[]}' > "$RETIREMENT_DIR/cloud/lbs"
+cp "$RETIREMENT_DIR/cloud/lbs" "$RETIREMENT_DIR/cloud/buckets"
+yq -n -o=json '{"data":{"items":[]}}' > "$RETIREMENT_DIR/cloud/databases"
+yq -n -o=json '{"data":{"items":[{"db-system-id":"owned","id":"a","lifecycle-state":"ACTIVE"},{"db-system-id":"other","id":"b","lifecycle-state":"ACTIVE"}]}}' > "$RETIREMENT_DIR/cloud/backups"
+docker run --rm --network none --read-only --user "$(id -u):$(id -g)" -v "$RETIREMENT_DIR/cloud:/work" -e DATABASE_ID=owned -e BUCKET=media --entrypoint /bin/sh "$(yq -r .connectionImages.yq pins.yaml)" -ec '. /work/select'
+yq -e '.backupId == "a"' "$RETIREMENT_DIR/cloud/targets" > /dev/null
+test "$(wc -l < "$RETIREMENT_DIR/cloud/targets")" -eq 1
+cp "$RETIREMENT_DIR/cloud/backups" "$RETIREMENT_DIR/cloud/remaining"
+if docker run --rm --network none --read-only -v "$RETIREMENT_DIR/cloud:/work:ro" --user "$(id -u):$(id -g)" -e DATABASE_ID=owned --entrypoint /bin/sh "$(yq -r .connectionImages.yq pins.yaml)" -ec '. /work/confirm'; then exit 1; fi
+yq -i 'del(.data.items[] | select(.id == "a"))' "$RETIREMENT_DIR/cloud/remaining"
+docker run --rm --network none --read-only -v "$RETIREMENT_DIR/cloud:/work:ro" --user "$(id -u):$(id -g)" -e DATABASE_ID=owned --entrypoint /bin/sh "$(yq -r .connectionImages.yq pins.yaml)" -ec '. /work/confirm'''',
+  '''helm template bootstrap charts/bootstrap -f pins.yaml | yq 'select(.kind == "Composition" and .metadata.name == "tamoss-bootstrap")' > "$RETIREMENT_DIR/bootstrap-composition"''',
+  '''yq '.spec.retirementId = .spec.deploymentId' "$CACHE/bootstrap/native-root.yaml" > "$RETIREMENT_DIR/bootstrap"''',
+  '''yq 'with(select(.kind == "TamossEnvironment"); .metadata.uid = "00000000-0000-4000-8000-000000000000")' "$CACHE/bootstrap/native-observed.yaml" > "$RETIREMENT_DIR/base"''',
+  '''crossplane composition render "$RETIREMENT_DIR/bootstrap" "$RETIREMENT_DIR/bootstrap-composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/base" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/waiting"''',
+  '''yq -e 'select(.kind == "Kustomization") | .spec.kubeConfig.secretRef.name == "oke-bootstrap-access" and (.spec.healthCheckExprs[0].current | contains("status.retirement.observedGeneration == metadata.generation"))' "$RETIREMENT_DIR/waiting" > /dev/null''',
+  '''yq -e 'select(.kind == "TamossBootstrap") | .status.retirement.phase == "WaitingForServices"' "$RETIREMENT_DIR/waiting" > /dev/null''',
+  '''yq 'select(.kind != "TamossBootstrap") | with(select(.kind == "Kustomization"); .metadata.generation = 2 | .metadata.uid = "observer" | .status = {"conditions":[{"type":"Ready","status":"True"}],"observedGeneration":2,"lastAppliedRevision":"fixture"})' "$RETIREMENT_DIR/waiting" > "$RETIREMENT_DIR/remote-observed"''',
+  '''crossplane composition render "$RETIREMENT_DIR/bootstrap" "$RETIREMENT_DIR/bootstrap-composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/remote-observed" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/remote-ack"''',
+  '''yq -e 'select(.kind == "TamossBootstrap") | .status.retirement.phase == "RemoteRetired" and .status.retirement.observerUid == "observer"' "$RETIREMENT_DIR/remote-ack" > /dev/null''',
+  '''yq '.spec.retirementBeforeAccess = true | .spec.retirementId = .spec.deploymentId' "$CACHE/bootstrap/native-root.yaml" > "$RETIREMENT_DIR/early"''',
+  '''crossplane composition render "$RETIREMENT_DIR/early" "$RETIREMENT_DIR/bootstrap-composition" "$CACHE/functions.yaml" --include-full-xr --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/early-result"''',
+  '''yq ea -e '[.] | [([.[] | select(.kind == "SecretFoundation" or .kind == "TamossEnvironment" or .kind == "Kustomization")] | length == 0), ([.[] | select(.kind == "TamossBootstrap") | .status.retirement.phase] | join("") == "AccessNeverIssued")] | all' "$RETIREMENT_DIR/early-result" > /dev/null''',
+
+]
+env.CACHE = "{{ vars.ROOT_DIR }}/.local/tmp/check"
+env.RETIREMENT_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/convergent-retirement"
+
+["test:retirement:remote"]
+hide = true
+run = [
+  '''yq 'select(.kind == "CompositeResourceDefinition" and .spec.names.kind == "TamossServices") | .apiVersion = "apiextensions.k8s.io/v1" | .kind = "CustomResourceDefinition" | .spec |= pick(["group","scope","names","versions"]) | .spec.versions[] |= (del(.referenceable) | .storage = true | .subresources = {"status":{}} | .schema.openAPIV3Schema.properties.status.properties.conditions = {"type":"array","items":{"type":"object","x-kubernetes-preserve-unknown-fields":true}})' "$SERVICE_API" | kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" apply --server-side -f -''',
+  '''kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" wait --for=condition=Established crd/tamossservices.tamoss.livewyer.io --timeout=60s''',
+  '''kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" create namespace tamoss-infra --dry-run=client -o yaml | kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" apply --server-side -f -''',
+  '''yq 'del(.metadata.generation, .status, .spec.crossplane) | .metadata.name = "bootstrap-check" | .spec.ownerUid = "00000000-0000-4000-8000-000000000000"' "$RENDER/root" | kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" apply --server-side -f -''',
+  '''kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" -n tamoss-infra patch tamossservices/bootstrap-check --subresource=status --type=merge -p '{"status":{"retirement":{"deploymentId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","phase":"Retired","observedGeneration":0},"conditions":[{"type":"Retired","status":"True"}]}}' ''',
+  '''yq 'select(.kind == "Kustomization") | del(.metadata.ownerReferences, .metadata.labels, .metadata.annotations, .status) | .spec.interval = "5s" | .spec.retryInterval = "5s" | .spec.timeout = "5s"' "$RENDER/waiting" | kubectl apply --server-side -f -''',
+  '''kubectl -n tamoss-infra wait kustomization/service-retirement --for=condition=Ready=False --timeout=60s''',
+  '''GENERATION="$(kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" -n tamoss-infra get tamossservices/bootstrap-check -o jsonpath='{.metadata.generation}')"
+kubectl --kubeconfig "$DIRECTORY/target.kubeconfig" -n tamoss-infra patch tamossservices/bootstrap-check --subresource=status --type=merge -p "{\"status\":{\"retirement\":{\"observedGeneration\":$GENERATION}}}"''',
+  '''kubectl -n tamoss-infra wait kustomization/service-retirement --for=condition=Ready --timeout=120s''',
+  '''umask 077
+yq '.clusters[0].cluster.server = "https://127.0.0.1:1" | .users = []' "$DIRECTORY/target.kubeconfig" > "$DIRECTORY/unreachable.kubeconfig"
+kubectl -n tamoss-infra create secret generic retirement-unreachable --from-file=value.yaml="$DIRECTORY/unreachable.kubeconfig"
+kubectl -n tamoss-infra patch kustomization/service-retirement --type=merge -p '{"spec":{"kubeConfig":{"secretRef":{"name":"retirement-unreachable"}}}}' ''',
+  '''kubectl -n tamoss-infra wait kustomization/service-retirement --for=condition=Ready=False --timeout=120s''',
+  '''kubectl -n tamoss-infra delete kustomization/service-retirement secret/retirement-unreachable''',
+]
+env.RENDER = "{{ vars.ROOT_DIR }}/.local/tmp/check/convergent-retirement"
+env.SERVICE_API = "{{ vars.ROOT_DIR }}/.local/tmp/check/convergent-retirement/services-api.yaml"

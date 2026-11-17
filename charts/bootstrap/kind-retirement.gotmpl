@@ -1,0 +1,56 @@
+{{- $noFoundation := and ($p.retirementBeforeAccess | default false) (empty $foundation) (empty $secretRelease) (not $credentialsEstablished) -}}
+{{- if and $retiring (has $phase (list "AccessNeverIssued" "RemoteRetired")) (or $foundationReady $noFoundation) $storageRetired (empty $storageJobs) (empty $storagePods) }}
+{{- $local := dig "retire-credentials" "resource" (dict) (.observed.resources | default dict) }}
+{{- range (dig "status" "conditions" (list) $local) }}
+{{- if and (eq .type "Ready") (eq .status "True") (eq (dig "metadata" "generation" -1 $local) (dig "status" "observedGeneration" -2 $local)) (eq (dig "spec" "values" "deploymentId" "" $local) $p.deploymentId) }}
+{{- $next = "RemovingInfrastructure" }}
+{{- end }}
+{{- end }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: retire-credentials
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "retire-credentials" }}
+spec:
+  interval: 1m
+  timeout: 10m
+  install: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  upgrade: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  chart:
+    spec:
+      chart: ./charts/retirement
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  values:
+    deploymentId: {{ $p.deploymentId | quote }}
+    images: __RETIREMENT_IMAGES__
+    verifySecrets: {{ not $noFoundation }}
+    oracle:
+      region: {{ $p.foundation.region | quote }}
+      vault: {{ (dig "status" "vaultId" "" $foundation) | quote }}
+      compartment: {{ $p.foundation.compartmentId | quote }}
+      auth: {{ $p.vaultAuth | toJson }}
+    kindRetirement:
+      bootstrapUid: {{ $xr.metadata.uid | quote }}
+{{- if eq $phase "RemoteRetired" }}
+{{- if not (dig "status" "outputs" "clusterId" "" $environment) }}{{ fail "OKE cluster ID is missing" }}{{ end }}
+      clusterId: {{ $environment.status.outputs.clusterId | quote }}
+{{- end }}
+      established: {{ $credentialsEstablished }}
+{{- with $p.storageCredentials }}
+      endpoint: {{ .idcsEndpoint | quote }}
+      domain: {{ .domainId | quote }}
+      userId: {{ $storageUserId | quote }}
+{{- end }}
+{{- end }}
+{{- if and $removeBase (eq $phase "RemovingInfrastructure") }}
+{{- $extra := .extraResources | default dict }}
+{{- $absent := true }}
+{{- range $group := list "base" "runtimePolicies" "storageUsers" "storagePolicies" "storageGroups" "storageMemberships" }}
+{{- $absent = and $absent (hasKey $extra $group) (empty (dig $group "items" (list) $extra)) }}
+{{- end }}
+{{- if $absent }}{{- $next = "Retired" }}{{- end }}
+{{- end }}

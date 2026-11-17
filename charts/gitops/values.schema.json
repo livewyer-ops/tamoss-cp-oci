@@ -4,6 +4,7 @@
   "additionalProperties": true,
   "required": ["deploymentId", "region", "vaultId", "services", "databaseAdministrator", "databaseRefreshRevision", "release", "runtime", "dependencies", "packages", "externalSecrets", "connectionImages"],
   "properties": {
+    "retirementId": {"type": "string", "pattern": "^(|[a-f0-9]{32})$"},
     "deploymentId": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
     "region": {"type": "string", "pattern": "^[a-z]+-[a-z]+-[0-9]+$"},
     "vaultId": {"type": "string", "pattern": "^ocid1\\.vault\\.[a-z0-9.-]+$"},

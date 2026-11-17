@@ -67,13 +67,11 @@ The host writes the settings for it to the `tamoss-gitops-values` and
 
 Both resources carry the Kind environment UID as their `tamoss-composite-uid` tag,
 so teardown and the cloud audit identify them by the same ownership tags as the
-resources Kind creates. Teardown first suspends runtime
-reconciliation, freezes the instance release and releases and pauses the bootstrap
-root so it cannot recreate children. It keeps access and operators available until
-application finalisers and remote Helm uninstalls finish. It deletes the
-`TamossServices` composite in OKE, and waits for the database and bucket to go,
-before Kind removes the network and the cluster. Cloud inventory verifies
-absence before credentials and Kind are removed.
+resources Kind creates. Kind carries a deployment-bound retirement request to OKE
+through the remote root release. Both composites stay live while they withdraw
+their children. A Flux health check reads the services acknowledgement from OKE.
+Kind persists the result before revoking remote access and removing the base.
+The host audits OCI, records the retained foundation and removes Kind.
 
 ## Operational Jobs
 

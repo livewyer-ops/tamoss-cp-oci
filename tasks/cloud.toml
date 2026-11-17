@@ -14,11 +14,14 @@ run = [
 {% endfor %}''',
   '''{% for item in read_yaml(path=vars.ROOT_DIR ~ "/deploy/oci/inventory.yaml") %}
 yq -i '. // {"data": []}' {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json
+yq -e '.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items)) | tag == "!!seq"' {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json > /dev/null
 {% endfor %}''',
   '''{% for item in read_yaml(path=vars.ROOT_DIR ~ "/deploy/oci/inventory.yaml") %}
 yq -r '(.data | (select(tag == "!!seq"), (select(tag == "!!map") | .items))) // [] | .[] | select(."lifecycle-state" != "DELETED" and ."lifecycle-state" != "TERMINATED") | .id // .name' {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json | sort > {{ env.TASKV_INVENTORY_DIR }}/{{ item.name }}.json.ids
 {% endfor %}''',
   '''{% for item in read_yaml(path=vars.ENV_DIR ~ "/environment.yaml") | get(key="spec") | get(key="oke") | get(key="placements") | map(attribute="availabilityDomain") | unique %}
+yq -i '. // {"data": []}' {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json
+yq -e '.data | tag == "!!seq"' {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json > /dev/null
 yq -r '(.data // [])[] | select(."lifecycle-state" != "TERMINATED") | .id' {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json | sort > {{ env.TASKV_INVENTORY_DIR }}/boot-volumes-{{ (item) | hash }}.json.ids
 {% endfor %}''',
   "touch '{{ env.TASKV_INVENTORY_DIR }}/.complete'",

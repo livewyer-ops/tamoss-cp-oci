@@ -20,3 +20,6 @@ rules:
   - apiGroups: [external-secrets.io]
     resources: [externalsecrets, pushsecrets]
     verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch, create, update, patch, delete]

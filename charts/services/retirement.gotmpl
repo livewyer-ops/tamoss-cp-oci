@@ -1,0 +1,84 @@
+{{- $retiring := ne ($p.retirementId | default "") "" -}}
+{{- $receipt := dig "status" "retirement" (dict) $xr -}}
+{{- $phase := $receipt.phase | default "Draining" -}}
+{{- $databaseId := dig "database" "resource" "status" "atProvider" "id" "" $observed | default $receipt.databaseId | default (dig "status" "outputs" "databaseId" "" $xr) | default (dig "record" "resource" "data" "DATABASE_ID" "" $observed) -}}
+{{- $bucketId := dig "bucket" "resource" "status" "atProvider" "bucketId" "" $observed | default $receipt.bucketId | default (dig "status" "outputs" "bucketId" "" $xr) -}}
+{{- $next := $phase -}}
+{{- if $retiring }}
+{{- if or (ne $p.retirementId $p.deploymentId) (and $receipt.deploymentId (ne $receipt.deploymentId $p.deploymentId)) }}
+{{- fail "Service retirement identity changed" }}
+{{- end }}
+{{- if or (and $receipt.bucketId (ne $receipt.bucketId $bucketId)) (and $receipt.databaseId (ne $receipt.databaseId $databaseId)) }}
+{{- fail "The database or bucket identity changed during retirement" }}
+{{- end }}
+{{- $extra := .extraResources | default dict }}
+---
+apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+kind: ExtraResources
+requirements:
+{{- range $name := list "tamoss" "tadoss" "traefik" }}
+  {{ $name }}:
+    apiVersion: {{ ternary "helm.toolkit.fluxcd.io/v2" "kustomize.toolkit.fluxcd.io/v1" (eq $name "traefik") }}
+    kind: {{ ternary "HelmRelease" "Kustomization" (eq $name "traefik") }}
+    namespace: {{ $ns }}
+    matchName: {{ $name }}
+{{- end }}
+{{- if eq $phase "Deleting" }}
+{{- range $key, $resource := dict "database" (list "psql.oci.m.upbound.io/v1alpha1" "PsqlDbSystem") "bucket" (list "objectstorage.oci.m.upbound.io/v1alpha1" "Bucket") }}
+  {{ $key }}:
+    apiVersion: {{ index $resource 0 }}
+    kind: {{ index $resource 1 }}
+    namespace: {{ $ns }}
+    matchName: {{ printf "%s-%s" $n $key }}
+{{- end }}
+{{- end }}
+{{- $withdrawn := true }}
+{{- $expectedAbsent := list "tamoss" "tadoss" "traefik" }}
+{{- if eq $phase "Deleting" }}{{- $expectedAbsent = concat $expectedAbsent (list "bucket" "database") }}{{- end }}
+{{- range $name := $expectedAbsent }}
+{{- $withdrawn = and $withdrawn (hasKey $extra $name) (empty (dig $name "items" (list) $extra)) }}
+{{- end }}
+{{/* An observed create without an external ID must settle before its owner is withdrawn. */}}
+{{- if and $withdrawn (or $databaseId (not (hasKey $observed "database"))) (or $bucketId (not (hasKey $observed "bucket"))) (ne $phase "Retired") }}
+{{- $step := ternary "drain" "verify" (eq $phase "Draining") }}
+{{- $key := printf "retirement-%s" $step }}
+{{- $hr := dig $key "resource" (dict) $observed }}
+{{- range (dig "status" "conditions" (list) $hr) }}
+{{- if and (eq .type "Ready") (eq .status "True") (eq (dig "metadata" "generation" -1 $hr) (dig "status" "observedGeneration" -2 $hr)) (eq (dig "spec" "values" "deploymentId" "" $hr) $p.deploymentId) }}
+{{- $next = ternary "Deleting" "Retired" (eq $step "drain") }}
+{{- end }}
+{{- end }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: services-{{ $key }}
+  namespace: {{ $ns }}
+  annotations:
+    {{ setResourceNameAnnotation $key }}
+spec:
+  interval: 1m
+  timeout: 30m
+  install: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  upgrade: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  chart:
+    spec:
+      chart: ./charts/retirement
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  values:
+    deploymentId: {{ $p.deploymentId | quote }}
+    verifySecrets: false
+    images: __RETIREMENT_IMAGES__
+    serviceRetirement:
+      step: {{ $step }}
+      ownerUid: {{ $p.ownerUid | quote }}
+      databaseName: {{ printf "%s-database" $n | quote }}
+      databaseId: {{ $databaseId | quote }}
+      bucketId: {{ $bucketId | quote }}
+      bucket: {{ $p.storage.bucket | quote }}
+      namespace: {{ $p.storage.namespace | quote }}
+      compartment: {{ $p.compartmentId | quote }}
+      region: {{ $p.region | quote }}
+{{- end }}
+{{- end }}
