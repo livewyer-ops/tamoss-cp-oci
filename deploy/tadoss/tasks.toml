@@ -1,4 +1,16 @@
 
+["tadoss:selection"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''export KUBECONFIG={{ (vars.ENV_DIR ~ "/remote.kubeconfig") | quote }}
+desired="$(kubectl -n tamoss-infra get configmap tamoss-gitops-values -o json | yq -er '.data."values.yaml" | from_yaml | .tadoss.enabled | select(tag == "!!bool") | to_string')"
+applied="$(helm get values tamoss-gitops -n tamoss-infra -o json | yq -p=json -er '.tadoss.enabled | select(tag == "!!bool") | to_string')"
+test "$desired" = "$applied" || { echo 'Flux has not applied the TADOSS selection yet' >&2; exit 1; }
+echo "$applied"''',
+]
+
 ["tadoss:baseline"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
@@ -135,7 +147,7 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 quiet = true
 run = [
-  '''yq -e '.tadoss.enabled == true' '{{ vars.ENV_DIR }}/settings.yaml' || { printf '%s\n' "Set tadoss.enabled before deploying this environment" >&2; exit 1; }''',
+  '''test "$(mise run --quiet tadoss:selection)" = true || { printf '%s\n' "Enable TADOSS and wait for Flux before qualification" >&2; exit 1; }''',
   '''test -f '{{ vars.ENV_DIR }}/tadoss-inventory-before/.complete' || { printf '%s\n' "Capture the infrastructure baseline before qualification" >&2; exit 1; }''',
   "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:ready",
   "yq -r .commit '{{ vars.ENV_DIR }}/source.json' > '{{ vars.ENV_DIR }}/reports/tadoss-git-revision'",

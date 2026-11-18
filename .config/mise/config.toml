@@ -121,9 +121,12 @@ run = [
   '''test -s '{{ vars.ENV_PATH }}/tamoss-release.yaml' || { printf '%s\n' "Selected environment has no TAMOSS release record" >&2; exit 1; }''',
   "mise run verify:tools",
   "mise run verify:privacy",
-  "if yq -e '.tadoss.enabled == true' '{{ vars.ENV_PATH }}/settings.yaml' >/dev/null; then ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run tadoss:baseline; fi",
-  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run bootstrap:qualify",
-  "if yq -e '.tadoss.enabled == true' '{{ vars.ENV_PATH }}/settings.yaml' >/dev/null; then ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run tadoss:qualify; fi",
+  "ENV_DIR={{ vars.ENV_PATH | quote }} mise run identity:remote",
+  '''enabled="$(mise run --quiet tadoss:selection)"
+if test "$enabled" = true; then mise run tadoss:baseline; fi
+mise run bootstrap:qualify
+test "$(mise run --quiet tadoss:selection)" = "$enabled" || { echo 'TADOSS selection changed during qualification' >&2; exit 1; }
+if test "$enabled" = true; then mise run tadoss:qualify; fi''',
 ]
 
 [tasks."down"]

@@ -10,13 +10,13 @@ namespace, its own `tadoss` database and role, and a separate OAuth application.
 TAMOSS stores media in Object Storage; TADOSS stores timed metadata and references
 the media source through a `tams://` identifier. TADOSS needs no object store.
 
-## Enable for a fresh demo
+## Enable TADOSS
 
 The [release lock](release.yaml) selects published upstream assets by checksum
 and digest. Flux in OKE pulls the operator's OCI artifact directly. It builds
 this repository's integration charts from the selected Git commit.
 
-Before `mise run up`, set the private deployment's `values.yaml`:
+After [Git handover](../../docs/operations.md#keep-settings-in-an-environment-repository), set the option in the environment repository. For enablement during initial installation, before `mise run up` set the private deployment's `values.yaml`:
 
 ```yaml
 tadoss:
@@ -56,7 +56,7 @@ leaves Authentik's server and worker pod configuration unchanged.
 The instance requires its current generation, selected release and both API and
 worker replica counts to be ready. The deployment aggregate also requires its
 public certificate to be Ready; working API requests are a separate check.
-Initial enablement and full environment teardown are the
+Initial enablement, enablement through Git after handover, and full environment teardown are the
 supported integration paths; standalone application uninstall and upgrades are unqualified.
 Removing the enablement setting is not a database deletion procedure.
 

@@ -18,6 +18,7 @@ run = [
   "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' apply --server-side -f '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas/flux.yaml'",
   "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/deployment-readiness --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name deployment-readiness",
   "KUBECONFIG={{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig ROOT={{ vars.ROOT_DIR }} mise run test:flux-bootstrap:install",
+  "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' mise run test:source:tadoss-handover",
   "KUBECONFIG='{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' chainsaw test --test-dir tests/operations/packaging --report-format JUNIT-TEST --report-path .local/reports --report-name operation-packaging",
   "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' wait compositeresourcedefinition/secretfoundations.tamoss.livewyer.io --for=condition=Established --timeout=120s",
   "kubectl --kubeconfig '{{ vars.ROOT_DIR }}/.local/tmp/check/{{ env.TASKV_CHECK_NAME }}.kubeconfig' apply --server-side -f '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas/kms.oci.m.upbound.io_vaults.yaml' -f '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas/kms.oci.m.upbound.io_keys.yaml'",

@@ -54,7 +54,7 @@ source:
 | --- | --- |
 | `name` | `media-demo`. Names have 3-23 lowercase letters, digits or hyphens, starting with a letter and ending with a letter or digit. Use an unused name for each deployment |
 | `owner`, `acmeEmail`, `adminEmail` | `contactEmail` |
-| `tadoss.enabled` | `false`. Set before deployment to include TADOSS |
+| `tadoss.enabled` | `false`. Enable before deployment or through Git after handover |
 | `storage.bucket` | `tamoss-<name>-media` |
 | `source.private` | `true`. Set `false` for a public repository to skip the deploy key |
 | `foundation.name` | `<name>-vault` |

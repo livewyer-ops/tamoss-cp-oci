@@ -184,6 +184,14 @@ such as the deployment ID, region and compartment, must not be changed in the
 repository. Deleting `settings.yaml` from the repository does not delete the
 ConfigMaps from OKE. There is no way back to `apply` for the same deployment.
 
+To add TADOSS after handover, edit the embedded `values.yaml` in the
+`tamoss-gitops-values` ConfigMap in `settings.yaml`. Change only
+`tadoss.enabled` from `false` to `true`, commit and push. Wait for
+`tamoss-environment` to apply that revision and for the `tadoss` Kustomization
+in OKE to become Ready. Kind stays stopped. Run `mise run qualify` from the
+deployed product revision to verify TAMOSS and its linked TADOSS events.
+Use full environment teardown to remove TADOSS.
+
 `handover` needs the GitHub CLI signed in with permission to push to the
 repository and add deploy keys. `down` removes the deploy key and leaves the
 repository and its history to you.
