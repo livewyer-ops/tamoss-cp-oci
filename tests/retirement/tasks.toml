@@ -3,6 +3,14 @@ hide = true
 dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p '{{ env.RETIREMENT_DIR }}'",
+  '''for mode in active retiring; do
+  request=''
+  if test "$mode" = retiring; then request="$(yq -r .deploymentId tests/gitops/values.yaml)"; fi
+  helm template gitops charts/gitops -f deploy/gitops/platform-defaults/upstream/defaults.yaml -f pins.yaml -f tests/gitops/values.yaml --set-string retirementId="$request" > "$RETIREMENT_DIR/gitops-$mode"
+  yq ea -N '[select([.spec.patches[]?.target.kind,.spec.postRenderers[]?.kustomize.patches[]?.target.kind] | contains(["PodDisruptionBudget"])) | .metadata.name] | sort | join(",")' "$RETIREMENT_DIR/gitops-$mode" > "$RETIREMENT_DIR/budget-owners-$mode"
+done
+test -z "$(cat "$RETIREMENT_DIR/budget-owners-active")"
+grep -Fxq 'authentik,calico,cert-manager,oke-prerequisites' "$RETIREMENT_DIR/budget-owners-retiring"''',
   '''helm template services charts/services -f pins.yaml > "$RETIREMENT_DIR/services-api.yaml"
 yq 'select(.kind == "Composition")' "$RETIREMENT_DIR/services-api.yaml" > "$RETIREMENT_DIR/composition"''',
   '''yq '.spec.retirementId = .spec.deploymentId | .metadata.generation = 4' environments/example/services.yaml > "$RETIREMENT_DIR/root"''',
@@ -12,6 +20,12 @@ yq 'select(.kind == "Composition")' "$RETIREMENT_DIR/services-api.yaml" > "$RETI
   '''yq -n '{"apiVersion":"kustomize.toolkit.fluxcd.io/v1","kind":"Kustomization","metadata":{"name":"tamoss","namespace":"tamoss-infra"}}' > "$RETIREMENT_DIR/writer"''',
   '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/writer" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/blocked"''',
   '''yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/blocked" > /dev/null''',
+  '''yq -n '{"apiVersion":"policy/v1","kind":"PodDisruptionBudget","metadata":{"name":"authentik-server","namespace":"auth","labels":{"helm.toolkit.fluxcd.io/name":"authentik","helm.toolkit.fluxcd.io/namespace":"tamoss-infra"}},"spec":{"minAvailable":1}}' > "$RETIREMENT_DIR/budget"
+crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/budget" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/budget-blocked"
+yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/budget-blocked" > /dev/null
+yq -i '.spec.minAvailable = 0' "$RETIREMENT_DIR/budget"
+crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/budget" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/budget-open"
+yq -e 'select(.kind == "HelmRelease") | .spec.values.serviceRetirement.step == "drain"' "$RETIREMENT_DIR/budget-open" > /dev/null''',
   '''yq 'select(.kind == "HelmRelease") | .spec.values' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/drain-values"''',
   '''helm template retirement charts/retirement -n tamoss-infra -f "$RETIREMENT_DIR/drain-values" > "$RETIREMENT_DIR/drain-jobs"''',
   '''mkdir -p "$RETIREMENT_DIR/drain-check"

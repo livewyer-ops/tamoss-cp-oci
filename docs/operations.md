@@ -121,10 +121,8 @@ Do not delete a Kind cluster that has begun provisioning cloud resources.
 
 Preserve `bootstrap.yaml`, kubeconfigs and the environment
 identity through verified teardown. Run one lifecycle command per environment at
-a time. Do not manually unpause a released root during operations or deletion.
-
-During teardown, the instance HelmRelease is frozen and the bootstrap root is
-released and paused before deleting its children. Keep it paused if cleanup fails.
+a time. Leave the instance HelmRelease and bootstrap root reconciling during
+teardown so the controllers can retry failed operations.
 
 Native OCI requests, Flux installation and readiness observations have bounded
 timeouts. A failure stops the command and preserves the environment for diagnosis.
@@ -260,7 +258,9 @@ for the deployment ID. Flux carries it to OKE, including after a settings
 handover. Once Kind accepts the request, the terminal can disconnect. Run
 `down` again with the same directory to collect the results and remove Kind.
 
-OKE withdraws the TAMOSS and TADOSS declarations and Traefik. The operators
+OKE withdraws the TAMOSS and TADOSS declarations and Traefik. Flux relaxes the
+deployment's platform, operator and Calico disruption budgets so OCI can drain
+the last workers. Once Crossplane observes those changes, the operators
 finalise the workloads. A Job checks that the load balancer has gone and that
 the database and bucket match their recorded IDs and ownership tags. It aborts
 multipart uploads and empties the bucket, including object versions. Crossplane

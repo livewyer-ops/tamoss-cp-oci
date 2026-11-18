@@ -37,6 +37,13 @@ spec:
   releaseName: {{ .name }}
   targetNamespace: {{ .namespace }}
   storageNamespace: {{ .namespace }}
+{{ if and $.Values.retirementId (has .name (list "authentik" "cert-manager")) }}
+  postRenderers:
+    - kustomize:
+        patches:
+          - target: {group: policy, version: v1, kind: PodDisruptionBudget}
+            patch: '[{"op":"replace","path":"/spec/minAvailable","value":0}]'
+{{ end }}
 {{ with .needs }}
   dependsOn:
 {{ . | toYaml | indent 4 }}

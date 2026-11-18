@@ -14,3 +14,7 @@ spec:
     - target: {kind: DaemonSet, name: calico-node}
       patch: |
 {{ .Files.Get "files/calico-oci.yaml" | indent 8 }}
+{{- if .Values.retirementId }}
+    - target: {group: policy, version: v1, kind: PodDisruptionBudget}
+      patch: '[{"op":"replace","path":"/spec/maxUnavailable","value":"100%"}]'
+{{- end }}

@@ -12,6 +12,7 @@
 {{- fail "The database or bucket identity changed during retirement" }}
 {{- end }}
 {{- $extra := .extraResources | default dict }}
+{{- $budgetOwners := dict "auth" "authentik" "cert-manager" "cert-manager" "kube-system" "calico" "tamoss-system" "oke-prerequisites" "tadoss-system" "oke-prerequisites" }}
 ---
 apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
 kind: ExtraResources
@@ -22,6 +23,18 @@ requirements:
     kind: {{ ternary "HelmRelease" "Kustomization" (eq $name "traefik") }}
     namespace: {{ $ns }}
     matchName: {{ $name }}
+{{- end }}
+{{- if eq $phase "Draining" }}
+{{- range $namespace, $owner := $budgetOwners }}
+{{- $controller := ternary "helm" "kustomize" (has $owner (list "authentik" "cert-manager")) }}
+  budgets-{{ $namespace }}:
+    apiVersion: policy/v1
+    kind: PodDisruptionBudget
+    namespace: {{ $namespace }}
+    matchLabels:
+      {{ $controller }}.toolkit.fluxcd.io/name: {{ $owner }}
+      {{ $controller }}.toolkit.fluxcd.io/namespace: {{ $ns }}
+{{- end }}
 {{- end }}
 {{- if eq $phase "Deleting" }}
 {{- range $key, $resource := dict "database" (list "psql.oci.m.upbound.io/v1alpha1" "PsqlDbSystem") "bucket" (list "objectstorage.oci.m.upbound.io/v1alpha1" "Bucket") }}
@@ -37,6 +50,16 @@ requirements:
 {{- if eq $phase "Deleting" }}{{- $expectedAbsent = concat $expectedAbsent (list "bucket" "database") }}{{- end }}
 {{- range $name := $expectedAbsent }}
 {{- $withdrawn = and $withdrawn (hasKey $extra $name) (empty (dig $name "items" (list) $extra)) }}
+{{- end }}
+{{- if eq $phase "Draining" }}
+{{- range $namespace, $_ := $budgetOwners }}
+{{- $key := printf "budgets-%s" $namespace }}
+{{- $withdrawn = and $withdrawn (hasKey $extra $key) }}
+{{- range (dig $key "items" (list) $extra) }}
+{{- $budget := .resource.spec }}
+{{- $withdrawn = and $withdrawn (or (eq (toString $budget.minAvailable) "0") (eq (toString $budget.maxUnavailable) "100%")) }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{/* An observed create without an external ID must settle before its owner is withdrawn. */}}
 {{- if and $withdrawn (or $databaseId (not (hasKey $observed "database"))) (or $bucketId (not (hasKey $observed "bucket"))) (ne $phase "Retired") }}
