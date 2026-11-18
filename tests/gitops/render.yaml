@@ -17,6 +17,7 @@ kind: Render
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'HelmRelease'] | length(@)): 17
 (resources[?kind == 'Kustomization' && metadata.name == 'application-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls]
 (resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.sourceRef.kind): GitRepository
+(resources[?kind == 'Kustomization' && metadata.name == 'calico'] | [0].spec.path): ./deploy/calico
 (resources[?kind == 'Kustomization' && metadata.name == 'tamoss-operator'] | [0].spec.sourceRef.kind): OCIRepository
 (resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'GitRepository'].name): [tamoss-bootstrap-product]
 (length(resources[?kind == 'GitRepository'])): 0

@@ -57,7 +57,7 @@ run = [
   "helm template environment charts/environment > '{{ env.TASKV_CACHE }}/environment-api.yaml'",
   '''yq 'select(.kind == "Composition")' {{ env.TASKV_CACHE }}/environment-api.yaml > {{ env.TASKV_CACHE }}/composition.yaml''',
   '''helm template packages charts/packages --set services=true | yq 'select(.kind == "Function")' > '{{ env.TASKV_CACHE }}/functions.yaml'''',
-  "mise run application:calico",
+  "kubectl kustomize deploy/calico > '{{ env.TASKV_CACHE }}/calico.yaml'",
   "mise run tamoss:operator",
   "cp '{{ env.TASKV_CACHE }}/operator/rendered.yaml' '{{ env.TASKV_CACHE }}/operator.yaml'",
   '''OUTPUT_DIR={{ ((env.TASKV_CACHE) ~ "/instance-base") | quote }} mise run tamoss:instance''',

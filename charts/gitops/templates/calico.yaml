@@ -7,13 +7,10 @@ spec:
   prune: false
   deletionPolicy: Orphan
   sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
-  path: ./upstream/calico
+  path: ./deploy/calico
   healthChecks:
     - {apiVersion: apps/v1, kind: DaemonSet, name: calico-node, namespace: kube-system}
-  patches:
-    - target: {kind: DaemonSet, name: calico-node}
-      patch: |
-{{ .Files.Get "files/calico-oci.yaml" | indent 8 }}
 {{- if .Values.retirementId }}
+  patches:
 {{ include "gitops.retirementBudgetPatch" (dict "field" "maxUnavailable" "value" "100%") | indent 4 }}
 {{- end }}

@@ -1,17 +1,4 @@
 
-["application:calico"]
-hide = true
-dir = "{{ vars.ROOT_DIR }}"
-run = [
-  '''CACHE={{ ((env.TASKV_CACHE)) | quote }} TARGET={{ ("calico/calico-policy-only.yaml") | quote }} URL={{ ((env.TASKV_URL)) | quote }} SHA={{ ((env.TASKV_SHA)) | quote }} mise run verify:artifact''',
-  "cp deploy/calico/kustomization.yaml '{{ env.TASKV_CACHE }}/calico/'",
-  "cp charts/gitops/files/calico-oci.yaml '{{ env.TASKV_CACHE }}/calico/oci.yaml'",
-  "kubectl kustomize '{{ env.TASKV_CACHE }}/calico' > '{{ env.TASKV_CACHE }}/calico.yaml'",
-]
-env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
-env.TASKV_SHA = '''{% if env.SHA is defined %}{{ env.SHA }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts[] | select(.path == \"calico/calico-policy-only.yaml\") | .sha256' dependencies.yaml") }}{% endif %}'''
-env.TASKV_URL = '''{% if env.URL is defined %}{{ env.URL }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts[] | select(.path == \"calico/calico-policy-only.yaml\") | .url' dependencies.yaml") }}{% endif %}'''
-
 ["application:remove-instance"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

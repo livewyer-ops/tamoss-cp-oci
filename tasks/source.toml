@@ -39,8 +39,8 @@ run = [
 diff -r '{{ env.TASKV_UPSTREAM }}/{{ path }}' '{{ vars.ROOT_DIR }}/deploy/tamoss/instance/upstream/{{ path }}'
 {% endfor %}''',
   "cmp '{{ env.TASKV_UPSTREAM }}/deploy/platform/values/defaults.yaml' '{{ vars.ROOT_DIR }}/deploy/gitops/platform-defaults/upstream/defaults.yaml'",
-  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/calico-policy-only.yaml' '{{ vars.ROOT_DIR }}/upstream/calico/calico-policy-only.yaml'",
-  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/LICENSE.md' '{{ vars.ROOT_DIR }}/upstream/calico/LICENSE.md'",
+  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/calico-policy-only.yaml' '{{ vars.ROOT_DIR }}/deploy/calico/upstream/calico-policy-only.yaml'",
+  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/LICENSE.md' '{{ vars.ROOT_DIR }}/deploy/calico/upstream/LICENSE.md'",
   "RELEASE_LOCK='{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' OUTPUT='{{ vars.ROOT_DIR }}/.local/tmp/check/source-pins.yaml' mise run gitops:pins",
   "cmp pins.yaml '{{ vars.ROOT_DIR }}/.local/tmp/check/source-pins.yaml'",
   "kubectl kustomize deploy/tamoss/instance > /dev/null",
