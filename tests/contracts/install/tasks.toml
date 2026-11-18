@@ -13,7 +13,7 @@ select(fileIndex == 0) |
 {"public-up": $root.tasks.up})} |
 .vars.ROOT_DIR = strenv(PROJECT_ROOT) | .vars.ROOT_DIR = strenv(PROJECT_ROOT) | .vars.ROOT_DIR = strenv(PROJECT_ROOT) |
 .vars.ENV_DIR = strenv(DIRECTORY) | .vars.ENV_PATH = strenv(DIRECTORY) |
-.tasks[].dir = strenv(DIRECTORY)' {{ vars.ROOT_DIR | quote }}/mise.toml {{ vars.ROOT_DIR | quote }}/tasks/bootstrap.toml {{ vars.ROOT_DIR | quote }}/tests/contracts/install/boundaries.toml > {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml''',
+.tasks[].dir = strenv(DIRECTORY)' {{ vars.ROOT_DIR | quote }}/.config/mise/config.toml {{ vars.ROOT_DIR | quote }}/tasks/bootstrap.toml {{ vars.ROOT_DIR | quote }}/tests/contracts/install/boundaries.toml > {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml''',
   "mise trust {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml",
   '''yq -n '{"deploymentUID": "original", "deploymentReady": true, "gitopsEstablished": true, "provisions": 0, "starts": 0, "publications": 0, "observations": 0}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
 

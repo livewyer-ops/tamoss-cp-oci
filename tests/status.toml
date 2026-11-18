@@ -11,7 +11,7 @@ select(fileIndex == 0) |
 "tasks": {"status": ($source[strenv(STATUS_TASK)] | select(has("skip_if"))) // $source[strenv(STATUS_TASK) + ":apply"]}} |
 .vars.ROOT_DIR = strenv(PROJECT_ROOT) |
 .tasks.status.run = [.tasks.status.skip_if] |
-del(.tasks.status.skip_if, .tasks.status.depends, .tasks.status.depends_post)' mise.toml "$STATUS_FILE" > "$STATUS_DIRECTORY/fixture.mise.toml"''',
+del(.tasks.status.skip_if, .tasks.status.depends, .tasks.status.depends_post)' .config/mise/config.toml "$STATUS_FILE" > "$STATUS_DIRECTORY/fixture.mise.toml"''',
   'mise trust "$STATUS_DIRECTORY/fixture.mise.toml"',
   'MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C "$STATUS_DIRECTORY" run status',
 ]

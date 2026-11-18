@@ -121,7 +121,7 @@ url_api = "https://api.github.com/repos/tsenart/vegeta/releases/assets/310912410
 version = "3.95.0"
 backend = "pypi:oci-cli"
 specifiers = ["3.95.0"]
-uv = { path = ".mise/locks/pypi-oci-cli/3.95.0~55972f31", digest = "sha256:17bc944114589b5b5004ae7c6c5069ad95031a49a785eec55acc804a121d9569" }
+uv = { path = "locks/pypi-oci-cli/3.95.0~55972f31", digest = "sha256:17bc944114589b5b5004ae7c6c5069ad95031a49a785eec55acc804a121d9569" }
 
 [tools."pypi:oci-cli".options]
 python = "3.12"

@@ -3,9 +3,11 @@
 /CLAUDE.md
 /.claude/
 /mise.local.toml
-/.mise/*
-!/.mise/locks/
-/.mise/locks/mise.local/
+/mise.local.lock
+/.mise/
+/.config/mise/*.local.toml
+/.config/mise/*.local.lock
+/.config/mise/locks/*.local/
 /charts/bootstrap/charts/
 /charts/database-connection/charts/
 /charts/retirement/charts/

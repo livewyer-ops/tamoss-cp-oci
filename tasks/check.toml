@@ -303,7 +303,7 @@ run = [
 ]
 env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
 env.TASKV_CHART = "{% if env.CHART is defined %}{{ env.CHART }}{% else %}{{ vars.ROOT_DIR }}/charts/gitops{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/.config/mise/config.toml") }}{% endif %}'''
 env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ (vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
 env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}{% endif %}"
 

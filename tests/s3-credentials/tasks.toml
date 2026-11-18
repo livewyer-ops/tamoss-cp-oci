@@ -37,7 +37,7 @@ run = [
     .tasks."identity:management" = {"run":"true"} |
     .tasks."storage:observe".run |= map(with(select(test("^oci ")); . = "cp keys.json s3-keys.json")) |
     .tasks."storage:revoke".run |= map(with(select(test("^oci ")); . = "cp keys.json s3-keys-after.json")) |
-    .tasks."storage:delete-key".run = [("yq -i " + (".data |= map(select(.id != load(\"s3-key-observed.json\").keyId))" | @sh) + " keys.json")]' mise.toml tasks/storage.toml > "$S3_TEST_DIR/fixture.mise.toml"''',
+    .tasks."storage:delete-key".run = [("yq -i " + (".data |= map(select(.id != load(\"s3-key-observed.json\").keyId))" | @sh) + " keys.json")]' .config/mise/config.toml tasks/storage.toml > "$S3_TEST_DIR/fixture.mise.toml"''',
   'mise trust "$S3_TEST_DIR/fixture.mise.toml"',
 ]
 

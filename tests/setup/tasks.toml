@@ -118,7 +118,7 @@ run = [
      "tasks":{"setup":$root.tasks.setup, "setup:initialise":$setup."setup:initialise", "setup:discover":$setup."setup:discover"}} |
     .tasks[].dir = strenv(PROJECT_ROOT) |
     .tasks."setup:discover".run |= map(sub("(?m)^(oci|curl) [^\\n]+ > (\\x27[^\\n]+/([^/\\x27]+)\\x27)";
-      "cat " + ((strenv(PROJECT_ROOT) + "/.local/tmp/check/setup-discovery/fixtures/${3}") | @sh) + " > ${2}"))' mise.toml tasks/setup.toml > '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml' ''',
+      "cat " + ((strenv(PROJECT_ROOT) + "/.local/tmp/check/setup-discovery/fixtures/${3}") | @sh) + " > ${2}"))' .config/mise/config.toml tasks/setup.toml > '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml' ''',
   '''yq -p=toml -o=yaml -e '.tasks."setup:discover".run | join("\n") | test("(?m)^(oci|curl) ") | not' '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml' > /dev/null''',
   "mise trust '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/fixture.mise.toml'",
 ]
@@ -203,7 +203,7 @@ run = [
     select(fileIndex == 0) as $root | select(fileIndex == 1) as $setup | select(fileIndex == 0) |
     {"vars":{"ROOT_DIR":strenv(PROJECT_ROOT), "ENV_DIR":(strenv(DIRECTORY) + "/environment")},
      "task_config":{"shell":$root.task_config.shell},
-     "tasks":{"preflight":$setup.preflight}}' mise.toml tasks/setup.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'""",
+     "tasks":{"preflight":$setup.preflight}}' .config/mise/config.toml tasks/setup.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'""",
   "mise trust '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'",
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-preflight'

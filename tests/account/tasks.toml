@@ -23,7 +23,7 @@ run = [
     {"vars":{"ROOT_DIR":strenv(DIRECTORY)},
      "env":{"OCI_CLI_CONFIG_FILE":(strenv(PROJECT_ROOT) + "/tests/setup/oci-config"), "OCI_CLI_PROFILE":"demo"},
      "task_config":{"shell":$root.task_config.shell},
-     "tasks":{"account:create":$account."account:create", "account:remove":$account."account:remove"}}' mise.toml tasks/account.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'""",
+     "tasks":{"account:create":$account."account:create", "account:remove":$account."account:remove"}}' .config/mise/config.toml tasks/account.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'""",
   "mise trust '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'",
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/account'

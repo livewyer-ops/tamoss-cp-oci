@@ -5,7 +5,7 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   "mkdir -p -m 700 '{{ vars.ENV_DIR }}' '{{ vars.ENV_DIR }}/candidate/deploy/tamoss' '{{ vars.ENV_DIR }}/candidate/.local/tmp'",
   "cp deploy/tamoss/release.yaml '{{ vars.ENV_DIR }}/candidate/release.yaml'",
-  '''PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq -p=toml -o=toml '.task_config.includes |= map(strenv(PROJECT_ROOT) + "/" + .)' {{ vars.ROOT_DIR | quote }}/mise.toml > {{ vars.ENV_DIR | quote }}/candidate/mise.toml''',
+  '''PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq -p=toml -o=toml '.task_config.includes |= map(strenv(PROJECT_ROOT) + "/" + .)' {{ vars.ROOT_DIR | quote }}/.config/mise/config.toml > {{ vars.ENV_DIR | quote }}/candidate/mise.toml''',
   "mise trust {{ vars.ENV_DIR | quote }}/candidate/mise.toml",
   '''yq -i '.tag = "0.0.0-unpublished-test"' {{ vars.ENV_DIR }}/candidate/release.yaml''',
   "cp '{{ vars.ENV_DIR }}/candidate/release.yaml' '{{ vars.ENV_DIR }}/candidate/deploy/tamoss/release.yaml'",

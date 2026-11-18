@@ -34,7 +34,7 @@ run = [
   "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} NAME={{ env.TASKV_NAME | quote }} mise run test:flux-bootstrap:restart:protected:protected",
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/.config/mise/config.toml") }}{% endif %}'''
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
 env.PROJECT_ROOT = "{{ vars.ROOT_DIR }}"
 env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
@@ -61,7 +61,7 @@ run = [
   "DIRECTORY={{ env.TASKV_DIRECTORY | quote }} FLUX_VERSION={{ env.TASKV_FLUX_VERSION | quote }} NAME={{ env.TASKV_NAME | quote }} mise run test:flux-bootstrap:restart:protected",
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/.config/mise/config.toml") }}{% endif %}'''
 env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kubectl get nodes -o json | yq -p=json -r '.items | select(length == 1) | .[0].metadata.name | sub(\"^tamoss-cp-\"; \"\") | sub(\"-control-plane$\"; \"\")'") }}{% endif %}'''
 env.PROJECT_ROOT = "{{ vars.ROOT_DIR }}"
 env.DIRECTORY = "{{ env.TASKV_DIRECTORY }}/restart-{{ env.TASKV_NAME }}"
@@ -119,4 +119,4 @@ run = [
   "kubectl wait crd/tamossenvironments.tamoss.livewyer.io crd/secretfoundations.tamoss.livewyer.io crd/tamossbootstraps.tamoss.livewyer.io --for=condition=Established --timeout=180s",
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/flux-bootstrap{% endif %}"
-env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/mise.toml") }}{% endif %}'''
+env.TASKV_FLUX_VERSION = '''{% if env.FLUX_VERSION is defined %}{{ env.FLUX_VERSION }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -p=toml -r '.tools.\"aqua:fluxcd/flux2\"' " ~ (vars.ROOT_DIR) ~ "/.config/mise/config.toml") }}{% endif %}'''
