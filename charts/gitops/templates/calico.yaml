@@ -15,6 +15,5 @@ spec:
       patch: |
 {{ .Files.Get "files/calico-oci.yaml" | indent 8 }}
 {{- if .Values.retirementId }}
-    - target: {group: policy, version: v1, kind: PodDisruptionBudget}
-      patch: '[{"op":"replace","path":"/spec/maxUnavailable","value":"100%"}]'
+{{ include "gitops.retirementBudgetPatch" (dict "field" "maxUnavailable" "value" "100%") | indent 4 }}
 {{- end }}

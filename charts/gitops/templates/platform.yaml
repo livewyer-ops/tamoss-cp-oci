@@ -41,8 +41,7 @@ spec:
   postRenderers:
     - kustomize:
         patches:
-          - target: {group: policy, version: v1, kind: PodDisruptionBudget}
-            patch: '[{"op":"replace","path":"/spec/minAvailable","value":0}]'
+{{ include "gitops.retirementBudgetPatch" (dict "field" "minAvailable" "value" 0) | indent 10 }}
 {{ end }}
 {{ with .needs }}
   dependsOn:

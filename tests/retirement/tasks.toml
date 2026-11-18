@@ -20,10 +20,13 @@ yq 'select(.kind == "Composition")' "$RETIREMENT_DIR/services-api.yaml" > "$RETI
   '''yq -n '{"apiVersion":"kustomize.toolkit.fluxcd.io/v1","kind":"Kustomization","metadata":{"name":"tamoss","namespace":"tamoss-infra"}}' > "$RETIREMENT_DIR/writer"''',
   '''crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --include-full-xr --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/writer" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/blocked"''',
   '''yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/blocked" > /dev/null''',
-  '''yq -n '{"apiVersion":"policy/v1","kind":"PodDisruptionBudget","metadata":{"name":"authentik-server","namespace":"auth","labels":{"helm.toolkit.fluxcd.io/name":"authentik","helm.toolkit.fluxcd.io/namespace":"tamoss-infra"}},"spec":{"minAvailable":1}}' > "$RETIREMENT_DIR/budget"
+  '''yq -n '{"apiVersion":"policy/v1","kind":"PodDisruptionBudget","metadata":{"name":"authentik-server","namespace":"auth","labels":{"helm.toolkit.fluxcd.io/name":"authentik","helm.toolkit.fluxcd.io/namespace":"tamoss-infra"}},"spec":{"minAvailable":1,"unhealthyPodEvictionPolicy":"AlwaysAllow"}}' > "$RETIREMENT_DIR/budget"
 crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/budget" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/budget-blocked"
 yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/budget-blocked" > /dev/null
-yq -i '.spec.minAvailable = 0' "$RETIREMENT_DIR/budget"
+yq -i '.spec.minAvailable = 0 | del(.spec.unhealthyPodEvictionPolicy)' "$RETIREMENT_DIR/budget"
+crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/budget" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/budget-blocked"
+yq ea -e '[select(.kind == "HelmRelease")] | length == 0' "$RETIREMENT_DIR/budget-blocked" > /dev/null
+yq -i '.spec.unhealthyPodEvictionPolicy = "AlwaysAllow"' "$RETIREMENT_DIR/budget"
 crossplane composition render "$RETIREMENT_DIR/root" "$RETIREMENT_DIR/composition" "$CACHE/functions.yaml" --observed-resources="$RETIREMENT_DIR/observed" --required-resources="$RETIREMENT_DIR/budget" --crossplane-image={{ vars.CORE }} > "$RETIREMENT_DIR/budget-open"
 yq -e 'select(.kind == "HelmRelease") | .spec.values.serviceRetirement.step == "drain"' "$RETIREMENT_DIR/budget-open" > /dev/null''',
   '''yq 'select(.kind == "HelmRelease") | .spec.values' "$RETIREMENT_DIR/drain" > "$RETIREMENT_DIR/drain-values"''',

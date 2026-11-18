@@ -57,7 +57,7 @@ requirements:
 {{- $withdrawn = and $withdrawn (hasKey $extra $key) }}
 {{- range (dig $key "items" (list) $extra) }}
 {{- $budget := .resource.spec }}
-{{- $withdrawn = and $withdrawn (or (eq (toString $budget.minAvailable) "0") (eq (toString $budget.maxUnavailable) "100%")) }}
+{{- $withdrawn = and $withdrawn (eq $budget.unhealthyPodEvictionPolicy "AlwaysAllow") (or (eq (toString $budget.minAvailable) "0") (eq (toString $budget.maxUnavailable) "100%")) }}
 {{- end }}
 {{- end }}
 {{- end }}
