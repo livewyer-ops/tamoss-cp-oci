@@ -150,19 +150,30 @@ resource repair.
 | Kind stopped | With Kind stopped for about eight minutes, OKE keeps the database, bucket and workloads ready, serves the public endpoints and restores a deleted Secret and a deleted PodDisruptionBudget. Kind's releases are ready again after it restarts |
 | Worker placement | One worker in each of three availability domains, in separate fault domains |
 | Remote access | The host issues a non-expiring ServiceAccount token; teardown removes it with the remote access after application removal |
+| Enable TADOSS from Git | With Kind stopped, the first settings commit preserved both ConfigMaps, the TAMOSS instance UID, deployment generations and media bytes. A second commit changed only `tadoss.enabled`. OKE brought up two API replicas and two workers. A timed event matched the source playing in TAMOSS across a segment boundary. Retirement used the enabled setting. |
 | TAMOSS | Trusted TLS, ingest, media and byte-range reads, anonymous rejection, the selected browser tests, replica placement and network policy |
 | Worker disruption | API and login-path sampling across the worker drain has no failed requests; post-drain media reads pass |
 | TADOSS | Trusted TLS, OAuth scopes, linked timed metadata and persistence after pod replacement |
 | Teardown | One `down` removes workloads, cloud resources, application IAM, the Git deploy key and Kind in about 20 minutes. Jobs in OKE abort an unfinished multipart upload, empty the bucket and delete a manual database backup with workload identity. An independent OCI inventory finds no remaining workload resources |
 | Retained foundation | A pre-existing compartment, Vault and key are retained. The deployment's Vault secrets are scheduled for deletion |
 
+In the 18 November 2026 Git handover run, `up` took 43 minutes and `down` took
+32 minutes. The operator intervened twice. During installation Flux reported
+that it could not discover ExternalSecrets after all ten were ready. Restarting
+the OKE kustomize-controller restored the credential health check in 16 seconds.
+During retirement, OCI still had an unused duplicate of the public route table
+after Crossplane deleted the managed one. The operator checked the deployment
+and composite tags, VCN, rules and subnet inventory before deleting the
+duplicate. Crossplane then removed the VCN. The independent administrator
+inventory matched the empty baseline across all 21 workload lists.
+
 Limits:
 
-- Deployments running longer than about an hour, other regions and regions
+- Deployments running longer than the recorded 99-minute lifecycle, other regions and regions
   with fewer than three availability domains are unverified on OCI.
 - Creating a new Vault and key with the published policy is unverified; the
   verified deployments reused a retained Vault.
-- Kind stopped for longer than about ten minutes is unverified on OCI.
+- The handover run kept Kind stopped for 23 minutes before teardown. Longer stops remain unverified on OCI.
 - Teardown after a database that failed to create is unverified on OCI.
 - A release upgrade through `mise run apply`, and a change to the database shape
   or size, are unverified on OCI.
