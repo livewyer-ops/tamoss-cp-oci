@@ -1,0 +1,5 @@
+{"data": [
+  {"id": "ocid1.domain.oc1.secondary", "type": "SECONDARY", "lifecycle-state": "ACTIVE", "url": "https://secondary.example.test"},
+  {"id": "ocid1.domain.oc1.inactive", "type": "DEFAULT", "lifecycle-state": "INACTIVE", "url": "https://inactive.example.test"},
+  {"id": "ocid1.domain.oc1.fixture", "type": "DEFAULT", "lifecycle-state": "ACTIVE", "url": "https://identity.example.test:443/"}
+]}

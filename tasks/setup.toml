@@ -1,0 +1,98 @@
+["preflight"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "test -s '{{ vars.ENV_DIR }}/values.yaml' || { echo 'No settings found in {{ vars.ENV_DIR }}. Run: mise run setup' >&2; exit 1; }",
+  """yq -e '(.compartmentId // "") as $c | (.contactEmail // "") as $e | [($c | test("^ocid1[.]compartment[.]")), ($c | test("REPLACE") | not), ($e | test("@")), ($e | test("[.]invalid$") | not)] | all' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 || { echo 'Enter compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml before up.' >&2; exit 1; }""",
+  "docker info > /dev/null 2>&1 || { echo 'Docker is not running or not accessible to this user.' >&2; exit 1; }",
+  """yq -e '.source.private == false' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 || gh auth status --hostname github.com > /dev/null 2>&1 || { echo 'Sign in to GitHub for the private repository: mise exec -- gh auth login --hostname github.com --git-protocol https' >&2; exit 1; }""",
+  """yq -e '.source.private == false' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 || gh api "repos/$(git remote get-url origin | sed -E 's#^(git@github.com:|https://github.com/|ssh://git@github.com/)##; s#[.]git$##')/keys" --silent > /dev/null 2>&1 || { echo 'The GitHub account cannot manage deploy keys for this repository.' >&2; exit 1; }""",
+  """oci --connection-timeout 10 --read-timeout 30 --max-retries 0 network vcn list --compartment-id "$(yq -r .compartmentId '{{ vars.ENV_DIR }}/values.yaml')" --limit 1 > /dev/null 2>&1 || { echo 'The OCI profile cannot read the deployment compartment. Check the profile, signing key and account policy.' >&2; exit 1; }""",
+]
+
+["setup:initialise"]
+hide = true
+run = [
+  "test ! -e '{{ vars.ENV_DIR }}/identity.yaml' || { echo 'Retain the existing deployment directory; use a fresh ENV_DIR for setup.' >&2; exit 1; }",
+  "install -d -m 700 '{{ vars.ENV_DIR }}'",
+  "test -s '{{ vars.ENV_DIR }}/values.yaml' || install -m 600 environments/example/values.yaml '{{ vars.ENV_DIR }}/'",
+]
+
+["setup:discover"]
+hide = true
+quiet = true
+run = [
+  "install -d -m 700 '{{ vars.ENV_DIR }}/discovery'",
+  "cp '{{ vars.ENV_DIR }}/values.yaml' '{{ vars.ENV_DIR }}/discovery/pending.yaml'",
+  '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
+{% if not v | get(key="storageIdentity", default={}) | get(key="domainId", default="") or not v | get(key="storageIdentity", default={}) | get(key="idcsEndpoint", default="") %}
+umask 077
+yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | .tenancy | select(test("^ocid1[.]tenancy[.]"))' {{ env.OCI_CLI_CONFIG_FILE | quote }} > '{{ vars.ENV_DIR }}/discovery/tenancy'
+oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam domain list --compartment-id "$(cat '{{ vars.ENV_DIR }}/discovery/tenancy')" --all > '{{ vars.ENV_DIR }}/discovery/identity-domains.json'
+yq -e -i '.storageIdentity as $supplied |
+  [load("{{ vars.ENV_DIR }}/discovery/identity-domains.json").data[] |
+    select(.type == "DEFAULT" and ."lifecycle-state" == "ACTIVE") |
+    select(.id | test("^ocid1[.]domain[.]")) | select(.url | test("^https://[^/]+/?$")) |
+    select(($supplied.domainId // "") == "" or .id == $supplied.domainId) |
+    select(($supplied.idcsEndpoint // "") == "" or (.url | sub("/$"; "")) == ($supplied.idcsEndpoint | sub("/$"; "")))] |
+  select(length == 1) | .[0] as $domain |
+  load("{{ vars.ENV_DIR }}/discovery/pending.yaml") |
+  .storageIdentity.domainId = $domain.id |
+  .storageIdentity.idcsEndpoint = (($supplied.idcsEndpoint | select(. != "")) // $domain.url)' '{{ vars.ENV_DIR }}/discovery/pending.yaml'
+{% endif %}''',
+  '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
+{% if not v | get(key="storage", default={}) | get(key="namespace", default="") %}
+oci --connection-timeout 10 --read-timeout 30 --max-retries 0 os ns get > '{{ vars.ENV_DIR }}/discovery/namespace.json'
+yq -e -i 'load("{{ vars.ENV_DIR }}/discovery/namespace.json").data as $namespace |
+  select(($namespace | tag) == "!!str" and ($namespace | length) > 0) |
+  .storage.namespace = $namespace' '{{ vars.ENV_DIR }}/discovery/pending.yaml'
+{% endif %}''',
+  '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
+{% if not v | get(key="network", default={}) | get(key="ociServiceId", default="") or not v | get(key="network", default={}) | get(key="ociServiceCidr", default="") %}
+oci --connection-timeout 10 --read-timeout 30 --max-retries 0 network service list --all > '{{ vars.ENV_DIR }}/discovery/services.json'
+yq -e -i '.network as $supplied |
+  [load("{{ vars.ENV_DIR }}/discovery/services.json").data[] |
+    select(."cidr-block" | test("^all-[a-z0-9]+-services-in-oracle-services-network$")) |
+    select(.id | test("^ocid1[.]service[.]")) |
+    select(($supplied.ociServiceId // "") == "" or .id == $supplied.ociServiceId) |
+    select(($supplied.ociServiceCidr // "") == "" or ."cidr-block" == $supplied.ociServiceCidr)] |
+  select(length == 1) | .[0] as $service |
+  load("{{ vars.ENV_DIR }}/discovery/pending.yaml") |
+  .network.ociServiceId = $service.id | .network.ociServiceCidr = $service."cidr-block"' '{{ vars.ENV_DIR }}/discovery/pending.yaml'
+{% endif %}''',
+  '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
+{% if not v | get(key="oke", default={}) | get(key="placements", default=[]) %}
+oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam availability-domain list --all > '{{ vars.ENV_DIR }}/discovery/domains.json'
+yq -e -i '(load("{{ vars.ENV_DIR }}/discovery/domains.json").data | sort_by(.name)) as $domains |
+  select(($domains | length) > 0 and ($domains | map(.name | (tag == "!!str") and (length > 0)) | all)) |
+  .oke.placements = [
+    {"availabilityDomain": $domains[0].name, "faultDomain": "FAULT-DOMAIN-1"},
+    {"availabilityDomain": ($domains[1].name // $domains[0].name), "faultDomain": "FAULT-DOMAIN-2"},
+    {"availabilityDomain": ($domains[2].name // $domains[0].name), "faultDomain": "FAULT-DOMAIN-3"}]' '{{ vars.ENV_DIR }}/discovery/pending.yaml'
+{% endif %}''',
+  '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
+{% if not v | get(key="oke", default={}) | get(key="imageId", default="") %}
+COMPARTMENT="$(yq -r '[.compartmentId // ""] | map(select(test("^ocid1[.]compartment[.]")) | select(test("REPLACE") | not)) | .[0] // ""' '{{ vars.ENV_DIR }}/values.yaml')"
+oci --connection-timeout 10 --read-timeout 30 --max-retries 0 ce node-pool-options get --node-pool-option-id all ${COMPARTMENT:+--compartment-id "$COMPARTMENT"} --node-pool-k8s-version {{ env.TASKV_VERSION | quote }} --node-pool-os-arch X86_64 --node-pool-os-type OL8 > '{{ vars.ENV_DIR }}/discovery/node-options.json'
+yq -e -i 'load("{{ vars.ENV_DIR }}/discovery/node-options.json").data as $options |
+  select($options.shapes | contains([strenv(TASKV_SHAPE)])) |
+  [$options.sources[] | select(."source-type" == "IMAGE") |
+    select(."source-name" | test("^Oracle-Linux-8[.][0-9]+-[0-9.]+-[0-9]+-OKE-" + (strenv(TASKV_VERSION) | sub("^v"; "") | split(".") | join("[.]")) + "-[0-9]+$"))] |
+  sort_by(."source-name" | split("-") | .[-1] | to_number) | .[-1]."image-id" as $image |
+  select($image | test("^ocid1[.]image[.]")) |
+  load("{{ vars.ENV_DIR }}/discovery/pending.yaml") | .oke.imageId = $image' '{{ vars.ENV_DIR }}/discovery/pending.yaml'
+{% endif %}''',
+  '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}
+{% if not v | get(key="adminCidrs", default=[]) %}
+curl --ipv4 --proto '=https' --fail --silent --show-error --connect-timeout 10 --max-time 30 --max-filesize 64 https://api.ipify.org > '{{ vars.ENV_DIR }}/discovery/public-ip'
+yq -e -i '(load_str("{{ vars.ENV_DIR }}/discovery/public-ip") | sub("[\\r\\n]+$"; "")) as $ip |
+  select($ip | test("^[0-9]+([.][0-9]+){3}$")) |
+  select($ip | split(".") | map(to_number) | map((. >= 0) and (. <= 255)) | all) |
+  .adminCidrs = [$ip + "/32"]' '{{ vars.ENV_DIR }}/discovery/pending.yaml'
+{% endif %}''',
+  "mv '{{ vars.ENV_DIR }}/discovery/pending.yaml' '{{ vars.ENV_DIR }}/values.yaml'",
+]
+env.TASKV_VERSION = '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}{% set defaults = read_yaml(path=vars.ROOT_DIR ~ "/charts/management/values.yaml") %}{{ v | get(key="oke", default={}) | get(key="version", default=defaults.oke.version) }}'''
+env.TASKV_SHAPE = '''{% set v = read_yaml(path=vars.ENV_DIR ~ "/values.yaml") %}{% set defaults = read_yaml(path=vars.ROOT_DIR ~ "/charts/management/values.yaml") %}{{ v | get(key="oke", default={}) | get(key="shape", default=defaults.oke.shape) }}'''
+

@@ -1,0 +1,102 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: setup-contracts}
+spec:
+  steps:
+    - name: initialise privately and render explicit OCI inputs with HA capacity defaults
+      try:
+        - command:
+            entrypoint: env
+            env: &paths [{name: PROJECT_ROOT, value: ($values.root)}]
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture-defaults"]
+    - name: preserve the supplied image and placement order without discovery
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:explicit"]
+    - name: require the prepared OCI settings
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "CHANGE=.storageIdentity.domainId = \"\" | .storageIdentity.idcsEndpoint = \"\" | .storage.namespace = \"\" | .network.ociServiceId = \"\" | .network.ociServiceCidr = \"\" | .oke.imageId = \"\" | .oke.placements = []", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:bad-input"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'storageIdentity.domainId')): true
+              (contains($stderr, 'storageIdentity.idcsEndpoint')): true
+              (contains($stderr, 'storage.namespace')): true
+              (contains($stderr, 'network.ociServiceId')): true
+              (contains($stderr, 'network.ociServiceCidr')): true
+              (contains($stderr, 'oke.imageId')): true
+              (contains($stderr, 'oke.placements')): true
+    - name: reject unrestricted API access and development configuration
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture"]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "CHANGE=.adminCidrs = [\"0.0.0.0/0\"]", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:bad-input"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'adminCidrs')): true
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture"]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "CHANGE=.budget = {\"amount\": 50}", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:bad-input"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'budget')): true
+    - name: accept automatic identity and reject the removed manual user setting
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:fixture"]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CLI_CONFIG_FILE=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_CLI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.storage.userId = "ocid1.user.fixture"', $PROJECT_ROOT/.local/tmp/check/setup/values.yaml]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ENV_DIR=$PROJECT_ROOT/.local/tmp/check/setup", "OCI_CLI_CONFIG_FILE=$PROJECT_ROOT/tests/lifecycle/oci-config", "OCI_CLI_PROFILE=DEFAULT", "mise", "-C", "$PROJECT_ROOT", "run", "setup:render"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'userId')): true
+    - name: reject interrupted host preparation without starting another identity
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:interrupted"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'up requires a fresh deployment')): true
+    - name: retain existing deployment directories
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:recorded"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'existing deployment')): true
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ROOT=$PROJECT_ROOT", "mise", "-C", "$PROJECT_ROOT", "run", "test:setup:existing"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'existing deployment')): true

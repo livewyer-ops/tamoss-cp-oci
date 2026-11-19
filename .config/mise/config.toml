@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["tasks/check.toml"]
+includes = ["tasks/account.toml", "tasks/check.toml", "tasks/setup.toml", "tests/account/tasks.toml", "tests/setup/tasks.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -30,4 +30,19 @@ ENV_PATH = "{{vars.ENV_DIR | absolute}}"
 CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.crossplane.imageRepository }}:v{{ dependencies.crossplane.version }}'''
 OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
 OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.oci.version }}'''
+
+[tasks."setup"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Prepare private deployment settings and discover OCI values"
+usage = '''
+flag "--compartment-id <ocid>" help="OCID of the empty deployment compartment"
+flag "--contact-email <email>" help="Operator contact address"
+'''
+depends = ["setup:initialise"]
+run = [
+  """COMPARTMENT="${usage_compartment_id:-}" CONTACT="${usage_contact_email:-}" yq -i 'with(select(strenv(COMPARTMENT) != ""); .compartmentId = strenv(COMPARTMENT)) | with(select(strenv(CONTACT) != ""); .contactEmail = strenv(CONTACT))' '{{ vars.ENV_DIR }}/values.yaml'""",
+  { task = "setup:discover" },
+  """yq -e '(.compartmentId // "") as $c | (.contactEmail // "") as $e | [($c | test("^ocid1[.]compartment[.]")), ($c | test("REPLACE") | not), ($e | test("@")), ($e | test("[.]invalid$") | not)] | all' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 && echo 'Settings are ready in {{ vars.ENV_DIR }}/values.yaml. Review them, then run: mise run up' || echo 'Enter compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml, then run: mise run up'""",
+]
 

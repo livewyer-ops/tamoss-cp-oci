@@ -1,0 +1,71 @@
+["account:create"]
+hide = false
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+description = "Administrator: create a scoped provisioner user, group, policy and API key"
+usage = '''
+flag "--compartment-id <ocid>" required=#true help="OCID of the dedicated deployment compartment"
+flag "--contact-email <email>" required=#true help="Email address recorded on the provisioner user"
+flag "--name <name>" default="tamoss-provisioner" help="Name of the user, group and policy"
+'''
+run = [
+  '''umask 077
+NAME="${usage_name}" COMPARTMENT="${usage_compartment_id}" EMAIL="${usage_contact_email}"
+DIRECTORY='{{ vars.ROOT_DIR }}/.local/account/'"$NAME"
+[[ "$NAME" =~ ^[a-z][a-z0-9-]{2,40}$ ]] || { echo 'Use a name of 3-41 lowercase letters, digits or hyphens, starting with a letter.' >&2; exit 1; }
+[[ "$COMPARTMENT" =~ ^ocid1[.]compartment[.] ]] || { echo 'Pass the deployment compartment OCID with --compartment-id.' >&2; exit 1; }
+[[ "$EMAIL" == *@* ]] || { echo 'Pass an email address with --contact-email.' >&2; exit 1; }
+test ! -e "$DIRECTORY" || { echo "Account records already exist in $DIRECTORY. Remove that account first: mise run account:remove --name $NAME" >&2; exit 1; }
+install -d -m 700 "$DIRECTORY"
+export NAME COMPARTMENT EMAIL DIRECTORY
+export TENANCY="$(yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | .tenancy | select(test("^ocid1[.]tenancy[.]"))' {{ env.OCI_CLI_CONFIG_FILE | quote }})"
+REGION="$(yq -p=ini -o=yaml -e '(. * (.[strenv(OCI_CLI_PROFILE)] // {})) | .region' {{ env.OCI_CLI_CONFIG_FILE | quote }})"
+oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam domain list --compartment-id "$TENANCY" --all > "$DIRECTORY/domains.json"
+ENDPOINT="$(yq -p=json -o=yaml -e '[.data[] | select(.type == "DEFAULT" and ."lifecycle-state" == "ACTIVE")] | select(length == 1) | .[0].url' "$DIRECTORY/domains.json")"
+printf '%s\n' "$ENDPOINT" > "$DIRECTORY/endpoint"
+yq -n -o=json '{"userName": strenv(NAME), "displayName": strenv(NAME), "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User", "urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User", "urn:ietf:params:scim:schemas:oracle:idcs:extension:capabilities:User"], "emails": [{"value": strenv(EMAIL), "type": "work", "primary": true}], "name": {"givenName": "TAMOSS", "familyName": "Provisioner"}, "urnietfparamsscimschemasoracleidcsextensionuserUser": {"bypassNotification": true}, "urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser": {"canUseApiKeys": true, "canUseAuthTokens": false, "canUseConsole": false, "canUseConsolePassword": false, "canUseCustomerSecretKeys": false, "canUseDbCredentials": false, "canUseOAuth2ClientCredentials": false, "canUseSmtpCredentials": false}}' > "$DIRECTORY/user-request.json"
+oci --connection-timeout 10 --read-timeout 60 --max-retries 0 identity-domains user create --endpoint "$ENDPOINT" --from-json "file://$DIRECTORY/user-request.json" > "$DIRECTORY/user.json"
+export USER_ID="$(yq -p=json -o=yaml -e '.data.ocid | select(test("^ocid1[.]user[.]"))' "$DIRECTORY/user.json")"
+oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam group create --name "$NAME" --description 'TAMOSS deployment provisioner' > "$DIRECTORY/group.json"
+export GROUP_ID="$(yq -p=json -o=yaml -e '.data.id | select(test("^ocid1[.]group[.]"))' "$DIRECTORY/group.json")"
+oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam group add-user --user-id "$USER_ID" --group-id "$GROUP_ID" > "$DIRECTORY/membership.json"
+yq -n -o=json '{"compartmentId": strenv(TENANCY), "name": strenv(NAME), "description": "TAMOSS deployment provisioner", "statements": (load_str("deploy/oci/policy.txt") | split("\n") | map(select(length > 0) | sub("<group-ocid>"; strenv(GROUP_ID)) | sub("<compartment-ocid>"; strenv(COMPARTMENT))))}' > "$DIRECTORY/policy-request.json"
+oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam policy create --from-json "file://$DIRECTORY/policy-request.json" > "$DIRECTORY/policy.json"
+openssl genrsa -out "$DIRECTORY/api-key.pem" 2048 2> /dev/null
+openssl rsa -in "$DIRECTORY/api-key.pem" -pubout -out "$DIRECTORY/api-key-public.pem" 2> /dev/null
+oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam user api-key upload --user-id "$USER_ID" --key-file "$DIRECTORY/api-key-public.pem" > "$DIRECTORY/api-key.json"
+FINGERPRINT="$(yq -p=json -o=yaml -e '.data.fingerprint' "$DIRECTORY/api-key.json")"
+printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=%s\n' "$USER_ID" "$FINGERPRINT" "$TENANCY" "$REGION" "$DIRECTORY/api-key.pem" > "$DIRECTORY/oci-config"
+printf 'Provisioner profile: %s/oci-config\nOCI can take a few minutes to accept the new key. Then run:\n  OCI_CLI_CONFIG_FILE=%s/oci-config mise run setup --compartment-id %s --contact-email %s\n' "$DIRECTORY" "$DIRECTORY" "$COMPARTMENT" "$EMAIL"
+''',
+]
+
+["account:remove"]
+hide = false
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+description = "Administrator: remove the provisioner created by account:create"
+usage = '''
+flag "--name <name>" default="tamoss-provisioner" help="Name passed to account:create"
+'''
+run = [
+  '''NAME="${usage_name}"
+DIRECTORY='{{ vars.ROOT_DIR }}/.local/account/'"$NAME"
+[[ "$NAME" =~ ^[a-z][a-z0-9-]{2,40}$ ]] || { echo 'Use the name passed to account:create.' >&2; exit 1; }
+test -d "$DIRECTORY" || { echo "No account records in $DIRECTORY." >&2; exit 1; }
+field() { test -s "$DIRECTORY/$1" && yq -p=json -o=yaml -e "$2" "$DIRECTORY/$1" 2> /dev/null || true; }
+USER_ID="$(field user.json .data.ocid)" USER_KEY="$(field user.json .data.id)" GROUP_ID="$(field group.json .data.id)"
+POLICY_ID="$(field policy.json .data.id)" FINGERPRINT="$(field api-key.json .data.fingerprint)"
+test -z "$FINGERPRINT" || oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam user api-key delete --user-id "$USER_ID" --fingerprint "$FINGERPRINT" --force > /dev/null
+rm -f "$DIRECTORY/api-key.json" "$DIRECTORY/api-key.pem" "$DIRECTORY/api-key-public.pem" "$DIRECTORY/oci-config"
+test -z "$POLICY_ID" || oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam policy delete --policy-id "$POLICY_ID" --force > /dev/null
+rm -f "$DIRECTORY/policy.json"
+test ! -s "$DIRECTORY/membership.json" || oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam group remove-user --user-id "$USER_ID" --group-id "$GROUP_ID" --force > /dev/null
+rm -f "$DIRECTORY/membership.json"
+test -z "$GROUP_ID" || oci --connection-timeout 10 --read-timeout 60 --max-retries 0 iam group delete --group-id "$GROUP_ID" --force > /dev/null
+rm -f "$DIRECTORY/group.json"
+test -z "$USER_KEY" || oci --connection-timeout 10 --read-timeout 60 --max-retries 0 identity-domains user delete --endpoint "$(cat "$DIRECTORY/endpoint")" --user-id "$USER_KEY" --force-delete true --force > /dev/null
+rm -rf "$DIRECTORY"
+echo "Removed provisioner $NAME and its local key."
+''',
+]
