@@ -1,0 +1,127 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: Tamoss
+metadata:
+  name: tamoss
+  namespace: tams
+spec:
+  paused: false
+  publicEndpoint:
+    baseDomain: 203-0-113-10.sslip.io
+    uiURL: https://app.203-0-113-10.sslip.io
+    tlsSecretName: tams-public-tls
+  backends:
+    db:
+      providedBy: external
+      external:
+        host: REPLACE.postgresql.oci.oraclecloud.com
+        port: '5432'
+        database: tams
+        tls:
+          caConfigMap:
+            name: database-ca
+            key: ca.pem
+        auth:
+          existingSecret: tams-database
+          secretKeys:
+            username: username
+            password: password
+    s3:
+      providedBy: external
+      external:
+        endpoint:
+          default:
+            url: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+          public:
+            url: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+        region: eu-frankfurt-1
+        bucket: qualification-media
+        auth:
+          existingSecret: tams-s3
+          secretKeys:
+            accessKey: accessKey
+            secretKey: secretKey
+  auth:
+    providedBy: authentik-blueprints
+    required: true
+    trustForwardAuthHeaders: true
+    oauth2AllowUnscopedFullAccess: false
+    authentikBlueprints:
+      platformNamespace: auth
+      issuerURL: https://auth.203-0-113-10.sslip.io
+      internalURL: http://authentik-server.auth.svc.cluster.local
+      apiTokenSecretRef:
+        name: authentik
+        key: AUTHENTIK_BOOTSTRAP_TOKEN
+      groupBindings:
+        - groupName: authentik Admins
+          permissions: [admin]
+  api:
+    image:
+      repository: docker.io/livewyer/tamoss-api
+    replicaCount: 2
+    preStopSleepSeconds: 5
+    pdb: &pdb
+      enabled: true
+      minAvailable: 1
+    podLabels:
+      tamoss.livewyer.io/replica-set: api
+    affinity: &affinity
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: tamoss
+            matchLabelKeys:
+              - tamoss.livewyer.io/replica-set
+            topologyKey: kubernetes.io/hostname
+    cors:
+      allowedOrigins: [https://app.203-0-113-10.sslip.io]
+  worker:
+    replicaCount: 2
+    pdb: *pdb
+    podLabels:
+      tamoss.livewyer.io/replica-set: worker
+    affinity: *affinity
+  ui:
+    image:
+      repository: docker.io/livewyer/tamoss-ui
+    replicaCount: 2
+    pdb: *pdb
+    podLabels:
+      tamoss.livewyer.io/replica-set: ui
+    affinity: *affinity
+  console:
+    image:
+      repository: docker.io/livewyer/tamoss-console-api
+    enabled: true
+    replicaCount: 2
+    pdb: *pdb
+    podLabels:
+      tamoss.livewyer.io/replica-set: console
+    affinity: *affinity
+  networkPolicy:
+    enabled: true
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: tamoss-public
+    api:
+      host: api.203-0-113-10.sslip.io
+    ui:
+      web:
+        host: app.203-0-113-10.sslip.io
+  ingest:
+    sourcePolicy:
+      mode: Restricted
+    sources:
+      - name: qualification
+        kind: S3
+        s3:
+          endpoint: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+          region: eu-frankfurt-1
+          bucket: qualification-media
+          keyPrefixes: [qualification-input/]
+          pathStyle: true
+          credentialSecretRef:
+            name: qualification-source

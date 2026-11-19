@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tamoss-database-init
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tamoss-database-init
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: initialise
+          image: {{ .Values.image | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          env:
+            - name: PGHOST
+              value: {{ required "host is required" .Values.host | quote }}
+            - {name: PGDATABASE, value: postgres}
+            - {name: PGPORT, value: '5432'}
+            - {name: PGSSLMODE, value: verify-full}
+            - {name: PGSSLROOTCERT, value: /etc/oci-postgresql/ca.pem}
+            - {name: PGCONNECT_TIMEOUT, value: '10'}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.administratorSecret }}, key: username}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.administratorSecret }}, key: password}
+            - name: TAMS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.tamossSecret }}, key: password}
+            - name: AUTHENTIK_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.authentikSecret }}, key: password}
+          volumeMounts:
+            - {name: ca, mountPath: /etc/oci-postgresql, readOnly: true}
+            - {name: sql, mountPath: /sql, readOnly: true}
+          command: [psql]
+          args: [--no-psqlrc, --set=ON_ERROR_STOP=1, --file=/sql/init.sql]
+      volumes:
+        - name: sql
+          configMap:
+            name: tamoss-database-init
+        - name: ca
+          configMap:
+            name: {{ .Values.caConfigMap }}

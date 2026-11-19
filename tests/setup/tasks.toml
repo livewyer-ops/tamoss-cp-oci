@@ -95,6 +95,15 @@ run = [
 ]
 env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
 
+["test:setup:interrupted"]
+hide = true
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}/interrupted'",
+  "cp tests/setup/deployment-release.yaml '{{ env.TASKV_DIRECTORY }}/interrupted/identity.yaml'",
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}/interrupted' mise run bootstrap:install",
+]
+env.TASKV_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/setup"
+
 ["test:setup:discovery:prepare"]
 hide = true
 run = [

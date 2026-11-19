@@ -1,0 +1,6 @@
+releases:
+  - name: tamoss-runtime
+    namespace: tams
+    chart: ../../charts/runtime
+    values:
+      - runtime: {{ .Values.runtime | toYaml | nindent 10 }}

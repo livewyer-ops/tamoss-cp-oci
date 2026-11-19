@@ -1,0 +1,23 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: StorageBackend
+metadata:
+  name: tams-storage-default
+  namespace: tams
+spec:
+  tamossRef:
+    name: tamoss
+  provider: external-s3
+  usage: media
+  defaultStorage: true
+  region: eu-frankfurt-1
+  bucketName: qualification-media
+  endpoint:
+    default:
+      url: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+    public:
+      url: https://REPLACE.compat.objectstorage.eu-frankfurt-1.oci.customer-oci.com
+  credentials:
+    existingSecret: tams-s3
+    secretKeys:
+      accessKey: accessKey
+      secretKey: secretKey

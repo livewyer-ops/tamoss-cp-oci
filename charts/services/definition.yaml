@@ -1,0 +1,105 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: tamossservices.tamoss.livewyer.io
+spec:
+  scope: Namespaced
+  group: tamoss.livewyer.io
+  names:
+    kind: TamossServices
+    plural: tamossservices
+  defaultCompositionRef:
+    name: tamoss-services
+  defaultCompositeDeletePolicy: Foreground
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [deploymentId, ownerUid, region, compartmentId, providerConfigName, owner, database, storage]
+              properties:
+                deploymentId:
+                  type: string
+                  minLength: 1
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Services cannot move between deployments
+                ownerUid:
+                  description: UID of the base environment; tags the resources for ownership checks at teardown.
+                  type: string
+                  format: uuid
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Services cannot move between environments
+                region:
+                  type: string
+                  maxLength: 64
+                  pattern: '^[a-z]+-[a-z]+-[0-9]+$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Services cannot move between regions
+                compartmentId:
+                  type: string
+                  pattern: '^ocid1\.compartment\.'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Services cannot move between compartments
+                providerConfigName:
+                  type: string
+                  minLength: 1
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Provider identity is immutable
+                owner:
+                  type: string
+                  minLength: 1
+                database:
+                  type: object
+                  required: [version, shape, ocpus, memoryGiB, administrator, credentialsSecret, regionalStorage, backupRetentionDays, subnetId]
+                  x-kubernetes-validations:
+                    - rule: 'self.regionalStorage || has(self.availabilityDomain)'
+                      message: AD-local database storage requires an availability domain
+                  properties:
+                    version: {type: string, minLength: 1}
+                    shape:
+                      type: string
+                      pattern: '^VM\.Standard(\.E[0-9]+|[0-9]+)\.Flex$'
+                    ocpus: {type: integer, minimum: 1}
+                    memoryGiB: {type: integer, minimum: 8}
+                    administrator:
+                      type: string
+                      pattern: '^[a-z][a-z0-9_]{2,30}$'
+                    credentialsSecret: {type: string, minLength: 1}
+                    regionalStorage: {type: boolean}
+                    availabilityDomain: {type: string, minLength: 1}
+                    backupRetentionDays: {type: integer, minimum: 1, maximum: 35}
+                    subnetId:
+                      type: string
+                      pattern: '^ocid1\.subnet\.'
+                      x-kubernetes-validations:
+                        - rule: self == oldSelf
+                          message: The database cannot move between subnets
+                storage:
+                  type: object
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Storage identity is immutable
+                  required: [namespace, bucket]
+                  properties:
+                    namespace: {type: string, pattern: '^[a-zA-Z0-9_-]+$', maxLength: 128}
+                    bucket: {type: string, maxLength: 63, pattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'}
+            status:
+              type: object
+              properties:
+                outputs:
+                  type: object
+                  properties:
+                    databaseId: {type: string}
+                    databaseIp: {type: string}
+                    bucket: {type: string}
+                    objectEndpoint: {type: string}

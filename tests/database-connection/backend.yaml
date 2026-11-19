@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database-connection-check
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connection-fixture
+  namespace: database-connection-check
+data:
+  connection.json: |
+    {"data":{"primary-db-endpoint":{"fqdn":"db.example.invalid"},"ca-certificate":"-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n"}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unrelated
+  namespace: database-connection-check

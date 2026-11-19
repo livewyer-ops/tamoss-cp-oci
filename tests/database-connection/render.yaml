@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Render
+(resources[?kind == 'Job'] | [0].metadata.annotations."helm.sh/hook"): post-install,post-upgrade
+(resources[?kind == 'Job'] | [0].metadata.annotations."helm.sh/hook-delete-policy"): before-hook-creation
+(resources[?kind == 'Job'] | [0].spec.activeDeadlineSeconds): 180
+(resources[?kind == 'Job'] | [0].spec.backoffLimit): 2
+(resources[?kind == 'Role'] | [0].rules[0].resourceNames): [database-connection]
+(resources[?kind == 'Role'] | [0].rules[0].verbs): [get, patch]
+(resources[?kind == 'Job'] | [0].spec.template.spec.serviceAccountName): database-connection
+(length(resources[?kind == 'Secret'])): 0
+(resources[?kind == 'Job'] | [0].spec.template.spec.initContainers[?name == 'validate'] | [0].args[?contains(@, 'strenv(CONNECTION_REVISION)}}]')] | length(@)): 1

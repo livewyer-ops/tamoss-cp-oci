@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # Resolved to the verified upstream base in a private rendering directory.
+  - upstream/deploy/instances/multi-server
+  - storage.yaml
+patches:
+  - target: {group: tamoss.livewyer.io, kind: Tamoss}
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: tamoss
+  - target: {group: tamoss.livewyer.io, kind: Tamoss}
+    path: patch.yaml

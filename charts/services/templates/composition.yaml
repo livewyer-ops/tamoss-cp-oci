@@ -1,0 +1,23 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: tamoss-services
+spec:
+  compositeTypeRef:
+    apiVersion: tamoss.livewyer.io/v1alpha1
+    kind: TamossServices
+  mode: Pipeline
+  pipeline:
+    - step: services
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+{{ .Files.Get "composition.gotmpl" | indent 12 }}
+    - step: readiness
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,40 @@
+
+["runtime:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_RUNTIME_DIR | quote }} || { printf '%s\n' "Missing required input: RUNTIME_DIR" >&2; exit 1; }''',
+  '''RELEASE_LOCK={{ ((env.TASKV_RUNTIME_DIR) ~ "/tamoss-release.yaml") | quote }} OUTPUT_DIR={{ ((env.TASKV_RUNTIME_DIR) ~ "/instance-base") | quote }} mise run tamoss:instance''',
+  "mkdir -p -m 700 '{{ env.TASKV_RUNTIME_DIR }}/instance'",
+  "TAMOSS_ENV_DIR='{{ env.TASKV_RUNTIME_DIR }}' helmfile -f deploy/runtime/helmfile.yaml.gotmpl --state-values-file '{{ vars.ROOT_DIR }}/deploy/runtime/values.yaml.gotmpl' template > '{{ env.TASKV_RUNTIME_DIR }}/instance/runtime.yaml'",
+  "cp deploy/runtime/kustomization.yaml '{{ env.TASKV_RUNTIME_DIR }}/instance/'",
+  '''yq -i '.resources[0] = "{{ env.TASKV_BASE_RELATIVE }}"' {{ env.TASKV_RUNTIME_DIR }}/instance/kustomization.yaml''',
+  "kubectl kustomize '{{ env.TASKV_RUNTIME_DIR }}/instance' > '{{ env.TASKV_RUNTIME_DIR }}/instance.yaml'",
+]
+env.TASKV_RUNTIME_DIR = '''{{ env.RUNTIME_DIR | default(value="") }}'''
+env.TASKV_BASE_RELATIVE = '''{% if env.BASE_RELATIVE is defined %}{{ env.BASE_RELATIVE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "realpath -m --relative-to='" ~ (env.TASKV_RUNTIME_DIR) ~ "/instance' '" ~ (env.TASKV_RUNTIME_DIR) ~ "/instance-base'") }}{% endif %}'''
+
+["runtime:fixture"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ env.TASKV_RUNTIME_DIR }}'",
+  "cp tests/runtime/outputs.json tests/runtime/database-connection.json environments/example/environment.yaml environments/example/settings.yaml '{{ env.TASKV_RUNTIME_DIR }}/'",
+  "cp deploy/tamoss/release.yaml '{{ env.TASKV_RUNTIME_DIR }}/tamoss-release.yaml'",
+  "cp '{{ vars.ROOT_DIR }}/.local/tmp/check/media/qualification.sha256' '{{ env.TASKV_RUNTIME_DIR }}/qualification.sha256'",
+]
+env.TASKV_RUNTIME_DIR = "{% if env.RUNTIME_DIR is defined %}{{ env.RUNTIME_DIR }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/runtime{% endif %}"
+
+["runtime:check"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run runtime:fixture",
+  "RUNTIME_DIR={{ ((env.TASKV_RUNTIME_DIR)) | quote }} mise run runtime:render",
+  "crossplane resource validate '{{ vars.ROOT_DIR }}/.local/tmp/check/schemas' '{{ env.TASKV_RUNTIME_DIR }}/instance.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ vars.ROOT_DIR }}/.local/tmp/check/crossplane' --error-on-missing-schemas --skip-success-results",
+  '''yq 'select(.kind == "Tamoss")' {{ env.TASKV_RUNTIME_DIR }}/instance.yaml > {{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml''',
+  '''yq -e '.spec.version == load("{{ env.TASKV_RUNTIME_DIR }}/tamoss-release.yaml").tag' {{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml''',
+  "chainsaw assert -r '{{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml' -f tests/runtime/tamoss.yaml --timeout 1s",
+  '''yq eval-all -e '[select(.kind == "StorageBackend") | (.spec as $s | load("{{ env.TASKV_RUNTIME_DIR }}/tamoss.yaml").spec.backends.s3.external as $e | $s.bucketName == $e.bucket and $s.region == $e.region and $s.endpoint == $e.endpoint and $s.credentials == $e.auth)] | [length > 0, all] | all' '{{ env.TASKV_RUNTIME_DIR }}/instance.yaml'''',
+]
+env.TASKV_RUNTIME_DIR = "{% if env.RUNTIME_DIR is defined %}{{ env.RUNTIME_DIR }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/runtime{% endif %}"

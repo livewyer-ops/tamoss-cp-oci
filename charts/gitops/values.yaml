@@ -1,0 +1,36 @@
+deploymentId: ''
+region: ''
+vaultId: ''
+databaseAdministrator: postgres
+databaseRefreshRevision: '1'
+# Database and bucket reconciled by Crossplane in this cluster.
+services:
+  name: ''
+  ownerUid: ''
+  compartmentId: ''
+  owner: ''
+  databaseSubnetId: ''
+  storageNamespace: ''
+  database: {}
+tadoss:
+  enabled: false
+  release: {}
+release:
+  tag: ''
+  releaseSha256: ''
+  sourceSha256: ''
+  bundleURL: ''
+  digest: ''
+  postgresImage: ''
+runtime:
+  publicIp: ''
+  loadBalancerSubnetId: ''
+  bucket: ''
+  objectEndpoint: ''
+  acmeEmail: ''
+  adminEmail: ''
+dependencies: {}
+packages: {}
+externalSecrets: {}
+connectionImages: {}
+assets: {}

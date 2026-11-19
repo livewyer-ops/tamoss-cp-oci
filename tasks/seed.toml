@@ -55,3 +55,20 @@ run = [
   "rm -f '{{ vars.ENV_DIR }}/remote-token.json' '{{ vars.ENV_DIR }}/remote-access.yaml' '{{ vars.ENV_DIR }}/remote-access-observed.json'",
 ]
 
+["settings:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  # The management chart derives the OKE settings from the same private values Kind was seeded with.
+  '''umask 077
+helm template management charts/management -f pins.yaml -f '{{ vars.ENV_DIR }}/values.yaml' -f '{{ vars.ENV_DIR }}/deployment.yaml' --set renderSettings=true --show-only templates/settings.yaml > '{{ vars.ENV_DIR }}/oke-settings.yaml'''',
+]
+
+["settings:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  { task = "settings:render" },
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/oke-settings.yaml'",
+]
+

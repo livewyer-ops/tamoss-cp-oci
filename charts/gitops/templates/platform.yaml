@@ -1,0 +1,84 @@
+{{- $r := deepCopy .Values.runtime -}}
+{{- $domain := printf "%s.sslip.io" (replace "." "-" $r.publicIp) -}}
+{{- $_ := set $r "authHost" (printf "auth.%s" $domain) -}}
+{{- $_ := set $r "databaseHost" "pending.invalid" -}}
+{{- $_ := required "Supply the pinned upstream platform defaults through valuesFrom" .Values.authentikChart -}}
+{{- $context := dict "Values" (dict "runtime" $r) -}}
+{{- $platform := mergeOverwrite (deepCopy .Values) (tpl (.Files.Get "files/platform-values.yaml.gotmpl") $context | fromYaml) -}}
+{{- $bom := .Values.dependencies.platform -}}
+{{- $releases := list
+  (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))
+  (dict "name" "traefik" "namespace" "traefik" "chart" "traefik" "source" "traefik" "version" $bom.traefik.chartVersion "values" $platform.traefik)
+  (dict "name" "authentik-bootstrap" "namespace" "auth" "chart" "authentik-bootstrap" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart) "secret" true "connection" true "needs" (list (dict "name" "tamoss-secrets-auth" "namespace" "tamoss-infra") (dict "name" "tamoss-secrets-tamoss-infra" "namespace" "tamoss-infra") (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra")))
+  (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra" "chart" "database-connection" "values" (dict "region" .Values.region "refreshRevision" .Values.databaseRefreshRevision "images" .Values.connectionImages) "database" true "needs" (list (dict "name" "tamoss-services" "namespace" "tamoss-infra")))
+  (dict "name" "tamoss-database-init" "namespace" "auth" "chart" "tamoss-database-init" "values" dict "connection" true "needs" (list (dict "name" "authentik-bootstrap" "namespace" "tamoss-infra") (dict "name" "tamoss-database-connection" "namespace" "tamoss-infra")))
+  (dict "name" "authentik" "namespace" "auth" "chart" "authentik" "source" "authentik" "version" $bom.authentik.chartVersion "values" $platform.authentikChart "connection" true "needs" (list (dict "name" "tamoss-database-init" "namespace" "tamoss-infra")))
+  (dict "name" "tamoss-platform-config" "namespace" "tamoss-platform" "chart" "tamoss-platform-config" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart "tls" $platform.tls "clusterIssuer" $platform.clusterIssuer) "needs" (list (dict "name" "cert-manager" "namespace" "tamoss-infra") (dict "name" "authentik" "namespace" "tamoss-infra"))) -}}
+{{ range $releases }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ .name }}
+  namespace: tamoss-infra
+spec:
+  install:
+    createNamespace: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  interval: 10m
+  timeout: 15m
+  releaseName: {{ .name }}
+  targetNamespace: {{ .namespace }}
+  storageNamespace: {{ .namespace }}
+{{ with .needs }}
+  dependsOn:
+{{ . | toYaml | indent 4 }}
+{{ end }}
+{{ if .source }}
+  chart:
+    spec:
+      chart: {{ .chart }}
+      version: {{ .version | quote }}
+      sourceRef: {kind: HelmRepository, name: {{ .source }}, namespace: tamoss-infra}
+{{ else }}
+  chart:
+    spec:
+      chart: {{ index (dict "authentik-bootstrap" "./deploy/tamoss/instance/upstream/deploy/platform/charts/authentik-bootstrap" "tamoss-platform-config" "./deploy/tamoss/instance/upstream/deploy/platform/charts/config" "tamoss-database-init" "./deploy/tamoss/database/chart") .chart | default (printf "./charts/%s" .chart) }}
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+{{ end }}
+{{ if or .secret .connection .database }}
+  valuesFrom:
+{{ if .database }}
+    - {kind: ConfigMap, name: tamoss-services, valuesKey: DATABASE_ID, targetPath: databaseId}
+{{ end }}
+{{ if .secret }}
+    - {kind: Secret, name: authentik-secret-key, valuesKey: password, targetPath: authentik.secretKey}
+    - {kind: Secret, name: authentik-password, valuesKey: password, targetPath: authentik.bootstrap.password}
+    - {kind: Secret, name: authentik-token, valuesKey: password, targetPath: authentik.bootstrap.token}
+    - {kind: Secret, name: authentik-database, valuesKey: password, targetPath: authentik.postgresql.password}
+    - {kind: Secret, name: authentik-database, valuesKey: password, targetPath: authentik.postgresql.postgresPassword}
+{{ end }}
+{{ if .connection }}
+    - kind: ConfigMap
+      name: database-connection
+      valuesKey: DATABASE_HOST
+      targetPath: {{ if eq .name "authentik-bootstrap" }}authentikChart.authentik.postgresql.host{{ else }}{{ ternary "authentik.postgresql.host" "host" (eq .name "authentik") }}{{ end }}
+{{ end }}
+{{ end }}
+  values:
+{{ if eq .name "authentik" }}
+{{- $_ := unset .values.authentik.postgresql "host" -}}
+{{ end }}
+{{ if .secret }}
+{{- $_ := unset .values.authentikChart.authentik.postgresql "host" -}}
+{{- $_ := unset .values.authentik "secretKey" -}}
+{{- $_ := unset .values.authentik.bootstrap "password" -}}
+{{- $_ := unset .values.authentik.bootstrap "token" -}}
+{{- $_ := unset .values.authentik.postgresql "password" -}}
+{{- $_ := unset .values.authentik.postgresql "postgresPassword" -}}
+{{ end }}
+{{ .values | toYaml | indent 4 }}
+{{ end }}

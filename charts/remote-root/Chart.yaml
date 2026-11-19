@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-remote-root
+description: Flux source, settings and root release that OKE reconciles for itself
+type: application
+version: 0.1.0

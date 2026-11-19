@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["tasks/account.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/setup/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
+includes = ["deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/kind-restart/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -44,5 +44,16 @@ run = [
   """COMPARTMENT="${usage_compartment_id:-}" CONTACT="${usage_contact_email:-}" yq -i 'with(select(strenv(COMPARTMENT) != ""); .compartmentId = strenv(COMPARTMENT)) | with(select(strenv(CONTACT) != ""); .contactEmail = strenv(CONTACT))' '{{ vars.ENV_DIR }}/values.yaml'""",
   { task = "setup:discover" },
   """yq -e '(.compartmentId // "") as $c | (.contactEmail // "") as $e | [($c | test("^ocid1[.]compartment[.]")), ($c | test("REPLACE") | not), ($e | test("@")), ($e | test("[.]invalid$") | not)] | all' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 && echo 'Settings are ready in {{ vars.ENV_DIR }}/values.yaml. Review them, then run: mise run up' || echo 'Enter compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml, then run: mise run up'""",
+]
+
+[tasks."up"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Create a fresh deployment and wait for public HTTPS"
+run = [
+  { task = "preflight" },
+  { task = "bootstrap:install" },
+  { task = "bootstrap:access" },
+  { task = "management:stop-kind" },
 ]
 

@@ -1,0 +1,67 @@
+["test:source:start"]
+hide = true
+run = [
+  "test ! -s '{{ env.TASKV_DIRECTORY }}/sshd.pid'",
+  "install -d -m 700 '{{ env.TASKV_DIRECTORY }}/repository'",
+  "cp -a charts deploy tests dependencies.yaml pins.yaml .gitignore '{{ env.TASKV_DIRECTORY }}/repository/'",
+  "git -C '{{ env.TASKV_DIRECTORY }}/repository' init --quiet",
+  "git -C '{{ env.TASKV_DIRECTORY }}/repository' add charts deploy tests dependencies.yaml pins.yaml .gitignore",
+  "git -C '{{ env.TASKV_DIRECTORY }}/repository' -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m fixture",
+  "ssh-keygen -q -t ed25519 -N '' -f '{{ env.TASKV_DIRECTORY }}/host-key'",
+  "ssh-keygen -q -t ed25519 -N '' -f '{{ env.TASKV_DIRECTORY }}/reader-key'",
+  '''printf 'restrict,command="git-upload-pack %s/repository" %s\n' '{{ env.TASKV_DIRECTORY }}' "$(cat '{{ env.TASKV_DIRECTORY }}/reader-key.pub')" > '{{ env.TASKV_DIRECTORY }}/authorised-keys' ''',
+  '''cat > '{{ env.TASKV_DIRECTORY }}/sshd.conf' <<CONFIG
+Port {{ env.TASKV_PORT }}
+ListenAddress {{ env.TASKV_ADDRESS }}
+HostKey {{ env.TASKV_DIRECTORY }}/host-key
+PidFile {{ env.TASKV_DIRECTORY }}/sshd.pid
+AuthorizedKeysFile {{ env.TASKV_DIRECTORY }}/authorised-keys
+PermitRootLogin forced-commands-only
+AllowUsers {{ env.TASKV_USER }}
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+LogLevel VERBOSE
+CONFIG
+/usr/sbin/sshd -f '{{ env.TASKV_DIRECTORY }}/sshd.conf' -E '{{ env.TASKV_DIRECTORY }}/sshd.log' ''',
+  '''umask 077
+flux create secret git deployment-git -n tamoss-infra --url='ssh://{{ env.TASKV_USER }}@{{ env.TASKV_ADDRESS }}:{{ env.TASKV_PORT }}/product.git' --private-key-file='{{ env.TASKV_DIRECTORY }}/reader-key' --export > '{{ env.TASKV_DIRECTORY }}/secret.yaml'
+COMMIT="$(git -C '{{ env.TASKV_DIRECTORY }}/repository' rev-parse HEAD)" yq -n '{"assets": {"url": "ssh://{{ env.TASKV_USER }}@{{ env.TASKV_ADDRESS }}:{{ env.TASKV_PORT }}/product.git", "commit": strenv(COMMIT), "secretName": "deployment-git"}}' > '{{ env.TASKV_DIRECTORY }}/values.yaml' ''',
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/git-source'
+env.TASKV_USER = '{{ exec(command="id -un") }}'
+env.TASKV_PORT = '{{ env.GIT_TEST_PORT | default(value="22422") }}'
+env.TASKV_ADDRESS = '''{{ exec(command="docker network inspect kind | yq -r '.[0].IPAM.Config[] | select(.Gateway | contains(\".\")) | .Gateway'") }}'''
+
+["test:source:cleanup"]
+hide = true
+run = [
+  '''test ! -s '{{ env.TASKV_DIRECTORY }}/sshd.pid' || kill "$(cat '{{ env.TASKV_DIRECTORY }}/sshd.pid')"''',
+  "rm -rf '{{ env.TASKV_DIRECTORY }}'",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/git-source'
+
+["test:source:inputs"]
+hide = true
+run = [
+  "install -d -m 700 '{{ env.TASKV_DIRECTORY }}/repository'",
+  "git -C '{{ env.TASKV_DIRECTORY }}/repository' init --quiet",
+  "git -C '{{ env.TASKV_DIRECTORY }}/repository' -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty --quiet -m fixture",
+  '''yq -n '{"source":{"private":true}}' > '{{ env.TASKV_DIRECTORY }}/values.yaml' ''',
+  '''yq -n '{"deploymentUID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml' ''',
+  '''DIRECTORY='{{ env.TASKV_DIRECTORY }}' yq eval-all -p=toml -o=toml '
+    select(fileIndex == 0) as $assets | select(fileIndex == 1) as $source | select(fileIndex == 0) |
+    {"vars":{"ENV_DIR":strenv(DIRECTORY)},
+     "task_config":{"shell":"bash -euo pipefail -c"},
+     "tasks":{"resolve":{"run":[$assets."assets:fetch".run[2]]}, "verify":$assets."assets:verify",
+       "source:authenticate":$source."source:authenticate", "source:cleanup":$source."source:cleanup"}} |
+    .tasks."source:authenticate".run = ["echo unexpected-authentication >&2; exit 23"] |
+    .tasks[].dir = (strenv(DIRECTORY) + "/repository")' tasks/assets.toml tasks/source.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml' ''',
+  "mise trust '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml'",
+  "chainsaw test --no-cluster --test-dir tests/source/inputs --set-string directory='{{ env.TASKV_DIRECTORY }}' --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name source-inputs",
+]
+env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/source-inputs'
+

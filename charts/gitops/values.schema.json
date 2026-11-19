@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["deploymentId", "region", "vaultId", "services", "databaseAdministrator", "databaseRefreshRevision", "release", "runtime", "dependencies", "packages", "externalSecrets", "connectionImages"],
+  "properties": {
+    "deploymentId": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "region": {"type": "string", "pattern": "^[a-z]+-[a-z]+-[0-9]+$"},
+    "vaultId": {"type": "string", "pattern": "^ocid1\\.vault\\.[a-z0-9.-]+$"},
+    "services": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "ownerUid", "compartmentId", "owner", "databaseSubnetId", "storageNamespace", "database"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,21}[a-z0-9]$"},
+        "ownerUid": {"type": "string", "pattern": "^[a-f0-9-]{36}$"},
+        "compartmentId": {"type": "string", "pattern": "^ocid1\\.compartment\\.[a-z0-9.-]+$"},
+        "owner": {"type": "string", "minLength": 1},
+        "databaseSubnetId": {"type": "string", "pattern": "^ocid1\\.subnet\\.[a-z0-9.-]+$"},
+        "storageNamespace": {"type": "string", "pattern": "^[a-zA-Z0-9_-]+$"},
+        "database": {"type": "object", "required": ["version", "shape", "ocpus", "memoryGiB", "regionalStorage", "backupRetentionDays"]}
+      }
+    },
+    "databaseAdministrator": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
+    "databaseRefreshRevision": {"type": "string", "minLength": 1, "maxLength": 64},
+    "tadoss": {
+      "type": "object", "additionalProperties": false, "required": ["enabled", "release"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "release": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+[-a-zA-Z0-9.]*$"},
+            "releaseSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "runtimeImage": {"$ref": "#/definitions/image"},
+            "bundleURL": {"type": "string", "pattern": "^oci://ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$"},
+            "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        }
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"properties": {"release": {"required": ["version", "releaseSha256", "runtimeImage", "bundleURL", "digest"]}}}
+    },
+    "release": {
+      "type": "object", "additionalProperties": false, "required": ["tag", "releaseSha256", "sourceSha256", "bundleURL", "digest", "postgresImage"],
+      "properties": {
+        "tag": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+[-a-zA-Z0-9.]*$"},
+        "releaseSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "sourceSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bundleURL": {"type": "string", "pattern": "^oci://ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$"},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "postgresImage": {"type": "string", "pattern": "^docker\\.io/library/postgres:[0-9]+\\.[0-9]+-alpine(@sha256:[a-f0-9]{64})?$"}
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false, "required": ["publicIp", "loadBalancerSubnetId", "bucket", "objectEndpoint", "acmeEmail", "adminEmail"],
+      "properties": {
+        "publicIp": {"type": "string", "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"},
+        "loadBalancerSubnetId": {"type": "string", "pattern": "^ocid1\\.subnet\\.[a-z0-9.-]+$"},
+        "bucket": {"type": "string", "pattern": "^[a-zA-Z0-9_.-]{1,256}$"},
+        "objectEndpoint": {"type": "string", "pattern": "^https://[a-zA-Z0-9.-]+$"},
+        "acmeEmail": {"type": "string", "pattern": "^[^@\\s]+@[^@\\s]+$"},
+        "adminEmail": {"type": "string", "pattern": "^[^@\\s]+@[^@\\s]+$"}
+      }
+    },
+    "dependencies": {"type": "object", "required": ["crossplane", "externalSecrets", "platform", "calicoCommit"]},
+    "packages": {"type": "object", "required": ["providerVersion", "functions"]},
+    "externalSecrets": {"type": "object"},
+    "connectionImages": {"type": "object", "additionalProperties": false, "required": ["oci", "yq", "kubectl"], "properties": {"oci": {"$ref": "#/definitions/image"}, "yq": {"$ref": "#/definitions/image"}, "kubectl": {"$ref": "#/definitions/image"}}}
+  },
+  "definitions": {
+    "image": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$"}
+  }
+}

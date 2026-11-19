@@ -1,0 +1,179 @@
+{{- $domain := printf "%s.sslip.io" (replace "." "-" .Values.runtime.publicIp) -}}
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: credentials, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 5m
+  prune: false
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  healthChecks:
+{{ range $ns, $names := dict "auth" (list "database-admin" "tams-database") "tamoss-infra" (list "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database") "tams" (list "tams-database" "tams-s3" "qualification-source") }}
+{{ range $names }}
+    - {apiVersion: external-secrets.io/v1, kind: ExternalSecret, name: {{ . }}, namespace: {{ $ns }}}
+{{ end }}
+{{ end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: database-connection, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 5m
+  prune: false
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  healthChecks:
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tamoss-database-connection, namespace: tamoss-infra}
+    - {apiVersion: v1, kind: ConfigMap, name: database-connection, namespace: tamoss-infra}
+  healthCheckExprs:
+    - apiVersion: v1
+      kind: ConfigMap
+      current: >-
+        'DATABASE_ID' in data && 'DATABASE_HOST' in data && 'DATABASE_CA_BASE64' in data && 'CONNECTION_REVISION' in data &&
+        data.DATABASE_ID == metadata.annotations['tamoss.livewyer.io/database-id'] && data.DATABASE_HOST != '' && data.DATABASE_CA_BASE64 != '' &&
+        data.CONNECTION_REVISION == metadata.annotations['tamoss.livewyer.io/connection-revision']
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      current: >-
+        has(status.observedGeneration) && status.observedGeneration == metadata.generation &&
+        has(status.conditions) && status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: database-ca, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 5m
+  prune: true
+  dependsOn: [{name: database-connection}]
+  path: ./deploy/gitops/database-ca
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: database-connection}]
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: platform, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 15m
+  prune: false
+  dependsOn: [{name: credentials}, {name: database-ca}]
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  healthChecks:
+{{ range $ns, $names := dict "cert-manager" (list "cert-manager") "traefik" (list "traefik") "auth" (list "authentik" "tamoss-database-init") "tamoss-platform" (list "tamoss-platform-config") }}
+{{ range $names }}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: tamoss-operator, namespace: tamoss-infra}
+spec:
+  interval: 5m
+  timeout: 10m
+  prune: false
+  deletionPolicy: Orphan
+  dependsOn: [{name: platform}, {name: oke-prerequisites}]
+  path: ./
+  sourceRef: {kind: OCIRepository, name: tamoss-operator-source}
+  healthChecks:
+    - {apiVersion: apps/v1, kind: Deployment, name: operator-controller-manager, namespace: tamoss-system}
+  images:
+    - {name: livewyer/tamoss-operator, newName: docker.io/livewyer/tamoss-operator}
+  patches:
+    - target: {kind: Namespace, name: tamoss-system}
+      patch: |-
+        apiVersion: v1
+        kind: Namespace
+        metadata: {name: tamoss-system}
+        $patch: delete
+    - target: {kind: Deployment, name: operator-controller-manager}
+      patch: |-
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata: {name: operator-controller-manager}
+        spec:
+          replicas: 2
+          template:
+            spec:
+              affinity:
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchLabels: {control-plane: controller-manager}
+                      topologyKey: kubernetes.io/hostname
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: tamoss, namespace: tamoss-infra}
+spec:
+  interval: 5m
+  timeout: 15m
+  prune: false
+  deletionPolicy: Orphan
+  dependsOn: [{name: tamoss-operator}, {name: credentials}, {name: database-ca}, {name: calico}]
+  path: ./deploy/tamoss/instance
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: database-connection}]
+  healthChecks:
+    - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: Tamoss, name: tamoss, namespace: tams}
+    - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: StorageBackend, name: tams-storage-default, namespace: tams}
+  patches:
+    - target: {kind: Tamoss}
+      patch: |-
+        apiVersion: tamoss.livewyer.io/v1alpha1
+        kind: Tamoss
+        metadata: {name: tamoss, namespace: tams}
+        spec:
+          version: {{ .Values.release.tag | quote }}
+          images:
+            schemaMigrationPostgresClient: {{ .Values.release.postgresImage | quote }}
+          publicEndpoint:
+            baseDomain: {{ $domain }}
+            uiURL: https://app.{{ $domain }}
+          ingress:
+            api: {host: api.{{ $domain }}}
+            ui:
+              web: {host: app.{{ $domain }}}
+          api:
+            cors: {allowedOrigins: ['https://app.{{ $domain }}']}
+          auth:
+            authentikBlueprints: {issuerURL: 'https://auth.{{ $domain }}'}
+          backends:
+            db:
+              external: {host: '${DATABASE_HOST}'}
+            s3:
+              external:
+                region: {{ .Values.region }}
+                bucket: {{ .Values.runtime.bucket }}
+                endpoint:
+                  default: {url: {{ .Values.runtime.objectEndpoint | quote }}}
+                  public: {url: {{ .Values.runtime.objectEndpoint | quote }}}
+          ingest:
+            sources:
+              - name: qualification
+                kind: S3
+                s3:
+                  endpoint: {{ .Values.runtime.objectEndpoint | quote }}
+                  region: {{ .Values.region }}
+                  bucket: {{ .Values.runtime.bucket }}
+                  keyPrefixes: [qualification-input/]
+                  pathStyle: true
+                  credentialSecretRef: {name: qualification-source}
+    - target: {kind: StorageBackend}
+      patch: |-
+        apiVersion: tamoss.livewyer.io/v1alpha1
+        kind: StorageBackend
+        metadata: {name: tams-storage-default, namespace: tams}
+        spec:
+          region: {{ .Values.region }}
+          bucketName: {{ .Values.runtime.bucket }}
+          endpoint:
+            default: {url: {{ .Values.runtime.objectEndpoint | quote }}}
+            public: {url: {{ .Values.runtime.objectEndpoint | quote }}}

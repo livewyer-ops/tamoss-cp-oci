@@ -10,3 +10,33 @@ run = [
   "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/helm-controller --replicas=1",
 ]
 
+["management:stop-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker stop '{{ item }}' > /dev/null
+{% endif %}{% endfor %}''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kind get nodes --name tamoss-cp-" ~ (env.TASKV_NAME)) }}{% endif %}'''
+
+["management:start-kind"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -s '{{ vars.ENV_DIR }}/management.kubeconfig' && test -n '{{ env.TASKV_NODES }}' || { printf '%s\n' "Restore the original Kind containers and identity records; do not create a replacement" >&2; exit 1; }''',
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker start '{{ item }}'
+{% endif %}{% endfor %}''',
+  '''{% for item in env.TASKV_NODES | trim | split(pat="\n") %}
+{% if item != "" %}
+docker exec '{{ item }}' curl --fail --silent --show-error --cacert /etc/kubernetes/pki/ca.crt --connect-timeout 2 --max-time 5 --retry 90 --retry-all-errors --retry-delay 2 --retry-max-time 180 https://localhost:6443/readyz
+{% endif %}{% endfor %}''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' wait --for=condition=Ready nodes --all --timeout=180s",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_NODES = '''{% if env.NODES is defined %}{{ env.NODES }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "kind get nodes --name tamoss-cp-" ~ (env.TASKV_NAME)) }}{% endif %}'''

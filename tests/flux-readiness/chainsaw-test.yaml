@@ -1,0 +1,361 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: flux-release-readiness}
+spec:
+  steps:
+    - name: install the release through Flux
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: flux-check}
+        - apply:
+            file: ../../.local/tmp/check/flux-readiness-source.yaml
+        - apply:
+            file: resources.yaml
+        - assert:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: HelmChart
+              metadata: {name: flux-check-authentik-bootstrap, namespace: flux-check}
+              (status.observedGeneration == metadata.generation): true
+              (status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'flux-check', 'tamoss-upstream').status.artifact.revision): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              (status.observedGeneration == metadata.generation): true
+              (status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'flux-check', 'flux-check-authentik-bootstrap').status.artifact.revision): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: authentik, namespace: flux-check}
+              data:
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+    - name: preserve the release Secrets across a values change and a failed chart
+      bindings:
+        - name: originalSecretUID
+          value: (x_k8s_get($client, 'v1', 'Secret', 'flux-check', 'authentik').metadata.uid)
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: bootstrap-values, namespace: flux-check}
+              data:
+                values.yaml: (replace_all(x_k8s_get($client, 'v1', 'ConfigMap', 'flux-check', 'bootstrap-values').data."values.yaml", 'admin@example.invalid', 'changed@example.invalid'))
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: authentik
+                namespace: flux-check
+                uid: ($originalSecretUID)
+              data:
+                AUTHENTIK_BOOTSTRAP_EMAIL: (base64_encode('changed@example.invalid'))
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              spec:
+                chart:
+                  spec:
+                    chart: ./missing-chart
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: authentik
+                namespace: flux-check
+                uid: ($originalSecretUID)
+              data:
+                AUTHENTIK_BOOTSTRAP_PASSWORD: Zml4dHVyZS1wYXNzd29yZA==
+        - apply:
+            file: resources.yaml
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: evaluate connection readiness without applying application objects
+      try:
+        - apply:
+            file: ../../.local/tmp/check/flux-readiness-health-source.yaml
+        - assert:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata: {name: health-only, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: connection-readiness, namespace: flux-check, annotations: {tamoss.livewyer.io/database-id: expected}}
+              data: {DATABASE_ID: stale}
+        - apply:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              spec:
+                interval: 5s
+                retryInterval: 5s
+                timeout: 5s
+                path: ./
+                prune: false
+                sourceRef: {kind: GitRepository, name: health-only}
+                healthChecks:
+                  - {apiVersion: v1, kind: ConfigMap, name: connection-readiness, namespace: flux-check}
+                healthCheckExprs:
+                  - apiVersion: v1
+                    kind: ConfigMap
+                    current: "'DATABASE_ID' in data && data.DATABASE_ID == metadata.annotations['tamoss.livewyer.io/database-id']"
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+                (conditions[?type == 'Ready'] | [0].reason): HealthCheckFailed
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: connection-readiness, namespace: flux-check}
+              data: {DATABASE_ID: expected}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: wait for a public certificate to exist and report current readiness
+      try:
+        - apply:
+            file: ../../.local/tmp/check/certificate-crd.yaml
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: certificates.cert-manager.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
+        - apply:
+            file: ../../.local/tmp/check/flux-readiness-readiness.yaml
+            template: false
+        - assert: &aggregateNotReady
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+                (conditions[?type == 'Ready'] | [0].reason): HealthCheckFailed
+        - apply:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              spec:
+                secretName: public-tls
+                dnsNames: [public.example.invalid]
+                issuerRef: {name: fixture}
+        - assert: *aggregateNotReady
+        - patch: &certificateReady
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status:
+                conditions:
+                  - type: Ready
+                    status: 'True'
+                    observedGeneration: (x_k8s_get($client, 'cert-manager.io/v1', 'Certificate', 'flux-check', 'public-tls').metadata.generation)
+        - assert: &aggregateReady
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: certificate failures and stale generations block readiness until recovery
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status:
+                conditions: [{type: Ready, status: 'False', observedGeneration: 1}]
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status:
+                conditions: [{type: Ready, status: Unknown, observedGeneration: 1}]
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+        - patch:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              spec: {dnsNames: [changed.example.invalid]}
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: public-tls, namespace: flux-check}
+              status: {conditions: null}
+        - assert: *aggregateNotReady
+        - patch: *certificateReady
+        - assert: *aggregateReady
+    - name: reject stale child readiness and recover through ordinary reconciliation
+      try:
+        - patch:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              spec: {suspend: true}
+        - patch:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              spec:
+                commonMetadata:
+                  annotations: {tamoss.livewyer.io/configuration-sha256: changed}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+                (conditions[?type == 'Ready'] | [0].reason): HealthCheckFailed
+        - patch:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: connection-readiness, namespace: flux-check}
+              spec: {suspend: false}
+        - assert: *aggregateReady
+    - name: reject a suspended release despite a healthy grouping Kustomization
+      try:
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              spec: {suspend: true}
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              spec: {suspend: false}
+        - assert: *aggregateReady
+    - name: reject unavailable registry assets despite healthy existing workloads
+      try:
+        - apply:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: OCIRepository
+              metadata: {name: unavailable-release, namespace: flux-check}
+              spec:
+                interval: 5s
+                timeout: 5s
+                url: oci://fixture.invalid/unavailable
+                ref: {tag: fixture}
+        - patch:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              spec:
+                healthChecks:
+                  - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: connection-readiness, namespace: flux-check}
+                  - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: authentik-bootstrap, namespace: flux-check}
+                  - {apiVersion: source.toolkit.fluxcd.io/v1, kind: OCIRepository, name: unavailable-release, namespace: flux-check}
+        - assert:
+            resource:
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: OCIRepository
+              metadata: {name: unavailable-release, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - assert:
+            resource:
+              apiVersion: kustomize.toolkit.fluxcd.io/v1
+              kind: Kustomization
+              metadata: {name: deployment-ready, namespace: flux-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - apply:
+            file: ../../.local/tmp/check/flux-readiness-readiness.yaml
+            template: false
+        - assert: *aggregateReady
+    - name: resume a frozen release for finalisation and allow repeated removal
+      try:
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: authentik-bootstrap, namespace: flux-check}
+              spec: {suspend: true}
+        - command: &removeRelease
+            entrypoint: env
+            env:
+              - {name: PROJECT_ROOT, value: ($values.root)}
+            args: ["NAMESPACE=flux-check", "NAME=authentik-bootstrap", "mise", "-C", "$PROJECT_ROOT", "run", "bootstrap:remove-release"]
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: authentik, namespace: flux-check}
+        - command: *removeRelease

@@ -1,0 +1,240 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: source-inputs
+spec:
+  steps:
+  - name: resolve supported origin 0
+    try:
+    - command:
+        entrypoint: git
+        env: &id001
+        - name: DIRECTORY
+          value: ($values.directory)
+        - name: PROJECT_ROOT
+          value: ($values.root)
+        args:
+        - -C
+        - $DIRECTORY/repository
+        - config
+        - remote.origin.url
+        - git@github.com:example/deployment.git
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -e
+        - .repository == "example/deployment" and .url == "ssh://git@github.com/example/deployment.git"
+          and .private == true
+        - $DIRECTORY/source.json
+  - name: resolve supported origin 1
+    try:
+    - command:
+        entrypoint: git
+        env: *id001
+        args:
+        - -C
+        - $DIRECTORY/repository
+        - config
+        - remote.origin.url
+        - https://github.com/example/deployment.git
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -e
+        - .repository == "example/deployment" and .url == "ssh://git@github.com/example/deployment.git"
+          and .private == true
+        - $DIRECTORY/source.json
+  - name: resolve supported origin 2
+    try:
+    - command:
+        entrypoint: git
+        env: *id001
+        args:
+        - -C
+        - $DIRECTORY/repository
+        - config
+        - remote.origin.url
+        - ssh://git@github.com/example/deployment.git
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -e
+        - .repository == "example/deployment" and .url == "ssh://git@github.com/example/deployment.git"
+          and .private == true
+        - $DIRECTORY/source.json
+  - name: public source skips authentication
+    try:
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -i
+        - .source.private = false
+        - $DIRECTORY/values.yaml
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -e
+        - .url == "https://github.com/example/deployment.git" and .private == false
+        - $DIRECTORY/source.json
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - source:authenticate
+    - command:
+        entrypoint: test
+        env: *id001
+        args:
+        - '!'
+        - -e
+        - $DIRECTORY/git-key-id
+  - name: require the recorded deployment revision
+    try:
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - verify
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -i
+        - .commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        - $DIRECTORY/source.json
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - verify
+        check:
+          ($error != null): true
+  - name: reject unsupported origin example/deployment
+    try:
+    - command:
+        entrypoint: git
+        env: *id001
+        args:
+        - -C
+        - $DIRECTORY/repository
+        - config
+        - remote.origin.url
+        - example/deployment
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+        check:
+          ($error != null): true
+  - name: reject unsupported origin https://example.invalid/example/deployment.git
+    try:
+    - command:
+        entrypoint: git
+        env: *id001
+        args:
+        - -C
+        - $DIRECTORY/repository
+        - config
+        - remote.origin.url
+        - https://example.invalid/example/deployment.git
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+        check:
+          ($error != null): true
+  - name: reject unsupported origin https://github.com/example/deployment.git?unexpected=true
+    try:
+    - command:
+        entrypoint: git
+        env: *id001
+        args:
+        - -C
+        - $DIRECTORY/repository
+        - config
+        - remote.origin.url
+        - https://github.com/example/deployment.git?unexpected=true
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - resolve
+        check:
+          ($error != null): true

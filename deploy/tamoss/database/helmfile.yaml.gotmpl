@@ -1,0 +1,10 @@
+helmDefaults:
+  wait: true
+  waitForJobs: true
+  timeout: 360
+releases:
+  - name: tamoss-database-init
+    namespace: auth
+    chart: ./chart
+    values:
+      - host: {{ .Values.runtime.databaseHost | quote }}

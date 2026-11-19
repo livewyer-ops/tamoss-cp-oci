@@ -1,0 +1,29 @@
+{{- $directory := requiredEnv "TAMOSS_ENV_DIR" -}}
+{{- $inputs := readFile (printf "%s/environment.yaml" $directory) | fromYaml -}}
+{{- $settings := readFile (printf "%s/settings.yaml" $directory) | fromYaml -}}
+{{- $outputs := readFile (printf "%s/outputs.json" $directory) | fromJson -}}
+{{- $database := readFile (printf "%s/database-connection.json" $directory) | fromJson -}}
+{{- $domain := printf "%s.sslip.io" (replace "." "-" (required "Crossplane public IP is missing" $outputs.publicIp)) -}}
+{{- $lock := readFile (printf "%s/tamoss-release.yaml" $directory) | fromYaml -}}
+{{- $databaseImage := (readFile "../../deploy/tamoss/database/chart/values.yaml" | fromYaml).image -}}
+{{- $fixtureHash := readFile (printf "%s/qualification.sha256" $directory) | trim | splitList " " | first -}}
+tamoss:
+  releaseKey: {{ $lock.releaseSha256 | quote }}
+runtime:
+  ingestURI: {{ printf "s3://%s/qualification-input/%s.mp4" $inputs.spec.storage.bucket $fixtureHash | quote }}
+  postgresImage: {{ $databaseImage | quote }}
+  baseDomain: {{ $domain | quote }}
+  apiHost: {{ printf "api.%s" $domain | quote }}
+  uiHost: {{ printf "app.%s" $domain | quote }}
+  authHost: {{ printf "auth.%s" $domain | quote }}
+  apiURL: {{ printf "https://api.%s" $domain | quote }}
+  uiURL: {{ printf "https://app.%s" $domain | quote }}
+  issuerURL: {{ printf "https://auth.%s" $domain | quote }}
+  publicIp: {{ required "Crossplane public IP is missing" $outputs.publicIp | quote }}
+  loadBalancerSubnetId: {{ required "Crossplane LB subnet is missing" $outputs.loadBalancerSubnetId | quote }}
+  databaseHost: {{ required "OCI database FQDN is missing" (index $database.data "primary-db-endpoint" "fqdn") | quote }}
+  acmeEmail: {{ required "ACME email is required" $settings.acmeEmail | quote }}
+  adminEmail: {{ required "Administrator email is required" $settings.adminEmail | quote }}
+  objectEndpoint: {{ required "Crossplane S3 endpoint is missing" $outputs.objectEndpoint | quote }}
+  region: {{ $inputs.spec.region | quote }}
+  bucket: {{ $inputs.spec.storage.bucket | quote }}

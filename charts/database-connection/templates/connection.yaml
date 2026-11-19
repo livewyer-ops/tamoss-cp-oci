@@ -1,0 +1,114 @@
+{{- $revision := printf "%s/%s" .Values.databaseId .Values.refreshRevision | sha256sum | trunc 12 -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: database-connection
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: database-connection
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    tamoss.livewyer.io/database-id: {{ .Values.databaseId | quote }}
+    tamoss.livewyer.io/connection-revision: {{ $revision | quote }}
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: database-connection
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [database-connection]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: database-connection
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: database-connection
+subjects:
+  - kind: ServiceAccount
+    name: database-connection
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-connection-{{ $revision }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 180
+  template:
+    spec:
+      serviceAccountName: database-connection
+      restartPolicy: Never
+      securityContext:
+        {{- include "operation-common.podSecurity" . | nindent 8 }}
+      initContainers:
+        - name: retrieve
+          image: {{ .Values.images.oci | quote }}
+          command: [/bin/sh, -ec]
+          args:
+            - >-
+              oci --auth oke_workload_identity --region "$OCI_CLI_REGION"
+              --connection-timeout 10 --read-timeout 30 --max-retries 0
+              psql connection-details get --db-system-id "$DATABASE_ID"
+              > /work/connection.json
+          env:
+            - {name: DATABASE_ID, value: {{ .Values.databaseId | quote }}}
+            - {name: HOME, value: /tmp}
+            - {name: OCI_CLI_REGION, value: {{ .Values.region | quote }}}
+            - {name: OCI_RESOURCE_PRINCIPAL_REGION, value: {{ .Values.region | quote }}}
+          resources: &resources
+            {{- include "operation-common.resources" . | nindent 12 }}
+          securityContext: &security
+            {{- include "operation-common.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            {{- include "operation-common.mounts" . | nindent 12 }}
+        - name: validate
+          image: {{ .Values.images.yq | quote }}
+          command: [yq]
+          args:
+            - --exit-status
+            - --output-format=json
+            - --inplace
+            - >-
+              .data | select(."primary-db-endpoint".fqdn | test("^[a-zA-Z0-9.-]+[.][a-zA-Z0-9.-]+$")) |
+              select(."ca-certificate" | test("^-----BEGIN CERTIFICATE-----[\\s\\S]+-----END CERTIFICATE-----[\\r\\n]*$")) |
+              [{"op": "test", "path": "/metadata/annotations/tamoss.livewyer.io~1database-id", "value": strenv(DATABASE_ID)},
+              {"op": "test", "path": "/metadata/annotations/tamoss.livewyer.io~1connection-revision", "value": strenv(CONNECTION_REVISION)},
+              {"op": "add", "path": "/data", "value": {
+              "DATABASE_ID": strenv(DATABASE_ID), "DATABASE_HOST": ."primary-db-endpoint".fqdn,
+              "DATABASE_CA_BASE64": (."ca-certificate" | @base64), "CONNECTION_REVISION": strenv(CONNECTION_REVISION)}}] | select(length == 3)
+            - /work/connection.json
+          env:
+            - {name: DATABASE_ID, value: {{ .Values.databaseId | quote }}}
+            - {name: CONNECTION_REVISION, value: {{ $revision | quote }}}
+          resources: *resources
+          securityContext: *security
+          volumeMounts: &mounts
+            {{- include "operation-common.mounts" . | nindent 12 }}
+      containers:
+        - name: publish
+          image: {{ .Values.images.kubectl | quote }}
+          command: [kubectl]
+          args: [patch, configmap, database-connection, --namespace, {{ .Release.Namespace | quote }}, --type=json, --patch-file=/work/connection.json]
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *mounts
+      volumes:
+        {{- include "operation-common.volumes" . | nindent 8 }}

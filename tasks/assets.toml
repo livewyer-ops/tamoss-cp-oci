@@ -13,3 +13,10 @@ run = [
   '''test "$(git rev-parse HEAD)" = "$(yq -r .commit '{{ vars.ENV_DIR }}/source.json')" || { echo 'Use the recorded deployment revision for this environment.' >&2; exit 1; }''',
 ]
 
+["assets:restore-runtime"]
+hide = true
+run = [
+  { task = "assets:verify" },
+  "cp '{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' '{{ vars.ENV_DIR }}/tamoss-release.current.yaml'",
+  "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:fetch",
+]

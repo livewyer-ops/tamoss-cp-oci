@@ -1,0 +1,23 @@
+{{ range $name, $url := dict "oke-crossplane" "https://charts.crossplane.io/stable" "oke-external-secrets" "https://charts.external-secrets.io" "jetstack" "https://charts.jetstack.io" "traefik" "https://traefik.github.io/charts" "authentik" "https://charts.goauthentik.io" }}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: {{ $name }}
+  namespace: tamoss-infra
+spec:
+  interval: 1h
+  url: {{ $url }}
+{{ end }}
+{{- $sources := dict "tamoss" .Values.release -}}
+{{- if .Values.tadoss.enabled }}{{ $_ := set $sources "tadoss" .Values.tadoss.release }}{{ end -}}
+{{- range $name, $release := $sources }}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: {{ $name }}-operator-source, namespace: tamoss-infra}
+spec:
+  interval: 10m
+  url: {{ $release.bundleURL | quote }}
+  ref: {digest: {{ $release.digest | quote }}}
+{{- end }}

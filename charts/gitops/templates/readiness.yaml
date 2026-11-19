@@ -1,0 +1,61 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: application-ready, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 15m
+  prune: false
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  dependsOn: [{name: tamoss}{{ if .Values.tadoss.enabled }}, {name: tadoss}{{ end }}]
+  healthChecks:
+    - {apiVersion: cert-manager.io/v1, kind: Certificate, name: authentik-public-tls, namespace: auth}
+    - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tams-public-tls, namespace: tams}
+{{ if .Values.tadoss.enabled }}
+    - {apiVersion: cert-manager.io/v1, kind: Certificate, name: tadoss-public-tls, namespace: tads}
+{{ end }}
+  healthCheckExprs:
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      current: >-
+        has(status.conditions) && status.conditions.exists(c,
+        c.type == 'Ready' && c.status == 'True' &&
+        has(c.observedGeneration) && c.observedGeneration == metadata.generation)
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: deployment-ready, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 15m
+  prune: false
+  path: ./deploy/gitops/readiness
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  commonMetadata:
+    annotations:
+      tamoss.livewyer.io/configuration-sha256: {{ .Values | toJson | sha256sum | quote }}
+  healthChecks:
+    - {apiVersion: source.toolkit.fluxcd.io/v1, kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+{{ range list "platform-defaults" "oke-prerequisites" "application-ready" "credentials" "database-connection" "database-ca" "platform" "calico" "tamoss-operator" "tamoss" }}
+    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ range list "oke-crossplane" "oke-oci-family" "oke-oci-services" "tamoss-services-api" "tamoss-services" "oke-external-secrets" "tamoss-gitops" "cert-manager" "traefik" "authentik-bootstrap" "tamoss-database-connection" "tamoss-database-init" "authentik" "tamoss-platform-config" "tamoss-secrets-auth" "tamoss-secrets-tams" "tamoss-secrets-tamoss-infra" }}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ if .Values.tadoss.enabled }}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: tamoss-infra}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tamoss-infra}
+{{ range list "tadoss-credentials" "tadoss-operator" "tadoss" }}
+    - {apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, name: {{ . }}, namespace: tamoss-infra}
+{{ end }}
+{{ end }}
+  healthCheckExprs:
+{{ range list (dict "api" "kustomize.toolkit.fluxcd.io/v1" "kind" "Kustomization") (dict "api" "helm.toolkit.fluxcd.io/v2" "kind" "HelmRelease") (dict "api" "source.toolkit.fluxcd.io/v1" "kind" "GitRepository") }}
+    - apiVersion: {{ .api }}
+      kind: {{ .kind }}
+      current: >-
+        (!has(spec.suspend) || !spec.suspend) &&
+        has(status.observedGeneration) && status.observedGeneration == metadata.generation &&
+        has(status.conditions) && status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+{{ end }}

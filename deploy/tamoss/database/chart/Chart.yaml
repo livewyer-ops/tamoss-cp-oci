@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-database-init
+description: Initialise separate TAMOSS and Authentik databases over verified TLS
+type: application
+version: 0.1.0
