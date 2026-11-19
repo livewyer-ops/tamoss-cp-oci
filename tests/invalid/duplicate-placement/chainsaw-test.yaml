@@ -1,0 +1,17 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: reject-duplicate-placement
+spec:
+  steps:
+    - name: reject invalid configuration
+      try:
+        - command:
+            entrypoint: crossplane
+            env:
+              - {name: CROSSPLANE_IMAGE, value: ($values.crossplaneImage)}
+            args: [resource, validate, "../../../.local/tmp/check/schemas,../../../charts/environment/definition.yaml", ../../../.local/tmp/check/rejected-duplicate-placement.yaml, --crossplane-image, $CROSSPLANE_IMAGE, --cache-dir=../../../.local/tmp/check/crossplane, --error-on-missing-schemas]
+            check:
+              ($error != null): true
+              (contains($stdout, 'failure cases')): true
+              (contains($stdout, 'distinct failure domains')): true

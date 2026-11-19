@@ -1,0 +1,12 @@
+
+["management:freeze-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(yq -e '.spec.vaultAuth == null' {{ vars.ENV_DIR }}/bootstrap-observed.json > /dev/null) && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get helmrelease/tamoss-bootstrap-instance --ignore-not-found -o json | yq -p=json -e 'length == 0' > /dev/null)"
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/helm-controller --replicas=0",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system wait pod -l app=helm-controller --for=delete --timeout=180s",
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra suspend helmrelease tamoss-bootstrap-instance",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n flux-system scale deployment/helm-controller --replicas=1",
+]
+

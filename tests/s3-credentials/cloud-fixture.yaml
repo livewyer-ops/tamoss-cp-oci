@@ -1,0 +1,2 @@
+create: >-
+  printf '%s\n' '{"stringData":{"credentials":"{\"accessKey\":\"fixture-key\",\"secretKey\":\"fixture-secret\"}"}}' > /work/key.json

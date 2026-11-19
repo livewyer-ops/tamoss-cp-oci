@@ -1,0 +1,75 @@
+{{- $xr := .observed.composite.resource -}}
+{{- $p := $xr.spec -}}
+{{- $vault := (get .observed.resources "vault" | default dict).resource | default dict -}}
+{{- $key := (get .observed.resources "key" | default dict).resource | default dict -}}
+{{- $endpoint := dig "status" "atProvider" "managementEndpoint" "" $vault -}}
+{{- $endpoint = $endpoint | default (dig "spec" "forProvider" "managementEndpoint" "" $key) -}}
+{{- $adoption := $p.adoption | default dict -}}
+{{- $endpoint = $endpoint | default ($adoption.managementEndpoint | default "") -}}
+{{- $creator := $adoption.creationCompositeUID | default $xr.metadata.uid -}}
+{{- $policies := list "Observe" "Create" "LateInitialize" -}}
+{{- if $adoption }}
+{{- $policies = list "Observe" -}}
+{{- range $name, $resource := dict "vault" $vault "key" $key }}
+{{- $expected := get $adoption (printf "%sId" $name) -}}
+{{- $actual := dig "status" "atProvider" "id" "" $resource -}}
+{{- if and $actual (ne $actual $expected) }}{{ fail "Observed foundation resource differs from its retained binding" }}{{ end -}}
+{{- $owner := dig "status" "atProvider" "freeformTags" "tamoss-owner" "" $resource -}}
+{{- if and $owner (ne $owner $p.owner) }}{{ fail "Observed foundation owner differs from its retained owner" }}{{ end -}}
+{{- end }}
+{{- end }}
+{{- $tags := dict "tamoss-foundation" $xr.metadata.name "tamoss-foundation-uid" $creator "tamoss-owner" $p.owner -}}
+apiVersion: kms.oci.m.upbound.io/v1alpha1
+kind: Vault
+metadata:
+  name: {{ $xr.metadata.name }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "vault" }}
+{{ if $adoption }}
+    crossplane.io/external-name: {{ $adoption.vaultId | quote }}
+{{ end }}
+spec:
+  managementPolicies: {{ $policies | toJson }}
+  providerConfigRef:
+    kind: ProviderConfig
+    name: {{ $p.providerConfigName }}
+  forProvider:
+    compartmentId: {{ $p.compartmentId }}
+    displayName: {{ $xr.metadata.name }}
+    vaultType: DEFAULT
+    freeformTags: {{ $tags | toJson }}
+{{ if $endpoint }}
+---
+apiVersion: kms.oci.m.upbound.io/v1alpha1
+kind: Key
+metadata:
+  name: {{ $xr.metadata.name }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "key" }}
+{{ if $adoption }}
+    crossplane.io/external-name: {{ $adoption.keyExternalName | quote }}
+{{ end }}
+spec:
+  managementPolicies: {{ $policies | toJson }}
+  providerConfigRef:
+    kind: ProviderConfig
+    name: {{ $p.providerConfigName }}
+  forProvider:
+    compartmentId: {{ $p.compartmentId }}
+    displayName: {{ $xr.metadata.name }}
+    managementEndpoint: {{ $endpoint | quote }}
+    keyShape:
+      - algorithm: AES
+        length: 32
+    protectionMode: SOFTWARE
+    freeformTags: {{ $tags | toJson }}
+{{ end }}
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: SecretFoundation
+status:
+  vaultId: {{ dig "status" "atProvider" "id" "" $vault | quote }}
+  keyId: {{ dig "status" "atProvider" "id" "" $key | quote }}
+  managementEndpoint: {{ $endpoint | quote }}

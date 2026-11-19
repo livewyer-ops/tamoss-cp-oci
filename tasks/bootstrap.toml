@@ -1,0 +1,82 @@
+["bootstrap:seed"]
+hide = true
+depends = ["bootstrap:configuration"]
+run = [
+  "kind create cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}' --config '{{ vars.ROOT_DIR }}/deploy/management/kind.yaml' --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' --wait 120s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/management-uid'",
+  '''yq -i '.managementUID = load_str("{{ vars.ENV_DIR }}/management-uid")' '{{ vars.ENV_DIR }}/identity.yaml'''',
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' install --components=source-controller,helm-controller,kustomize-controller --timeout=5m",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' create namespace tamoss-infra",
+  "mise run source:authenticate",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -k '{{ vars.ENV_DIR }}'",
+]
+depends_post = ["bootstrap:seed:cleanup"]
+env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''
+
+["bootstrap:seed:cleanup"]
+hide = true
+run = ["rm -f '{{ vars.ENV_DIR }}/discovery/credentials.json' '{{ vars.ENV_DIR }}/discovery/privatekey' '{{ vars.ENV_DIR }}/discovery/vault.env'"]
+
+["bootstrap:connect"]
+hide = true
+depends = ["bootstrap:seed"]
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait helmrelease/tamoss-management --for=condition=Ready --timeout=600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait kustomization/bootstrap-ready --for=condition=Ready --timeout=3600s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{ env.TASKV_NAME }} tamossenvironment/{{ env.TASKV_NAME }} secretfoundation/{{ env.TASKV_FOUNDATION }} key.kms.oci.m.upbound.io/{{ env.TASKV_FOUNDATION }} namespace/kube-system -o json > '{{ vars.ENV_DIR }}/bootstrap-state.json'",
+  '''yq -i 'load("{{ vars.ENV_DIR }}/bootstrap-state.json").items as $objects | .bootstrapUID = ($objects[] | select(.kind == "TamossBootstrap") | .metadata.uid) | .compositeUID = ($objects[] | select(.kind == "TamossEnvironment") | .metadata.uid) | .creationCompositeUID = .compositeUID | .clusterID = ($objects[] | select(.kind == "TamossEnvironment") | .status.outputs.clusterId) | .managementUID = ($objects[] | select(.kind == "Namespace") | .metadata.uid)' '{{ vars.ENV_DIR }}/identity.yaml'''',
+  '''yq '(.items[] | select(.kind == "Key")) as $key | .items[] | select(.kind == "SecretFoundation") | {"name": .metadata.name, "owner": .spec.owner, "region": .spec.region, "compartmentId": .spec.compartmentId, "creationCompositeUID": (.spec.adoption.creationCompositeUID // .metadata.uid), "vaultId": .status.vaultId, "keyId": .status.keyId, "managementEndpoint": .status.managementEndpoint, "keyExternalName": $key.metadata.annotations."crossplane.io/external-name"}' '{{ vars.ENV_DIR }}/bootstrap-state.json' > '{{ vars.ENV_DIR }}/foundation-record.yaml'''',
+]
+env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''
+env.TASKV_FOUNDATION = '''{{ read_yaml(path=vars.ENV_DIR ~ "/foundation.yaml") | get(key="metadata") | get(key="name") }}'''
+
+["bootstrap:remote-access"]
+hide = true
+depends = ["bootstrap:connect"]
+run = [
+  '''umask 077
+oci ce cluster create-kubeconfig --cluster-id {{ env.TASKV_CLUSTER | quote }} --file '{{ vars.ENV_DIR }}/remote.kubeconfig' --token-version 2.0.0 --kube-endpoint PUBLIC_ENDPOINT --overwrite''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/remote-uid'",
+  '''yq -i '.users[].user.exec |= (.command = "oci" | .env = [{"name":"OCI_CLI_CONFIG_FILE","value":strenv(OCI_CLI_CONFIG_FILE)},{"name":"OCI_CLI_PROFILE","value":strenv(OCI_CLI_PROFILE)}])' '{{ vars.ENV_DIR }}/remote.kubeconfig'''',
+  '''yq -i '.remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster.server' '{{ vars.ENV_DIR }}/identity.yaml'''',
+  "mise run bootstrap:remote-rbac",
+  "flux --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' install --components=source-controller,helm-controller,kustomize-controller --timeout=5m",
+  "mise run bootstrap:remote-access:issue",
+]
+env.TASKV_CLUSTER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="clusterID") }}'''
+
+["bootstrap:observe"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap/{{ env.TASKV_NAME }} --ignore-not-found -o json > '{{ vars.ENV_DIR }}/bootstrap-observed.json'",
+  '''yq -e '(length == 0 and load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID == null) or ([.spec.deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID, (.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID or load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID == null)] | all)' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null''',
+  '''yq -i '.bootstrapUID = (load("{{ vars.ENV_DIR }}/bootstrap-observed.json").metadata.uid // .bootstrapUID)' {{ vars.ENV_DIR }}/identity.yaml''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
+["bootstrap:release"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "(test ! -f {{ vars.ENV_DIR }}/bootstrap.yaml && yq -e '.bootstrapUID == null' {{ vars.ENV_DIR }}/identity.yaml > /dev/null)"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:observe",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run bootstrap:release-observed",
+]
+
+["bootstrap:release-observed"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''((test -f '{{ vars.ENV_DIR }}/bootstrap-observed.json' && test ! -s '{{ vars.ENV_DIR }}/bootstrap-observed.json') || yq -e '[.spec.released == true, .status.released == true, .metadata.annotations."crossplane.io/paused" == "true", ([.status.conditions[] | select(.type == "Synced") | .reason] | join(",") == "ReconcilePaused")] | all' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null)'''
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run management:freeze-instance",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch tamossbootstrap/{{ env.TASKV_NAME }} --type=merge -p '{"spec":{"released":true}}'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{ env.TASKV_NAME }} crossplane.io/paused- --overwrite",
+  '''yq '.metadata.name = "{{ env.TASKV_NAME }}"' {{ vars.ROOT_DIR }}/deploy/contracts/bootstrap-released.yaml > {{ vars.ENV_DIR }}/bootstrap-release.yaml''',
+  "KUBECONFIG='{{ vars.ENV_DIR }}/management.kubeconfig' chainsaw assert -f '{{ vars.ENV_DIR }}/bootstrap-release.yaml' --timeout=180s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate tamossbootstrap/{{ env.TASKV_NAME }} crossplane.io/paused=true --overwrite",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ReconcilePaused' --timeout=180s''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.name " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+

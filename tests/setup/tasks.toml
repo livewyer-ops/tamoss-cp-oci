@@ -1,4 +1,90 @@
 
+["test:setup:check"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "chainsaw test --no-cluster --test-dir '{{ vars.ROOT_DIR }}/tests/setup/contracts' --exec-timeout 120s --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path '{{ vars.ROOT_DIR }}/.local/reports' --report-name setup",
+  "mise run test:setup:discovery:prepare",
+  "mise run test:setup:preflight:prepare",
+  "chainsaw test --no-cluster --test-dir tests/setup/discovery --exec-timeout 60s --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name setup-discovery",
+]
+
+["test:setup:fixture"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ env.TASKV_DIRECTORY }}'",
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}')" = 700''',
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/values.yaml')" = 600''',
+  "cp tests/setup/values.yaml '{{ env.TASKV_DIRECTORY }}/values.yaml'",
+  "cp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:initialise",
+  "cmp '{{ env.TASKV_DIRECTORY }}/values.yaml' '{{ env.TASKV_DIRECTORY }}/before-setup.yaml'",
+  "OCI_CLI_CONFIG_FILE='{{ vars.ROOT_DIR }}/tests/setup/oci-config' OCI_CLI_PROFILE=demo ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run --skip-deps setup:resolve",
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/discovery/credentials.json')" = 600''',
+  '''yq -p=json -o=yaml -e '.user_ocid == "ocid1.user.oc1.fixture" and .tenancy_ocid == "ocid1.tenancy.oc1.fixture" and .private_key == load_str("tests/setup/signing-key") and .private_key_password == "fixture-passphrase"' '{{ env.TASKV_DIRECTORY }}/discovery/credentials.json'''',
+  "cmp '{{ env.TASKV_DIRECTORY }}/discovery/privatekey' tests/setup/signing-key",
+  "grep -qx 'passphrase=fixture-passphrase' '{{ env.TASKV_DIRECTORY }}/discovery/vault.env'",
+  "yq -o=json . tests/source/source.yaml > '{{ env.TASKV_DIRECTORY }}/source.json'",
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:facts",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
+
+["test:setup:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((env.TASKV_DIRECTORY)) | quote }} mise run setup:render",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
+
+["test:setup:defaults"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run test:setup:render",
+  '''test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/deployment.yaml')" = 600''',
+  '''yq -e '[(.deploymentId | test("^[a-f0-9]{32}$")), .oci.privateKey == null, .oci.region == "eu-frankfurt-1", .oci.tenancy == "ocid1.tenancy.oc1.fixture", .oci.user == "ocid1.user.oc1.fixture", .oci.fingerprint == "fixture", .assets.secretName == "deployment-git"] | all' '{{ env.TASKV_DIRECTORY }}/deployment.yaml'''',
+  '''yq -e '.acmeEmail == "operator@example.test" and .adminEmail == "operator@example.test" and .storageIdentity.domainId == "ocid1.domain.oc1.fixture" and .storageIdentity.idcsEndpoint == "https://identity.example.test:443" and .storageIdentity.email == "operator@example.test" and .storageIdentity.images == null' '{{ env.TASKV_DIRECTORY }}/settings.yaml'''',
+  '''yq -e '[.metadata.name == "setup-test", .spec.region == "eu-frankfurt-1", .spec.owner == "operator@example.test", .spec.expiresAt == null, .spec.budget == null, .spec.oke.imageId == "ocid1.image.oc1.fixture", (.spec.oke.placements | length == 3), .spec.oke.placements[0].availabilityDomain == "fixture:AD-1", .spec.oke.ocpus == 4, .spec.database == null, .spec.storage.bucket == "tamoss-setup-test-media"] | all' '{{ env.TASKV_DIRECTORY }}/environment.yaml'''',
+  '''yq -e '.spec.region == "eu-frankfurt-1" and .spec.owner == "operator@example.test"' '{{ env.TASKV_DIRECTORY }}/foundation.yaml'''',
+  '''yq -e '.spec as $s | load("{{ env.TASKV_DIRECTORY }}/values.yaml") as $v | ($s.oke.placements | sort_keys(..) | to_json(0)) == ($v.oke.placements | sort_keys(..) | to_json(0)) and $s.oke.imageId == $v.oke.imageId and $s.network.ociServiceId == $v.network.ociServiceId and $s.network.ociServiceCidr == $v.network.ociServiceCidr and $s.storage.namespace == $v.storage.namespace' '{{ env.TASKV_DIRECTORY }}/environment.yaml'''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
+
+["test:setup:explicit"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -i '.oke.imageId = "ocid1.image.oc1.custom-fixture" | .oke.placements |= reverse' '{{ env.TASKV_DIRECTORY }}/values.yaml'''',
+  "mise run test:setup:render",
+  '''yq -e '.spec.oke.imageId == "ocid1.image.oc1.custom-fixture" and (.spec.oke.placements | sort_keys(..) | to_json(0)) == (load("{{ env.TASKV_DIRECTORY }}/values.yaml").oke.placements | sort_keys(..) | to_json(0)) and .spec.oke.placements[0].availabilityDomain == "fixture:AD-3"' '{{ env.TASKV_DIRECTORY }}/environment.yaml'''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
+
+["test:setup:bad-input"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -i '{{ env.TASKV_CHANGE }}' {{ env.TASKV_DIRECTORY }}/values.yaml",
+  "mise run test:setup:render",
+]
+env.TASKV_CHANGE = '''{{ env.CHANGE | default(value="") }}'''
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
+
+["test:setup:recorded"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ env.TASKV_DIRECTORY }}/recorded/checkout/.git'",
+  '''yq -n '{"gitopsEstablished": true}' > {{ env.TASKV_DIRECTORY }}/recorded/identity.yaml''',
+  '''ENV_DIR={{ ((env.TASKV_DIRECTORY) ~ "/recorded") | quote }} CHECKOUT={{ ((env.TASKV_DIRECTORY) ~ "/recorded/checkout") | quote }} mise run setup:initialise''',
+  "test ! -e '{{ env.TASKV_DIRECTORY }}/recorded/values.yaml'",
+  "test ! -e '{{ env.TASKV_DIRECTORY }}/recorded/discovery'",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/setup{% endif %}"
+
 ["test:setup:existing"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

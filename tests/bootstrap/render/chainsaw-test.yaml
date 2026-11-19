@@ -1,0 +1,59 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: bootstrap-convergence
+spec:
+  timeouts: {exec: 30s}
+  bindings:
+    - name: directory
+      value: (join('/', [$values.root, '.local/tmp/check/bootstrap']))
+  steps:
+    - name: submit infrastructure while the foundation and credentials are pending
+      try:
+        - command:
+            entrypoint: chainsaw
+            env: &inputs
+              - {name: DIRECTORY, value: ($directory)}
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/initial-list.yaml, -f, independent.yaml]
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/waiting-list.yaml, -f, independent.yaml]
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/wrong-delivery-list.yaml, -f, independent.yaml]
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/creating-list.yaml, -f, creating.yaml]
+    - name: distinguish complete readiness from transient loss without deleting children
+      try:
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/ready-list.yaml, -f, ready.yaml]
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/recovering-list.yaml, -f, recovering.yaml]
+    - name: released bootstrap preserves current configuration and never recreates removed infrastructure
+      try:
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/released-list.yaml, -f, released.yaml]
+        - command:
+            entrypoint: chainsaw
+            env: *inputs
+            args: [assert, --timeout, 1s, -r, $DIRECTORY/deleted-child-list.yaml, -f, waiting.yaml]
+        - command:
+            entrypoint: crossplane
+            env:
+              - {name: DIRECTORY, value: ($directory)}
+              - {name: ROOT, value: ($values.root)}
+              - {name: CROSSPLANE_IMAGE, value: ($values.crossplaneImage)}
+            args: [composition, render, $DIRECTORY/root.yaml, $DIRECTORY/composition.yaml, $ROOT/.local/tmp/check/functions.yaml, --observed-resources, $DIRECTORY/foreign-observed.yaml, --crossplane-image, $CROSSPLANE_IMAGE]
+            check:
+              ($error != null): true
+              (contains($stderr, 'different deployment')): true

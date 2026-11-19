@@ -1,0 +1,24 @@
+["source:authenticate"]
+hide = true
+quiet = true
+skip_if = "yq -e '.private == false' '{{ vars.ENV_DIR }}/source.json' > /dev/null"
+run = [
+  '''umask 077
+flux create secret git deployment-git --namespace=tamoss-infra --url={{ env.TASKV_URL | quote }} --ssh-key-algorithm=ed25519 --export > '{{ vars.ENV_DIR }}/git-secret.yaml'
+gh api meta --jq '.ssh_keys[] | "github.com " + .' > '{{ vars.ENV_DIR }}/github-known-hosts'
+yq -i '.stringData.known_hosts = load_str("{{ vars.ENV_DIR }}/github-known-hosts")' '{{ vars.ENV_DIR }}/git-secret.yaml'
+yq -i '.stringData."values.yaml" = ({"source": {"identity": .stringData.identity, "identityPub": .stringData."identity.pub", "knownHosts": .stringData.known_hosts}} | to_yaml)' '{{ vars.ENV_DIR }}/git-secret.yaml'
+yq -r '.stringData."identity.pub"' '{{ vars.ENV_DIR }}/git-secret.yaml' > '{{ vars.ENV_DIR }}/git-public-key'
+gh api --method POST 'repos/{{ env.TASKV_REPOSITORY }}/keys' -f title='tamoss-{{ env.TASKV_DEPLOYMENT }}' -F key=@'{{ vars.ENV_DIR }}/git-public-key' -F read_only=true --jq .id > '{{ vars.ENV_DIR }}/git-key-id'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/git-secret.yaml' ''',
+]
+depends_post = ["source:cleanup"]
+env.TASKV_URL = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="url") }}'''
+env.TASKV_REPOSITORY = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="repository") }}'''
+env.TASKV_DEPLOYMENT = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'''
+
+["source:cleanup"]
+hide = true
+quiet = true
+run = ["rm -f '{{ vars.ENV_DIR }}/git-secret.yaml' '{{ vars.ENV_DIR }}/github-known-hosts' '{{ vars.ENV_DIR }}/git-public-key'"]
+

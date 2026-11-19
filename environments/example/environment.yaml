@@ -1,0 +1,34 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossEnvironment
+metadata:
+  name: qualification
+  namespace: tamoss-infra
+spec:
+  region: eu-frankfurt-1
+  compartmentId: ocid1.compartment.oc1..REPLACE
+  providerConfigName: oci
+  owner: REPLACE
+  network:
+    vcn: 10.40.0.0/16
+    api: 10.40.0.0/28
+    loadBalancer: 10.40.1.0/24
+    workers: 10.40.2.0/24
+    database: 10.40.3.0/24
+    pods: 10.40.16.0/20
+    services: 10.96.0.0/16
+    adminCidrs: [203.0.113.10/32]
+    ociServiceId: ocid1.service.oc1.eu-frankfurt-1.REPLACE
+    ociServiceCidr: all-fra-services-in-oracle-services-network
+  oke:
+    version: v1.36.0
+    imageId: ocid1.image.oc1.eu-frankfurt-1.REPLACE
+    shape: VM.Standard.E5.Flex
+    ocpus: 4
+    memoryGiB: 32
+    placements:
+      - {availabilityDomain: 'REPLACE:EU-FRANKFURT-1-AD-1', faultDomain: FAULT-DOMAIN-1}
+      - {availabilityDomain: 'REPLACE:EU-FRANKFURT-1-AD-2', faultDomain: FAULT-DOMAIN-1}
+      - {availabilityDomain: 'REPLACE:EU-FRANKFURT-1-AD-3', faultDomain: FAULT-DOMAIN-1}
+  storage:
+    namespace: REPLACE
+    bucket: qualification-media

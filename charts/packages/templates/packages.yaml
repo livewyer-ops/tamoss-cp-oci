@@ -1,0 +1,67 @@
+{{- if .Values.family }}
+{{- with .Values.workloadIdentityRegion }}
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: oci-workload-identity
+spec:
+  serviceAccountTemplate:
+    metadata: {name: provider-oci}
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              env:
+                - {name: OCI_RESOURCE_PRINCIPAL_VERSION, value: "2.2"}
+                - {name: OCI_RESOURCE_PRINCIPAL_REGION, value: {{ . | quote }}}
+                - {name: OCI_RESOURCE_PRINCIPAL_WORKLOAD_IDENTITY, value: "1"}
+---
+{{- end }}
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: oracle-provider-family-oci
+spec:
+  package: ghcr.io/oracle/provider-family-oci:{{ .Values.providerVersion }}
+  revisionHistoryLimit: 1
+{{- with .Values.workloadIdentityRegion }}
+  runtimeConfigRef: {name: oci-workload-identity}
+{{- end }}
+{{- end }}
+{{- if or .Values.services .Values.foundation }}
+{{- $services := list }}
+{{- if .Values.services }}
+{{- $services = concat $services (.Values.serviceProviders | default (list "networking" "containerengine" "psql" "objectstorage")) }}
+{{- end }}
+{{- if .Values.foundation }}
+{{- $services = concat $services (list "kms" "identity" "identitydomains") }}
+{{- end }}
+{{- range $service := $services }}
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-oci-{{ $service }}
+spec:
+  package: ghcr.io/oracle/provider-oci-{{ $service }}:{{ $.Values.providerVersion }}
+  revisionHistoryLimit: 1
+{{- with $.Values.workloadIdentityRegion }}
+  runtimeConfigRef: {name: oci-workload-identity}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.services }}
+{{- range $name, $version := .Values.functions }}
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-{{ $name }}
+spec:
+  package: ghcr.io/crossplane-contrib/function-{{ $name }}:{{ $version }}
+  revisionHistoryLimit: 1
+{{- end }}
+{{- end }}

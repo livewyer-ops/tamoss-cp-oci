@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: seed-proof}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: remote-proof, namespace: seed-proof}
+data: {configured: '${PROOF_VALUE}'}

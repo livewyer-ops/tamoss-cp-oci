@@ -1,0 +1,48 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: s3-credential-ownership-admission}
+spec:
+  steps:
+    - name: admit the production schema with a discovered storage domain
+      try:
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/schema.yaml}
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: s3fixturebootstraps.tamoss.livewyer.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: s3-admission}
+        - apply: {file: ../../../.local/tmp/check/s3-credentials/admission.yaml}
+    - name: reject replacement or removal of the storage identity
+      try:
+        - command:
+            entrypoint: kubectl
+            args: [-n, s3-admission, patch, s3fixturebootstrap, storage-admission, --type=merge, --dry-run=server, '-p={"spec":{"storageCredentials":{"domainId":"ocid1.domain.oc1.replacement"}}}']
+            check: {($error != null): true}
+        - command:
+            entrypoint: kubectl
+            args: [-n, s3-admission, patch, s3fixturebootstrap, storage-admission, --type=merge, --dry-run=server, '-p={"spec":{"storageCredentials":null}}']
+            check: {($error != null): true}
+        - command:
+            entrypoint: kubectl
+            args: [-n, s3-admission, patch, s3fixturebootstrap, storage-admission, --type=merge, --dry-run=server, '-p={"spec":{"vaultAuth":null}}']
+            check: {($error != null): true}
+    - name: reject the removed user ID interface on a fresh object
+      bindings:
+        - name: original
+          value: (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'S3FixtureBootstrap', 's3-admission', 'storage-admission'))
+      try:
+        - create:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: S3FixtureBootstrap
+              metadata: {name: same-user, namespace: s3-admission}
+              spec: (merge($original.spec, `{"storageCredentials":{"userId":"ocid1.user.oc1.fixture","images":{"oci":"ghcr.io/example/oci@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kubectl":"ghcr.io/example/kubectl@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}`))
+            expect:
+              - check: {($error != null): true}

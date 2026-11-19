@@ -1,0 +1,16 @@
+{{- $root := required "bootstrap is required" .Values.bootstrap -}}
+{{- $_ := required "bootstrap.spec.vaultAuth is required" $root.spec.vaultAuth -}}
+apiVersion: oci.m.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: {{ $root.spec.environment.providerConfigName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      name: oci-api-key
+      namespace: {{ .Release.Namespace }}
+      key: credentials
+---
+{{ $root | toYaml }}

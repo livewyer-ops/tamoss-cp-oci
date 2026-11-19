@@ -1,0 +1,113 @@
+{{- $environment := ((index .Subcharts "tamoss-environment").Files.Get "definition.yaml" | fromYaml).spec.versions | first -}}
+{{- $foundation := ((index .Subcharts "tamoss-secret-foundation").Files.Get "definition.yaml" | fromYaml).spec.versions | first -}}
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: tamossbootstraps.tamoss.livewyer.io
+spec:
+  scope: Namespaced
+  group: tamoss.livewyer.io
+  names:
+    kind: TamossBootstrap
+    plural: tamossbootstraps
+  defaultCompositionRef:
+    name: tamoss-bootstrap
+  defaultCompositeDeletePolicy: Foreground
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-validations:
+{{ get $environment.schema.openAPIV3Schema "x-kubernetes-validations" | toYaml | indent 12 }}
+          properties:
+            spec:
+              type: object
+              required: [deploymentId, foundationName, foundation, environment]
+              x-kubernetes-validations:
+                - rule: self.foundation.region == self.environment.region && self.foundation.compartmentId == self.environment.compartmentId && self.foundation.providerConfigName == self.environment.providerConfigName
+                  message: Foundation and environment must share their region, compartment and provider
+                - rule: 'self.environment.managementPolicies == ["*"]'
+                  message: Bootstrap creates a new environment with full management
+                - rule: has(self.vaultAuth) == has(oldSelf.vaultAuth)
+                  message: Bootstrap credential ownership cannot change
+                - rule: has(self.storageCredentials) == has(oldSelf.storageCredentials)
+                  message: Storage credential ownership cannot change
+                - rule: '!has(self.storageCredentials) || has(self.vaultAuth)'
+                  message: Automatic storage identity requires the Kind provisioner
+              properties:
+                storageCredentials:
+                  type: object
+                  required: [domainId, idcsEndpoint, email, images]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Storage credential ownership is immutable
+                  properties:
+                    domainId: {type: string, pattern: '^ocid1\.domain\.'}
+                    idcsEndpoint: {type: string, pattern: '^https://[a-zA-Z0-9.-]+(:443)?$'}
+                    email: {type: string, format: email}
+                    images:
+                      type: object
+                      required: [oci, kubectl]
+                      properties:
+                        oci: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
+                        kubectl: {type: string, pattern: '^[a-z0-9.-]+/[a-zA-Z0-9/_.:-]+@sha256:[a-f0-9]{64}$'}
+                credentialsEstablished:
+                  type: boolean
+                  description: Legacy completion input; new installations use status.credentialsEstablished.
+                  default: false
+                  x-kubernetes-validations:
+                    - rule: '!oldSelf || self'
+                      message: Established credentials cannot be regenerated
+                vaultAuth:
+                  type: object
+                  required: [user, tenancy]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Bootstrap Vault identity is immutable
+                  properties:
+                    user: {type: string, pattern: '^ocid1\.user\.'}
+                    tenancy: {type: string, pattern: '^ocid1\.tenancy\.'}
+                released:
+                  type: boolean
+                  default: false
+                  x-kubernetes-validations:
+                    - rule: '!oldSelf || self'
+                      message: Released bootstrap authority cannot be restored
+                deploymentId:
+                  type: string
+                  pattern: '^[a-f0-9]{32}$'
+                  maxLength: 32
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Deployment identity is immutable
+                foundationName:
+                  type: string
+                  pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+                  maxLength: 63
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Foundation name is immutable
+                foundation:
+{{ $foundation.schema.openAPIV3Schema.properties.spec | toYaml | indent 18 }}
+                environment:
+{{ $environment.schema.openAPIV3Schema.properties.spec | toYaml | indent 18 }}
+            status:
+              type: object
+              properties:
+                observedGeneration: {type: integer, format: int64}
+                foundationReady: {type: boolean}
+                credentialsReady: {type: boolean}
+                credentialsEstablished: {type: boolean}
+                storageIdentityReady: {type: boolean}
+                storageIdentity:
+                  type: object
+                  properties:
+                    userId: {type: string}
+                    groupId: {type: string}
+                infrastructureReady: {type: boolean}
+                bootstrapReady: {type: boolean}
+                runtimeAccessReady: {type: boolean}
+                released: {type: boolean}

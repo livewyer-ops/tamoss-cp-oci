@@ -1,0 +1,302 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: kind-remote-bootstrap
+spec:
+  steps:
+  - name: wait for remote access before deployment
+    try:
+    - apply:
+        file: ../deployment.yaml
+        template: false
+    - assert:
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata:
+            name: oke-workload
+            namespace: tamoss-infra
+          status:
+            (conditions[?type == 'Ready'] | [0].status): 'False'
+    - command:
+        entrypoint: mise
+        env: &id001
+        - name: ENV_DIR
+          value: ($values.directory)
+        - name: DIRECTORY
+          value: ($values.directory)
+        - name: OCI_CLI_CONFIG_FILE
+          value: (join('/', [$values.root, 'tests/lifecycle/oci-config']))
+        args:
+        - run
+        - test:oke-bootstrap:seed
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:capture-access
+  - name: reconcile Helm and Kustomize remotely with values held in Kind
+    try:
+    - assert:
+        resource:
+          apiVersion: helm.toolkit.fluxcd.io/v2
+          kind: HelmRelease
+          metadata:
+            name: seed-proof
+            namespace: tamoss-infra
+          (status.observedGeneration == metadata.generation): true
+          status: &id002
+            (conditions[?type == 'Ready'] | [0].status): 'True'
+    - assert:
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata:
+            name: oke-ready
+            namespace: tamoss-infra
+          (status.observedGeneration == metadata.generation): true
+          status: *id002
+    - assert:
+        cluster: remote
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: seed-proof
+            namespace: seed-proof
+          data:
+            reconciled: 'true'
+            token: from-kind
+    - assert:
+        cluster: remote
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: remote-proof
+            namespace: seed-proof
+          data:
+            configured: from-kind
+    - error:
+        cluster: remote
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: proof-values
+            namespace: seed-proof
+    - error:
+        cluster: remote
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: source-controller
+            namespace: flux-system
+  - name: reject a changed cluster identity
+    try:
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:reject-identity
+        check:
+          ($error != null): true
+  - name: reject insecure TLS before issuing credentials
+    try:
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -i
+        - .clusters[0].cluster."insecure-skip-tls-verify" = true
+        - $DIRECTORY/remote.kubeconfig
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:seed
+        check:
+          ($error != null): true
+    - command:
+        entrypoint: cp
+        env: *id001
+        args:
+        - $DIRECTORY/remote.saved.kubeconfig
+        - $DIRECTORY/remote.kubeconfig
+  - name: keep access usable during teardown until workload cleanup finishes
+    try:
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -i
+        - .deploymentReady = true | .teardownStarted = true
+        - $DIRECTORY/identity.yaml
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:seed
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:capture-access
+  - name: retain the retirement decision after an interrupted revocation
+    try:
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - bootstrap:remote-stop
+    - assert:
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata:
+            name: oke-workload
+            namespace: tamoss-infra
+          spec:
+            suspend: true
+    - assert:
+        resource:
+          apiVersion: helm.toolkit.fluxcd.io/v2
+          kind: HelmRelease
+          metadata:
+            name: seed-proof
+            namespace: tamoss-infra
+          spec:
+            suspend: true
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -i
+        - .remoteAccessRetired = true
+        - $DIRECTORY/identity.yaml
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:seed
+        check:
+          ($error != null): true
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - bootstrap:remote-revoke
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:retired-access
+        check:
+          ($error != null): true
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - bootstrap:remote-revoke
+    - error:
+        cluster: remote
+        resource:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: tamoss-oke-bootstrap
+    - error:
+        cluster: remote
+        resource:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: oke-bootstrap
+            namespace: tamoss-bootstrap
+    - error:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: oke-bootstrap-access
+            namespace: tamoss-infra
+  - name: retain remote workloads and suspension after controller restart
+    try:
+    - command:
+        entrypoint: kubectl
+        env: *id001
+        args:
+        - -n
+        - flux-system
+        - rollout
+        - restart
+        - deployment/kustomize-controller
+        - deployment/helm-controller
+    - command:
+        entrypoint: kubectl
+        env: *id001
+        args:
+        - -n
+        - flux-system
+        - rollout
+        - status
+        - deployment/kustomize-controller
+        - --timeout=180s
+    - command:
+        entrypoint: kubectl
+        env: *id001
+        args:
+        - -n
+        - flux-system
+        - rollout
+        - status
+        - deployment/helm-controller
+        - --timeout=180s
+    - assert:
+        resource:
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata:
+            name: oke-workload
+            namespace: tamoss-infra
+          spec:
+            suspend: true
+    - assert:
+        resource:
+          apiVersion: helm.toolkit.fluxcd.io/v2
+          kind: HelmRelease
+          metadata:
+            name: seed-proof
+            namespace: tamoss-infra
+          spec:
+            suspend: true
+    - assert:
+        cluster: remote
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: seed-proof
+            namespace: seed-proof
+          data:
+            reconciled: 'true'
+            token: from-kind
+    - command:
+        entrypoint: mise
+        env: *id001
+        args:
+        - run
+        - test:oke-bootstrap:seed
+        check:
+          ($error != null): true

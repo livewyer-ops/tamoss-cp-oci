@@ -1,0 +1,46 @@
+{{- /* The application layer needs a real deployment and its pinned release. */ -}}
+{{- if and .Values.deploymentId .Values.release }}
+{{- $environment := include "management.environment" . | fromYaml -}}
+{{- $label := dict "tamoss.livewyer.io/deployment-id" .Values.deploymentId }}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: oke-root
+  namespace: tamoss-infra
+  labels: {{ $label | toJson }}
+spec:
+  interval: 1m
+  timeout: 5m
+  releaseName: tamoss-root
+  # OKE reconciles itself from the objects this release installs there.
+  kubeConfig:
+    secretRef: {name: oke-bootstrap-access}
+  targetNamespace: tamoss-infra
+  storageNamespace: tamoss-infra
+  install:
+    createNamespace: true
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  chart:
+    spec:
+      chart: ./charts/remote-root
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: {{ .Values.sourceName }}}
+  valuesFrom:
+    - {kind: ConfigMap, name: oke-bootstrap-facts, valuesKey: VAULT_ID, targetPath: facts.vaultId}
+    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: ENVIRONMENT_UID, targetPath: facts.environmentUid}
+    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: DATABASE_SUBNET_ID, targetPath: facts.databaseSubnetId}
+    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: PUBLIC_IP, targetPath: facts.publicIp}
+    - {kind: ConfigMap, name: tamoss-runtime, valuesKey: LOAD_BALANCER_SUBNET_ID, targetPath: facts.loadBalancerSubnetId}
+{{- if .Values.assets.secretName }}
+    - {kind: Secret, name: {{ .Values.assets.secretName }}, valuesKey: values.yaml}
+{{- end }}
+  values:
+    deploymentId: {{ .Values.deploymentId | quote }}
+    source:
+      url: {{ .Values.assets.url | quote }}
+      commit: {{ .Values.assets.commit | quote }}
+{{- end }}

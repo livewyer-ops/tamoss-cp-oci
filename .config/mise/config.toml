@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["tasks/account.toml", "tasks/check.toml", "tasks/setup.toml", "tests/account/tasks.toml", "tests/setup/tasks.toml"]
+includes = ["tasks/account.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/setup/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"

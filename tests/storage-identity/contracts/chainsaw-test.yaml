@@ -1,0 +1,43 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: storage-identity-contracts}
+spec:
+  steps:
+    - name: reject a changed ownership record
+      try:
+        - command:
+            entrypoint: crossplane
+            env: &env
+              - {name: ROOT, value: ($values.root)}
+              - {name: CORE, value: ($values.core)}
+            args: [composition, render, $ROOT/.local/tmp/check/storage-identity/root.yaml, $ROOT/.local/tmp/check/bootstrap/native-composition.yaml, $ROOT/.local/tmp/check/functions.yaml, --observed-resources=$ROOT/.local/tmp/check/storage-identity/foreign-record.yaml, --crossplane-image=$CORE]
+            check:
+              ($error != null): true
+              (contains($stderr, 'immutable ownership record')): true
+    - name: reject the provisioning identity as a storage user
+      try:
+        - command:
+            entrypoint: crossplane
+            env: *env
+            args: [composition, render, $ROOT/.local/tmp/check/storage-identity/root.yaml, $ROOT/.local/tmp/check/bootstrap/native-composition.yaml, $ROOT/.local/tmp/check/functions.yaml, --observed-resources=$ROOT/.local/tmp/check/storage-identity/provisioner-user.yaml, --crossplane-image=$CORE]
+            check:
+              ($error != null): true
+              (contains($stderr, 'separate from the provisioner')): true
+    - name: reject an identity from a different domain
+      try:
+        - command:
+            entrypoint: crossplane
+            env: *env
+            args: [composition, render, $ROOT/.local/tmp/check/storage-identity/root.yaml, $ROOT/.local/tmp/check/bootstrap/native-composition.yaml, $ROOT/.local/tmp/check/functions.yaml, --observed-resources=$ROOT/.local/tmp/check/storage-identity/foreign-domain.yaml, --crossplane-image=$CORE]
+            check:
+              ($error != null): true
+              (contains($stderr, 'different domain or deployment')): true
+    - name: reject a resource rebound to another identity
+      try:
+        - command:
+            entrypoint: crossplane
+            env: *env
+            args: [composition, render, $ROOT/.local/tmp/check/storage-identity/root.yaml, $ROOT/.local/tmp/check/bootstrap/native-composition.yaml, $ROOT/.local/tmp/check/functions.yaml, --observed-resources=$ROOT/.local/tmp/check/storage-identity/foreign-binding.yaml, --crossplane-image=$CORE]
+            check:
+              ($error != null): true
+              (contains($stderr, 'binding differs')): true

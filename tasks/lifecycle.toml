@@ -1,0 +1,19 @@
+
+["lifecycle:create-management:apply"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(test -s '{{ vars.ENV_DIR }}/management.kubeconfig') && (kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").managementUID')'''
+run = [
+  "kind create cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}' --config deploy/management/kind.yaml --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' --wait 120s",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/management-uid'",
+  '''yq -i '.managementUID = load_str("{{ vars.ENV_DIR }}/management-uid")' {{ vars.ENV_DIR }}/identity.yaml''',
+]
+env.TASKV_NAME = '''{% if env.NAME is defined %}{{ env.NAME }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .metadata.name " ~ (vars.ENV_DIR) ~ "/environment.yaml") }}{% endif %}'''
+
+["lifecycle:create-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''(test -s '{{ vars.ENV_DIR }}/management.kubeconfig' && kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get namespace kube-system -o json | yq -p=json -e '.metadata.uid == load("{{ vars.ENV_DIR }}/identity.yaml").managementUID' > /dev/null) || (test ! -e '{{ vars.ENV_DIR }}/management.kubeconfig' && yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null) || { printf '%s\n' "Existing management state is unavailable or has a different identity; restart the original Kind or use the manual OCI cleanup procedure" >&2; exit 1; }''',
+  "mise run lifecycle:create-management:apply",
+]

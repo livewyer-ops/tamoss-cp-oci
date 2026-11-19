@@ -1,0 +1,19 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: tamoss-management}
+spec:
+  interval: 1m
+  timeout: 5m
+  releaseName: tamoss-management
+  # The releases this chart declares report their own readiness.
+  install: {disableWait: true, strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  upgrade: {disableWait: true, strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  chart:
+    spec:
+      chart: ./charts/management
+      reconcileStrategy: Revision
+      valuesFiles: [./charts/management/values.yaml, ./pins.yaml]
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  valuesFrom:
+    - {kind: ConfigMap, name: tamoss-deployment, valuesKey: values.yaml}
+    - {kind: ConfigMap, name: tamoss-deployment, valuesKey: deployment.yaml}

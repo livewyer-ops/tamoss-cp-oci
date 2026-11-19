@@ -1,0 +1,187 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: persisted-secret-delivery
+spec:
+  steps:
+    - name: seed an existing read-only Git credential
+      try:
+        - apply:
+            file: backend.yaml
+    - name: create through ESO and adopt the seeded credential without replacement
+      bindings:
+        - name: seedUID
+          value: (x_k8s_get($client, 'v1', 'Secret', 'secret-check', 'git-auth').metadata.uid)
+      try:
+        - apply:
+            file: ../../.local/tmp/check/secrets-persistence.yaml
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: database-admin, namespace: secret-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: database-admin, namespace: secret-check}
+              data:
+                (password): (x_k8s_get($client, 'v1', 'Secret', 'secret-backend', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-database-admin').data.password)
+                passwordType: UExBSU5fVEVYVA==
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: git-auth
+                namespace: secret-check
+                uid: ($seedUID)
+                ownerReferences:
+                  - {kind: ExternalSecret, name: git-auth, controller: true}
+              data:
+                githubAppID: Zml4dHVyZS1vcmlnaW5hbA==
+    - name: keep existing credentials when the bootstrap input changes
+      bindings:
+        - name: refreshed
+          value: (x_k8s_get($client, 'external-secrets.io/v1alpha1', 'PushSecret', 'secret-check', 'git-auth').status.refreshTime)
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: git-auth-input, namespace: secret-check}
+              stringData:
+                githubAppID: fixture-replacement
+        - patch:
+            resource:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              metadata: {name: git-auth, namespace: secret-check}
+              spec:
+                refreshInterval: 1s
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              metadata: {name: git-auth, namespace: secret-check}
+              status:
+                (refreshTime != $refreshed): true
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git-auth, namespace: secret-backend}
+              data:
+                githubAppID: Zml4dHVyZS1vcmlnaW5hbA==
+    - name: retire creation before the established read-only phase
+      try:
+        - delete:
+            ref:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              namespace: secret-check
+              name: database-admin
+        - delete:
+            ref:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              namespace: secret-check
+              name: git-auth
+        - delete:
+            ref:
+              apiVersion: generators.external-secrets.io/v1alpha1
+              kind: Password
+              namespace: secret-check
+              name: database-admin
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git-auth, namespace: secret-backend}
+              data:
+                githubAppID: Zml4dHVyZS1vcmlnaW5hbA==
+    - name: deliver a rotated persisted credential after creation is retired
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git-auth, namespace: secret-backend}
+              stringData:
+                githubAppID: fixture-rotated
+        - patch:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: git-auth
+                namespace: secret-check
+                annotations: {force-sync: rotated-backend}
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: git-auth, namespace: secret-check}
+              data:
+                githubAppID: Zml4dHVyZS1yb3RhdGVk
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: git-auth, namespace: secret-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+    - name: report a missing established password without regenerating it
+      try:
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Secret
+              namespace: secret-backend
+              name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-database-admin
+        - patch:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: database-admin
+                namespace: secret-check
+                annotations: {force-sync: missing-established}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: database-admin, namespace: secret-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-database-admin, namespace: secret-backend}
+    - name: denied backend access cannot report successful delivery
+      try:
+        - delete:
+            ref:
+              apiVersion: rbac.authorization.k8s.io/v1
+              kind: RoleBinding
+              namespace: secret-backend
+              name: store-client
+        - patch:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: git-auth
+                namespace: secret-check
+                annotations: {force-sync: denied-backend}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: git-auth, namespace: secret-check}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'

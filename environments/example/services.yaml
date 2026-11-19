@@ -1,0 +1,25 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossServices
+metadata:
+  name: qualification
+  namespace: tamoss-infra
+spec:
+  deploymentId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  ownerUid: 00000000-0000-4000-8000-000000000000
+  region: eu-frankfurt-1
+  compartmentId: ocid1.compartment.oc1..REPLACE
+  providerConfigName: oci-workload
+  owner: REPLACE
+  database:
+    version: '16'
+    shape: VM.Standard.E5.Flex
+    ocpus: 2
+    memoryGiB: 32
+    administrator: bootstrap_admin
+    credentialsSecret: database-admin
+    regionalStorage: true
+    backupRetentionDays: 1
+    subnetId: ocid1.subnet.oc1.eu-frankfurt-1.REPLACE
+  storage:
+    namespace: REPLACE
+    bucket: qualification-media

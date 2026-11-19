@@ -1,0 +1,11 @@
+family: false
+services: false
+foundation: false
+providerVersion: v2.0.0
+functions:
+  go-templating: v0.13.1
+  auto-ready: v0.7.1
+# Service providers to install with `services`; empty installs the base set.
+serviceProviders: []
+# Region for OKE workload identity; empty keeps the ProviderConfig credentials.
+workloadIdentityRegion: ''

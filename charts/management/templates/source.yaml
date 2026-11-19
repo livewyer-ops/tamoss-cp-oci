@@ -1,0 +1,9 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata: {name: crossplane, namespace: tamoss-infra}
+spec: {interval: 1h, url: 'https://charts.crossplane.io/stable'}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata: {name: external-secrets, namespace: tamoss-infra}
+spec: {interval: 1h, url: 'https://charts.external-secrets.io'}

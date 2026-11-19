@@ -1,0 +1,57 @@
+["bootstrap:remote-observe"]
+hide = true
+run = [
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:management",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get kustomizations,helmreleases -l 'tamoss.livewyer.io/deployment-id={{ env.TASKV_DEPLOYMENT }}' -o json > '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json'",
+  '''yq -e '[.items[] | .metadata.labels."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID] | all' '{{ vars.ENV_DIR }}/remote-bootstrap-observed.json' > /dev/null''',
+]
+env.TASKV_DEPLOYMENT = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'
+
+["bootstrap:remote-guard"]
+hide = true
+run = [
+  '''yq -e '.teardownComplete != true and .remoteAccessRetired != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null''',
+  { task = "identity:management" },
+  { task = "bootstrap:remote-rbac" },
+]
+
+["bootstrap:remote-rbac"]
+hide = true
+quiet = true
+run = [
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:remote",
+  '''yq '.metadata.labels."tamoss.livewyer.io/deployment-id" = load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID' '{{ vars.ROOT_DIR }}/deploy/management/remote-rbac.yaml' > '{{ vars.ENV_DIR }}/remote-rbac.yaml'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' --request-timeout=30s get -f '{{ vars.ENV_DIR }}/remote-rbac.yaml' --ignore-not-found -o json > '{{ vars.ENV_DIR }}/remote-rbac-observed.json'",
+  '''yq -e '[.items[] | .metadata.labels."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID] | all' '{{ vars.ENV_DIR }}/remote-rbac-observed.json' > /dev/null || { printf '%s\n' "Bootstrap access belongs to another deployment" >&2; exit 1; }''',
+]
+
+["bootstrap:remote-access:issue"]
+hide = true
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-rbac.yaml'",
+  """umask 077
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ROOT_DIR }}/deploy/management/remote-token.yaml'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap wait secret/oke-bootstrap-token --for=jsonpath='{.data.token}' --timeout=60s > /dev/null
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-bootstrap get secret oke-bootstrap-token -o json > '{{ vars.ENV_DIR }}/remote-token.json'
+mise run bootstrap:remote-access:render
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/remote-access.yaml'""",
+  # The root release failed while this access was missing; request it now rather than wait out its retry delay.
+  """kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra annotate helmrelease -l tamoss.livewyer.io/deployment-id --overwrite reconcile.fluxcd.io/requestedAt="$(date +%s)" > /dev/null""",
+]
+depends_post = ["bootstrap:remote-access:cleanup"]
+
+["bootstrap:remote-access:render"]
+hide = true
+quiet = true
+run = [
+  '''umask 077
+yq -n -e 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | (load("{{ vars.ENV_DIR }}/remote-token.json").data.token | select(. != null) | @base64d) as $t | {"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": {"name": "oke-bootstrap-access", "namespace": "tamoss-infra", "labels": {"tamoss.livewyer.io/deployment-id": $i.deploymentUID}, "annotations": {"tamoss.livewyer.io/cluster-id": $i.clusterID, "tamoss.livewyer.io/cluster-uid": $i.remoteUID}}, "stringData": {"value.yaml": ({"apiVersion": "v1", "kind": "Config", "clusters": [{"name": "oke", "cluster": {"server": $i.remoteServer, "certificate-authority-data": (load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster."certificate-authority-data" | select(. != null))}}], "users": [{"name": "bootstrap", "user": {"token": $t}}], "contexts": [{"name": "oke", "context": {"cluster": "oke", "user": "bootstrap"}}], "current-context": "oke"} | to_yaml)}}' > '{{ vars.ENV_DIR }}/remote-access.yaml'''',
+]
+
+["bootstrap:remote-access:cleanup"]
+hide = true
+quiet = true
+run = [
+  "rm -f '{{ vars.ENV_DIR }}/remote-token.json' '{{ vars.ENV_DIR }}/remote-access.yaml' '{{ vars.ENV_DIR }}/remote-access-observed.json'",
+]
+

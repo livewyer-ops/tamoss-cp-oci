@@ -1,0 +1,5 @@
+apiVersion: v2
+name: operation-common
+description: Shared security and temporary storage for bounded operational Jobs
+type: library
+version: 0.1.0

@@ -1,0 +1,8 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: management-ready}
+spec:
+  steps:
+    - name: observe current product charts and controller generations
+      try:
+        - assert: {file: ../../contracts/management-ready.yaml}

@@ -1,0 +1,48 @@
+["test:storage-identity:render"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p .local/tmp/check/storage-identity",
+  '''yq '.spec.storageCredentials = {"domainId":"ocid1.domain.oc1.fixture", "idcsEndpoint":"https://identity.example.test:443", "email":"operator@example.test", "images":{"oci":load("dependencies.yaml").oci.image, "kubectl":load("dependencies.yaml").connectionDetails.kubectlImage}}' .local/tmp/check/bootstrap/native-root.yaml > .local/tmp/check/storage-identity/root.yaml''',
+  "cp .local/tmp/check/bootstrap/native-observed.yaml .local/tmp/check/storage-identity/observed.yaml",
+  '''{% for stage in ["user", "group", "membership", "record", "ready"] %}
+crossplane composition render .local/tmp/check/storage-identity/root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/storage-identity/observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/storage-identity/{{ stage }}.yaml
+yq 'select(.metadata.labels."tamoss.livewyer.io/iam-role" == "storage" or .metadata.name == "storage-identity") |
+  with(select(.metadata.labels."tamoss.livewyer.io/iam-role" == "storage");
+    .status = {"conditions":[{"type":"Ready","status":"True"},{"type":"Synced","status":"True"}],
+      "atProvider":{"id":("ocid1." + (.kind | downcase) + ".oc1..storage"), "ocid":("ocid1." + (.kind | downcase) + ".oc1..storage")}}) |
+  with(select(.kind == "User"); .status.atProvider.id = "storage-scim-user" | .status.atProvider.active = true | .status.atProvider.userName = .spec.forProvider.userName | .status.atProvider.urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser = .spec.forProvider.urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser) |
+  with(select(.kind == "Group" or .kind == "Policy"); .status.atProvider.name = .spec.forProvider.name | .status.atProvider.compartmentId = .spec.forProvider.compartmentId | .status.atProvider.state = "ACTIVE") |
+  with(select(.kind == "Policy"); .status.atProvider.statements = .spec.forProvider.statements) |
+  with(select(.kind == "UserGroupMembership"); .status.atProvider.state = "ACTIVE" | .status.atProvider.userId = .spec.forProvider.userId | .status.atProvider.groupId = .spec.forProvider.groupId)' .local/tmp/check/storage-identity/{{ stage }}.yaml > .local/tmp/check/storage-identity/iam.yaml
+yq eval-all '.' .local/tmp/check/bootstrap/native-observed.yaml .local/tmp/check/storage-identity/iam.yaml > .local/tmp/check/storage-identity/observed.yaml
+{% endfor %}''',
+  '''yq eval-all -e '[select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets")] | length == 0' .local/tmp/check/storage-identity/user.yaml''',
+  '''yq eval-all -e '[select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets")] | length == 0' .local/tmp/check/storage-identity/record.yaml''',
+  '''yq eval-all -e '[select(.kind == "TamossBootstrap") | (.status.storageIdentityReady == true and .status.storageIdentity.userId == "ocid1.user.oc1..storage")] | [length > 0, all] | all' .local/tmp/check/storage-identity/ready.yaml''',
+  '''yq eval-all -e '[select(.kind == "User") | ([.spec.forProvider.urnietfparamsscimschemasoracleidcsextensionuserUser[0].bypassNotification == true, (.spec.forProvider.urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser[0] | to_entries | map(.value == (.key == "canUseCustomerSecretKeys")) | all)] | all)] | [length > 0, all] | all' .local/tmp/check/storage-identity/ready.yaml''',
+  '''yq eval-all -e '[select(.kind == "UserGroupMembership") | (.spec.forProvider.userId == "ocid1.user.oc1..storage" and .spec.forProvider.groupId == "ocid1.group.oc1..storage")] | [length > 0, all] | all' .local/tmp/check/storage-identity/ready.yaml''',
+  '''yq eval-all -e '[select(.kind == "Policy" and .metadata.labels."tamoss.livewyer.io/iam-role" == "storage") | ((.spec.forProvider.statements | length == 2) and (.spec.forProvider.statements | map(contains("target.bucket.name =")) | all))] | [length > 0, all] | all' .local/tmp/check/storage-identity/ready.yaml''',
+  '''yq eval-all -e '[select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets") | (.spec.values.s3.userId == "ocid1.user.oc1..storage" and .spec.values.initialise == true)] | [length > 0, all] | all' .local/tmp/check/storage-identity/ready.yaml''',
+  '''yq 'with(select(.kind == "User"); .status.atProvider.urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser[0].canUseApiKeys = true)' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/unrestricted-observed.yaml''',
+  '''crossplane composition render .local/tmp/check/storage-identity/root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/storage-identity/unrestricted-observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/storage-identity/unrestricted.yaml''',
+  '''yq eval-all -e '[select(.kind == "TamossBootstrap") | (.status.storageIdentityReady == false)] | [length > 0, all] | all' .local/tmp/check/storage-identity/unrestricted.yaml''',
+  '''yq eval-all -e '[select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets")] | length == 0' .local/tmp/check/storage-identity/unrestricted.yaml''',
+  '''yq 'with(select(.kind == "Policy"); .status.atProvider.statements += ["Allow group id ocid1.group.oc1..storage to manage objects in tenancy"])' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/drifted-observed.yaml''',
+  '''crossplane composition render .local/tmp/check/storage-identity/root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/storage-identity/drifted-observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/storage-identity/drifted.yaml''',
+  '''yq eval-all -e '[select(.kind == "TamossBootstrap") | (.status.storageIdentityReady == false)] | [length > 0, all] | all' .local/tmp/check/storage-identity/drifted.yaml''',
+  '''yq eval-all -e '[select(.kind == "HelmRelease" and .metadata.name == "tamoss-secrets")] | length == 0' .local/tmp/check/storage-identity/drifted.yaml''',
+  '''yq 'del(.status)' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/recovering-observed.yaml''',
+  '''crossplane composition render .local/tmp/check/storage-identity/root.yaml .local/tmp/check/bootstrap/native-composition.yaml .local/tmp/check/functions.yaml --observed-resources=.local/tmp/check/storage-identity/recovering-observed.yaml --include-full-xr --crossplane-image={{ vars.CORE }} > .local/tmp/check/storage-identity/recovering.yaml''',
+  '''yq eval-all -e '[select(.kind == "UserGroupMembership") | (.spec.forProvider.userId == "ocid1.user.oc1..storage")] | [length > 0, all] | all' .local/tmp/check/storage-identity/recovering.yaml''',
+  '''yq eval-all -e '[select(.metadata.labels."tamoss.livewyer.io/iam-role" == "storage") | .spec.managementPolicies | contains(["Create"])] | any == false' .local/tmp/check/storage-identity/ready.yaml''',
+  '''{% for stage in ["user", "group", "membership", "record", "ready", "recovering"] %}
+yq 'select(.metadata.labels."tamoss.livewyer.io/iam-role" == "storage" or .kind == "Usage" or .metadata.name == "storage-identity")' .local/tmp/check/storage-identity/{{ stage }}.yaml > .local/tmp/check/storage-identity/{{ stage }}-resources.yaml
+crossplane resource validate .local/tmp/check/schemas .local/tmp/check/storage-identity/{{ stage }}-resources.yaml --crossplane-image={{ vars.CORE }} --cache-dir=.local/tmp/check/crossplane --error-on-missing-schemas --skip-success-results
+{% endfor %}''',
+  '''yq 'with(select(.metadata.name == "storage-identity"); .data.USER_ID = "ocid1.user.oc1.changed")' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/foreign-record.yaml''',
+  '''yq 'with(select(.kind == "User"); .status.atProvider.ocid = load(".local/tmp/check/storage-identity/root.yaml").spec.vaultAuth.user)' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/provisioner-user.yaml''',
+  '''yq 'with(select(.kind == "User"); .status.atProvider.domainOcid = "ocid1.domain.oc1.foreign")' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/foreign-domain.yaml''',
+  '''yq 'with(select(.kind == "User"); .metadata.annotations."crossplane.io/external-name" = "foreign-user")' .local/tmp/check/storage-identity/observed.yaml > .local/tmp/check/storage-identity/foreign-binding.yaml''',
+  "chainsaw test --no-cluster --exec-timeout 120s --test-dir tests/storage-identity/contracts --set-string root='{{ vars.ROOT_DIR }}' --set-string core='{{ vars.CORE }}' --report-format JUNIT-TEST --report-path .local/reports --report-name storage-identity-contracts",
+]

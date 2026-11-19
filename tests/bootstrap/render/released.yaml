@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'TamossEnvironment'])): 1
+(resources[?kind == 'TamossEnvironment'] | [0].spec.managementPolicies): [Observe]
+(resources[?kind == 'TamossEnvironment'] | [0].spec.oke.memoryGiB): 48
+(resources[?kind == 'TamossBootstrap'] | [0].status.released): true

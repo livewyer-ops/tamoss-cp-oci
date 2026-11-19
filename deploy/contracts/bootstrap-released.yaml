@@ -1,0 +1,7 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossBootstrap
+metadata:
+  namespace: tamoss-infra
+(status.observedGeneration == metadata.generation): true
+spec: {released: true}
+status: {released: true}

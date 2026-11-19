@@ -1,0 +1,4 @@
+assets:
+  url: ssh://git@github.com/example/deployment.git
+  commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  secretName: deployment-git

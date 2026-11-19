@@ -1,0 +1,319 @@
+{{- $xr := .observed.composite.resource -}}
+{{- $p := $xr.spec -}}
+{{- if and (hasKey $p "storageCredentials") (not (hasKey $p "vaultAuth")) -}}
+{{- fail "Automatic storage identity requires the Kind provisioner" -}}
+{{- end -}}
+{{- $storageJobs := dig "storageJobs" "items" (list) (.extraResources | default dict) -}}
+{{- $storagePods := dig "storagePods" "items" (list) (.extraResources | default dict) -}}
+{{- $secretDefaults := fromJson __SECRET_VALUES__ -}}
+{{- $secretRelease := (get .observed.resources "secrets" | default dict).resource | default dict -}}
+{{- $storageRetired := or (not (hasKey $p "storageCredentials")) (empty $secretRelease) -}}
+{{- range (dig "status" "conditions" (list) $secretRelease) -}}
+{{- if and (eq .type "Ready") (eq .status "True") (not (dig "spec" "values" "initialise" true $secretRelease)) (eq (dig "status" "observedGeneration" 0 $secretRelease) (dig "metadata" "generation" -1 $secretRelease)) -}}{{- $storageRetired = true -}}{{- end -}}
+{{- end -}}
+{{- $foundation := (get .observed.resources "foundation" | default dict).resource | default dict -}}
+{{- $environment := (get .observed.resources "environment" | default dict).resource | default dict -}}
+{{- if and $environment (ne (index $environment.metadata.annotations "tamoss.livewyer.io/deployment-id") $p.deploymentId) -}}
+{{- fail "Observed environment belongs to a different deployment" -}}
+{{- end -}}
+{{- $foundationReady := false -}}
+{{- range (dig "status" "conditions" (list) $foundation) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $foundationReady = true -}}{{- end -}}
+{{- end -}}
+{{- $foundationReady = and $foundationReady (ne (dig "status" "vaultId" "" $foundation) "") (ne (dig "status" "keyId" "" $foundation) "") -}}
+{{- $credentialsReady := false -}}
+{{- range (dig "credentials" "items" (list) (.extraResources | default dict)) -}}
+{{- $secret := .resource -}}
+{{- $matches := and (eq (dig "spec" "target" "name" "" $secret) "database-admin") (eq (dig "spec" "secretStoreRef" "name" "" $secret) "tamoss-vault") (eq (dig "spec" "secretStoreRef" "kind" "SecretStore" $secret) "SecretStore") -}}
+{{- $bound := false -}}
+{{- range (dig "spec" "data" (list) $secret) -}}
+{{- if and (eq .secretKey "password") (eq .remoteRef.key (printf "%s-database-admin" $p.deploymentId)) -}}{{- $bound = true -}}{{- end -}}
+{{- end -}}
+{{- range (dig "status" "conditions" (list) $secret) -}}
+{{- if and $matches $bound (eq .type "Ready") (eq .status "True") -}}{{- $credentialsReady = true -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $delivered := dict -}}
+{{- $deliveries := $secretDefaults.deliveries | default list -}}
+{{- range (dig "credentialDeliveries" "items" (list) (.extraResources | default dict)) -}}
+{{- $secret := .resource -}}
+{{- range $deliveries -}}
+{{- if and (eq $secret.metadata.name .name) (eq (dig "spec" "target" "name" "" $secret) .name) (eq (dig "spec" "secretStoreRef" "name" "" $secret) "tamoss-vault") (eq (dig "spec" "secretStoreRef" "kind" "SecretStore" $secret) "SecretStore") -}}
+{{- $matches := eq (len (dig "spec" "data" (list) $secret)) (len .data) -}}
+{{- $fields := dict -}}
+{{- range (dig "spec" "data" (list) $secret) -}}{{- $_ := set $fields .secretKey . -}}{{- end -}}
+{{- range $field := .data -}}
+{{- $actual := get $fields $field.secretKey | default dict -}}
+{{- $matches = and $matches (eq ($actual.secretKey | default "") $field.secretKey) (eq (dig "remoteRef" "key" "" $actual) (printf "%s-%s" $p.deploymentId $field.remoteKey)) (eq (dig "remoteRef" "property" "" $actual) ($field.property | default "")) -}}
+{{- end -}}
+{{- range (dig "status" "conditions" (list) $secret) -}}
+{{- if and $matches (eq .type "Ready") (eq .status "True") -}}{{- $_ := set $delivered $secret.metadata.name true -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $credentialsEstablished := or ($p.credentialsEstablished | default false) (dig "status" "credentialsEstablished" false $xr) (and (gt (len $deliveries) 0) (eq (len $delivered) (len $deliveries))) -}}
+{{- $infrastructureReady := false -}}
+{{- range (dig "status" "conditions" (list) $environment) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $infrastructureReady = true -}}{{- end -}}
+{{- end -}}
+{{- $runtimeSecrets := dict "auth" (list "database-admin" "tams-database" "tadoss-database" "tadoss-oauth") "tamoss-infra" (list "database-admin" "authentik-secret-key" "authentik-password" "authentik-token" "authentik-database") "tams" (list "tams-database" "s3") "tads" (list "tadoss-database") -}}
+{{- $runtimePolicies := concat (keys $runtimeSecrets | sortAlpha) (list "connection" "services" "retirement") -}}
+{{- $accessReady := true -}}
+{{- if hasKey $p "vaultAuth" -}}
+{{- range $namespace := $runtimePolicies -}}
+{{- $policy := (get $.observed.resources (printf "runtime-policy-%s" $namespace) | default dict).resource | default dict -}}
+{{- $ready := false -}}{{- $synced := false -}}
+{{- range (dig "status" "conditions" (list) $policy) -}}
+{{- if and (eq .type "Ready") (eq .status "True") -}}{{- $ready = true -}}{{- end -}}
+{{- if and (eq .type "Synced") (eq .status "True") -}}{{- $synced = true -}}{{- end -}}
+{{- end -}}
+{{- $accessReady = and $accessReady $ready $synced -}}
+{{- end -}}
+{{- end -}}
+__STORAGE_IDENTITY__
+apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+kind: ExtraResources
+requirements:
+{{- if hasKey $p "storageCredentials" }}
+  storageJobs:
+    apiVersion: batch/v1
+    kind: Job
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/credential-operation: s3
+      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  storagePods:
+    apiVersion: v1
+    kind: Pod
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/credential-operation: s3
+      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+{{- end }}
+  credentials:
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    namespace: {{ $xr.metadata.namespace }}
+    matchName: database-admin
+  credentialDeliveries:
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/credential: 'true'
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: SecretFoundation
+metadata:
+  name: {{ $p.foundationName }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "foundation" }}
+    gotemplating.fn.crossplane.io/ready: {{ $foundationReady | toString | title | quote }}
+spec:
+{{ $p.foundation | toYaml | indent 2 }}
+{{- if hasKey $p "vaultAuth" }}
+{{- $vault := dig "status" "vaultId" "" $foundation | default (dig "spec" "values" "oracle" "vault" "" $secretRelease) -}}
+{{- $key := dig "status" "keyId" "" $foundation | default (dig "spec" "values" "oracle" "encryptionKey" "" $secretRelease) -}}
+{{- if $vault }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oke-bootstrap-facts
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "remote-facts" }}
+    gotemplating.fn.crossplane.io/ready: 'True'
+data:
+  VAULT_ID: {{ $vault | quote }}
+  DEPLOYMENT_ID: {{ $p.deploymentId | quote }}
+{{- end }}
+{{- if and $vault $key (or $storageIdentityReady $secretRelease (not (hasKey $p "storageCredentials"))) }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tamoss-secrets
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "secrets" }}
+    gotemplating.fn.crossplane.io/ready: {{ $credentialsReady | toString | title | quote }}
+spec:
+  interval: 1m
+  timeout: 5m
+  releaseName: tamoss-secrets
+  install:
+    disableWaitForJobs: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWaitForJobs: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  chart:
+    spec:
+      chart: ./charts/secrets
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  values:
+{{ $secretDefaults | toYaml | indent 4 }}
+    deploymentId: {{ $p.deploymentId | quote }}
+    initialise: {{ and (not $p.released) (not $credentialsEstablished) }}
+{{- with $p.storageCredentials }}
+    s3:
+      userId: {{ $storageUserId | quote }}
+      images: {{ .images | toJson }}
+{{- end }}
+    oracle:
+      region: {{ $p.foundation.region | quote }}
+      vault: {{ $vault | quote }}
+      encryptionKey: {{ $key | quote }}
+      compartment: {{ $p.foundation.compartmentId | quote }}
+      principalType: UserPrincipal
+      auth:
+        user: {{ $p.vaultAuth.user | quote }}
+        tenancy: {{ $p.vaultAuth.tenancy | quote }}
+        secretRef:
+          privatekey: {name: oci-vault-bootstrap, key: privatekey}
+          fingerprint: {name: oci-vault-bootstrap, key: fingerprint}
+{{- end }}
+{{- $cluster := dig "status" "outputs" "clusterId" "" $environment -}}
+{{- range $namespace := $runtimePolicies -}}
+{{- $policy := (get $.observed.resources (printf "runtime-policy-%s" $namespace) | default dict).resource | default dict -}}
+{{- $cluster = $cluster | default (dig "metadata" "annotations" "tamoss.livewyer.io/cluster-id" "" $policy) -}}
+{{- end -}}
+{{- if and $vault $cluster }}
+{{- if not (and (regexMatch "^ocid1\\.cluster\\.[a-zA-Z0-9.-]+$" $cluster) (regexMatch "^ocid1\\.vault\\.[a-zA-Z0-9.-]+$" $vault) (regexMatch "^ocid1\\.compartment\\.[a-zA-Z0-9.-]+$" $p.environment.compartmentId)) -}}
+{{- fail "Runtime policy inputs must be plain OCIDs" -}}
+{{- end }}
+{{- range $namespace, $names := $runtimeSecrets }}
+---
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ $p.deploymentId }}-secrets-{{ $namespace }}
+  namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  annotations:
+    {{ setResourceNameAnnotation (printf "runtime-policy-%s" $namespace) }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+spec:
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-secrets-{{ $namespace }}
+    description: {{ printf "Read persisted credentials for %s" $namespace | quote }}
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+{{- range $names }}
+      - {{ printf "Allow any-user to read secret-bundles in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = '%s', request.principal.service_account = '%s', target.vault.id = '%s', target.secret.name = '%s-%s'}" $p.environment.compartmentId $cluster $namespace "tamoss-vault" $vault $p.deploymentId . | quote }}
+{{- end }}
+{{- end }}
+---
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ $p.deploymentId }}-database-connection
+  namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  annotations:
+    {{ setResourceNameAnnotation "runtime-policy-connection" }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+spec:
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-database-connection
+    description: Read database connection details from the cluster
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+      - {{ printf "Allow any-user to read postgres-db-systems in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'tamoss-infra', request.principal.service_account = 'database-connection'}" $p.environment.compartmentId $cluster | quote }}
+---
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ $p.deploymentId }}-services
+  namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  annotations:
+    {{ setResourceNameAnnotation "runtime-policy-services" }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+spec:
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-services
+    description: Manage the database and media bucket from the cluster
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+{{- range list "manage postgres-db-systems" "read postgres-configurations" "read postgres-work-requests" "use virtual-network-family" "manage buckets" }}
+      - {{ printf "Allow any-user to %s in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'crossplane-system', request.principal.service_account = 'provider-oci'}" . $p.environment.compartmentId $cluster | quote }}
+{{- end }}
+---
+apiVersion: identity.oci.m.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ $p.deploymentId }}-retirement
+  namespace: {{ $xr.metadata.namespace }}
+  labels:
+    tamoss.livewyer.io/iam-role: runtime
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+  annotations:
+    {{ setResourceNameAnnotation "runtime-policy-retirement" }}
+    tamoss.livewyer.io/cluster-id: {{ $cluster | quote }}
+spec:
+  providerConfigRef: {kind: ProviderConfig, name: {{ $p.environment.providerConfigName }}}
+  forProvider:
+    compartmentId: {{ $p.environment.compartmentId }}
+    name: {{ $p.deploymentId }}-retirement
+    description: Empty the media bucket and delete database backups from the cluster at teardown
+    freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
+    statements:
+{{- range list "manage objects" "manage postgres-backups" "read postgres-work-requests" }}
+      - {{ printf "Allow any-user to %s in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'tamoss-infra', request.principal.service_account = 'services-retirement'}" . $p.environment.compartmentId $cluster | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if or $environment (not $p.released) }}
+{{- $spec := $p.environment -}}
+{{- if $p.released -}}
+{{- $spec = omit $environment.spec "crossplane" -}}
+{{- end }}
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: TamossEnvironment
+metadata:
+  name: {{ $xr.metadata.name }}
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "environment" }}
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+    gotemplating.fn.crossplane.io/ready: {{ $infrastructureReady | toString | title | quote }}
+spec:
+{{ $spec | toYaml | indent 2 }}
+{{- end }}
+---
+apiVersion: {{ $xr.apiVersion }}
+kind: {{ $xr.kind }}
+metadata:
+  annotations:
+    gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady) | toString | title | quote }}
+status:
+  observedGeneration: {{ $xr.metadata.generation | default 1 }}
+  foundationReady: {{ $foundationReady }}
+  credentialsReady: {{ $credentialsReady }}
+  credentialsEstablished: {{ $credentialsEstablished }}
+  storageIdentityReady: {{ $storageIdentityReady }}
+  storageIdentity:
+    userId: {{ $storageUserId | quote }}
+    groupId: {{ $storageGroupId | quote }}
+  infrastructureReady: {{ $infrastructureReady }}
+  bootstrapReady: {{ and (dig "status" "bootstrapReady" false $environment) $accessReady $credentialsEstablished $storageRetired }}
+  runtimeAccessReady: {{ $accessReady }}
+  released: {{ and $p.released $storageRetired $storageQuiesced (eq (len $storagePods) 0) (eq (len $storageJobs) 0) }}

@@ -1,0 +1,12 @@
+apiVersion: oci.m.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: oci
+  namespace: tamoss-infra
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      name: oci-api-key
+      namespace: tamoss-infra
+      key: credentials

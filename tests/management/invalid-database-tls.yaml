@@ -1,0 +1,32 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: Tamoss
+metadata: {name: missing-ca-name, namespace: tams}
+spec:
+  backends:
+    db:
+      providedBy: external
+      external:
+        tls:
+          caConfigMap: {key: ca.pem}
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: Tamoss
+metadata: {name: missing-ca-key, namespace: tams}
+spec:
+  backends:
+    db:
+      providedBy: external
+      external:
+        tls:
+          caConfigMap: {name: database-ca}
+---
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: Tamoss
+metadata: {name: optional-ca, namespace: tams}
+spec:
+  backends:
+    db:
+      providedBy: external
+      external:
+        tls:
+          caConfigMap: {name: database-ca, key: ca.pem, optional: true}

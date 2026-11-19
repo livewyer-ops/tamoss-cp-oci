@@ -1,0 +1,5 @@
+apiVersion: qualification.livewyer.io/v1alpha1
+kind: IdentityCheck
+(recorded.environment == observed.environment): true
+(recorded.oci == observed.oci): true
+(length(recorded.deploymentUID) == `32`): true

@@ -1,0 +1,3 @@
+apiVersion: v2
+name: seed-proof
+version: 0.1.0

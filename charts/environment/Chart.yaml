@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tamoss-environment
+description: Namespaced OCI infrastructure for TAMOSS qualification
+type: application
+version: 0.1.0

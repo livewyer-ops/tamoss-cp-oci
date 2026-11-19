@@ -1,0 +1,277 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: flux-bootstrap}
+spec:
+  timeouts:
+    assert: 180s
+    exec: 240s
+  steps:
+    - name: recover a missing chart through ordinary Flux reconciliation
+      try:
+        - command:
+            entrypoint: env
+            env: &inputs
+              - {name: ROOT, value: ($values.root)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:prepare"]
+        - apply: {file: ../bootstrap/management/children.yaml}
+        - apply: {file: ../../.local/tmp/check/flux-bootstrap/backend.yaml}
+        - apply: {file: imports.yaml}
+        - apply: {file: ../../.local/tmp/check/flux-bootstrap/instance.yaml}
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+        - patch:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
+              spec:
+                chart:
+                  spec: {chart: ./charts/bootstrap-instance}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+              status: {foundationReady: false, credentialsReady: false}
+    - name: resolve foundation outputs and establish all credentials without a host install
+      try:
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: SecretFoundation
+              metadata:
+                name: flux-bootstrap-check
+                namespace: tamoss-infra
+                annotations: {test.livewyer.io/ready: 'true'}
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-secrets, namespace: tamoss-infra}
+              spec:
+                values:
+                  initialise: true
+                  oracle: {vault: ocid1.vault.oc1.fixture, encryptionKey: ocid1.key.oc1.fixture}
+        - patch: {file: secret-backend.yaml}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+              status: {credentialsReady: true, infrastructureReady: true}
+        - assert:
+            resource:
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/composition-resource-name: runtime-policy-auth, tamoss.livewyer.io/cluster-id: ocid1.cluster.oc1.fixture}
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, wait, externalsecret, --all, --for=condition=Ready, --timeout=180s]
+    - name: persist retirement through Helm and reject credential creation being restored
+      bindings:
+        - name: password
+          value: (x_k8s_get($client, 'v1', 'Secret', 'tamoss-infra', 'database-admin').data.password)
+      try:
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
+              data:
+                values.yaml: >-
+                  (replace_all(x_k8s_get($client, 'v1', 'ConfigMap', 'tamoss-infra', 'tamoss-bootstrap-instance').data."values.yaml", 'credentialsEstablished: false', 'credentialsEstablished: true'))
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+              spec: {credentialsEstablished: true}
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-secrets, namespace: tamoss-infra}
+              spec:
+                values: {initialise: false}
+              (status.observedGeneration == metadata.generation): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, wait, pushsecret,password.generators.external-secrets.io, --all, --for=delete, --timeout=120s]
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, delete, secret, s3-input]
+        - command:
+            entrypoint: kubectl
+            args: [-n, flux-system, rollout, restart, deployment/helm-controller]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
+        - command:
+            entrypoint: kubectl
+            args: [-n, flux-system, rollout, status, deployment/helm-controller, --timeout=180s]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: database-admin, namespace: tamoss-infra}
+              data: {password: ($password)}
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, patch, tamossbootstrap/flux-bootstrap-check, --type=merge, --dry-run=server, -p, '{"spec":{"credentialsEstablished":false}}']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Established credentials cannot be regenerated')): true
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, patch, tamossbootstrap/flux-bootstrap-check, --type=merge, --dry-run=server, -p, '{"spec":{"vaultAuth":null}}']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Bootstrap credential ownership cannot change')): true
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, patch, tamossbootstrap/flux-bootstrap-check, --type=merge, --dry-run=server, -p, '{"spec":{"vaultAuth":{"user":"ocid1.user.oc1.changed"}}}']
+            check:
+              ($error != null): true
+              (contains($stderr, 'Bootstrap Vault identity is immutable')): true
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Secret
+              name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-database-admin
+              namespace: secret-backend
+        - patch:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: database-admin
+                namespace: tamoss-infra
+                annotations: {force-sync: missing-established-secret}
+        - assert:
+            resource:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata: {name: database-admin, namespace: tamoss-infra}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'False'
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata: {name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-database-admin, namespace: secret-backend}
+        - error:
+            resource:
+              apiVersion: external-secrets.io/v1alpha1
+              kind: PushSecret
+              metadata: {name: database-admin, namespace: tamoss-infra}
+    - name: freeze the instance release before releasing Crossplane ownership
+      try:
+        - command:
+            entrypoint: env
+            env: *inputs
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:release"]
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
+              spec: {suspend: true}
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+              spec: {managementPolicies: [Observe]}
+        - command:
+            entrypoint: kubectl
+            args: [-n, flux-system, rollout, restart, deployment/helm-controller]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, restart, deployment/crossplane]
+        - command:
+            entrypoint: kubectl
+            args: [-n, flux-system, rollout, status, deployment/helm-controller, --timeout=180s]
+        - command:
+            entrypoint: kubectl
+            args: [-n, crossplane-system, rollout, status, deployment/crossplane, --timeout=180s]
+        - command:
+            entrypoint: env
+            env: *inputs
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:release"]
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata:
+                name: flux-bootstrap-check
+                namespace: tamoss-infra
+                annotations: {crossplane.io/paused: 'true'}
+              spec: {released: true, credentialsEstablished: true}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+              spec: {managementPolicies: [Observe]}
+        - assert:
+            resource:
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/composition-resource-name: runtime-policy-auth, tamoss.livewyer.io/cluster-id: ocid1.cluster.oc1.fixture}
+    - name: restart original Kind with bootstrap authority still released
+      try:
+        - command:
+            entrypoint: env
+            env: *inputs
+            args: ["ROOT=$ROOT", "mise", "-C", "$ROOT", "run", "test:flux-bootstrap:restart"]
+        - assert:
+            resource:
+              apiVersion: helm.toolkit.fluxcd.io/v2
+              kind: HelmRelease
+              metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
+              spec: {suspend: true}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossBootstrap
+              metadata:
+                name: flux-bootstrap-check
+                namespace: tamoss-infra
+                annotations: {crossplane.io/paused: 'true'}
+              spec: {released: true, credentialsEstablished: true}
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: flux-bootstrap-check, namespace: tamoss-infra}
+              spec: {managementPolicies: [Observe]}
+        - assert:
+            resource:
+              apiVersion: identity.oci.m.upbound.io/v1alpha1
+              kind: Policy
+              metadata:
+                namespace: tamoss-infra
+                labels: {tamoss.livewyer.io/iam-role: runtime}
+                annotations: {crossplane.io/composition-resource-name: runtime-policy-auth, tamoss.livewyer.io/cluster-id: ocid1.cluster.oc1.fixture}

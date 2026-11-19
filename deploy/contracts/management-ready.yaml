@@ -1,0 +1,12 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata: {name: tamoss-bootstrap-product, namespace: tamoss-infra}
+(spec.suspend != `true`): true
+(status.observedGeneration == metadata.generation): true
+(length(status.artifact.revision || '') > `0`): true
+(ends_with(status.artifact.revision, spec.ref.commit)): true
+status:
+  (conditions[?type == 'Ready'] | [0].status): 'True'
+(length(x_k8s_list($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra').items[?metadata.labels."tamoss.livewyer.io/bootstrap-controller" == 'true' && spec.suspend != `true` && status.observedGeneration == metadata.generation && status.conditions[?type == 'Ready' && status == 'True']])): 5
+(length(x_k8s_list($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra').items[?metadata.labels."tamoss.livewyer.io/bootstrap-controller" == 'true' && spec.chart.spec.sourceRef.kind == 'GitRepository' && status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra', join('', ['tamoss-infra-', metadata.name])).status.artifact.revision && x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra', join('', ['tamoss-infra-', metadata.name])).status.observedSourceArtifactRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'GitRepository', 'tamoss-infra', 'tamoss-bootstrap-product').status.artifact.revision])): 3
+(length(x_k8s_list($client, 'helm.toolkit.fluxcd.io/v2', 'HelmRelease', 'tamoss-infra').items[?metadata.labels."tamoss.livewyer.io/bootstrap-controller" == 'true' && spec.chart.spec.sourceRef.kind == 'HelmRepository' && status.lastAttemptedRevision == x_k8s_get($client, 'source.toolkit.fluxcd.io/v1', 'HelmChart', 'tamoss-infra', join('', ['tamoss-infra-', metadata.name])).status.artifact.revision])): 2

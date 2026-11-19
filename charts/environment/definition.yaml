@@ -1,0 +1,148 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: tamossenvironments.tamoss.livewyer.io
+spec:
+  scope: Namespaced
+  group: tamoss.livewyer.io
+  names:
+    kind: TamossEnvironment
+    plural: tamossenvironments
+  defaultCompositionRef:
+    name: tamoss-oci
+  defaultCompositeDeletePolicy: Foreground
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-validations:
+            - rule: self.metadata.name.matches('^[a-z][a-z0-9-]{1,21}[a-z0-9]$')
+              message: Environment names must use 3-23 lowercase letters, digits or hyphens, start with a letter and end with a letter or digit
+          properties:
+            spec:
+              type: object
+              required: [region, compartmentId, providerConfigName, owner, network, oke, storage]
+              properties:
+                managementPolicies:
+                  type: array
+                  default: ['*']
+                  minItems: 1
+                  maxItems: 1
+                  items:
+                    type: string
+                    enum: ['*', Observe]
+                region:
+                  type: string
+                  maxLength: 64
+                  pattern: '^[a-z]+-[a-z]+-[0-9]+$'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: An environment cannot move between regions
+                compartmentId:
+                  type: string
+                  pattern: '^ocid1\.compartment\.'
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: An environment cannot move between compartments
+                providerConfigName:
+                  type: string
+                  minLength: 1
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Provider identity is immutable
+                owner:
+                  type: string
+                  minLength: 1
+                network:
+                  type: object
+                  required: [vcn, api, workers, pods, database, loadBalancer, services, adminCidrs, ociServiceId, ociServiceCidr]
+                  x-kubernetes-validations:
+                    - rule: '[self.vcn, self.api, self.workers, self.pods, self.database, self.loadBalancer, self.services].all(c, isCIDR(c) && cidr(c).ip().family() == 4 && cidr(c) == cidr(c).masked())'
+                      message: Network ranges must be canonical IPv4 CIDRs
+                    - rule: '[self.api, self.workers, self.pods, self.database, self.loadBalancer].all(c, cidr(self.vcn).containsCIDR(c))'
+                      message: Every subnet must be inside the VCN
+                    - rule: '[self.api, self.workers, self.pods, self.database, self.loadBalancer].all(a, [self.api, self.workers, self.pods, self.database, self.loadBalancer].filter(b, cidr(a).containsIP(cidr(b).ip()) || cidr(b).containsIP(cidr(a).ip())).size() == 1)'
+                      message: Subnets must not overlap
+                    - rule: '!cidr(self.services).containsIP(cidr(self.vcn).ip()) && !cidr(self.vcn).containsIP(cidr(self.services).ip())'
+                      message: Kubernetes service range must not overlap the VCN
+                  properties:
+                    vcn: {type: string, format: cidr, maxLength: 18}
+                    api: {type: string, format: cidr, maxLength: 18}
+                    workers: {type: string, format: cidr, maxLength: 18}
+                    pods: {type: string, format: cidr, maxLength: 18}
+                    database: {type: string, format: cidr, maxLength: 18}
+                    loadBalancer: {type: string, format: cidr, maxLength: 18}
+                    services: {type: string, format: cidr, maxLength: 18}
+                    ociServiceId:
+                      type: string
+                      pattern: '^ocid1\.service\.'
+                    ociServiceCidr:
+                      type: string
+                      pattern: '^all-.*-services-in-oracle-services-network$'
+                    adminCidrs:
+                      type: array
+                      minItems: 1
+                      maxItems: 8
+                      items:
+                        type: string
+                        format: cidr
+                        maxLength: 18
+                      x-kubernetes-validations:
+                        - rule: "self.all(c, isCIDR(c) && cidr(c).ip().family() == 4 && cidr(c).prefixLength() > 0 && cidr(c) == cidr(c).masked())"
+                          message: Administrator ranges must be explicit canonical IPv4 CIDRs
+                oke:
+                  type: object
+                  required: [version, imageId, shape, ocpus, memoryGiB, placements]
+                  properties:
+                    version:
+                      type: string
+                      pattern: '^v1\.36\.[0-9]+$'
+                    imageId:
+                      type: string
+                      pattern: '^ocid1\.image\.'
+                    shape:
+                      type: string
+                      pattern: '^VM\.Standard(\.E[0-9]+|[0-9]+)\.Flex$'
+                    ocpus: {type: integer, minimum: 2}
+                    memoryGiB: {type: integer, minimum: 16}
+                    placements:
+                      type: array
+                      minItems: 3
+                      maxItems: 3
+                      items:
+                        type: object
+                        required: [availabilityDomain, faultDomain]
+                        properties:
+                          availabilityDomain: {type: string, minLength: 1, maxLength: 255}
+                          faultDomain:
+                            type: string
+                            enum: [FAULT-DOMAIN-1, FAULT-DOMAIN-2, FAULT-DOMAIN-3]
+                      x-kubernetes-validations:
+                        - rule: 'self.all(p, self.filter(q, q.availabilityDomain == p.availabilityDomain && q.faultDomain == p.faultDomain).size() == 1)'
+                          message: Workers must occupy distinct failure domains
+                storage:
+                  type: object
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: Storage identity is immutable
+                  required: [namespace, bucket]
+                  properties:
+                    namespace: {type: string, pattern: '^[a-zA-Z0-9_-]+$', maxLength: 128}
+                    bucket: {type: string, maxLength: 63, pattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'}
+            status:
+              type: object
+              properties:
+                bootstrapReady:
+                  type: boolean
+                outputs:
+                  type: object
+                  properties:
+                    clusterId: {type: string}
+                    databaseSubnetId: {type: string}
+                    publicIp: {type: string}
+                    bucket: {type: string}
+                    objectEndpoint: {type: string}
+                    loadBalancerSubnetId: {type: string}

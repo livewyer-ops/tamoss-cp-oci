@@ -1,0 +1,40 @@
+{{- if or .Values.instance .Values.deploymentId }}
+{{- with include "management.instance" . | fromYaml }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamoss-bootstrap-instance
+  namespace: tamoss-infra
+  labels: {reconcile.fluxcd.io/watch: Enabled}
+data:
+  values.yaml: |
+    bootstrap:
+{{ . | toYaml | indent 6 }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: tamoss-bootstrap-instance, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 5m
+  releaseName: tamoss-bootstrap-instance
+  install:
+    # Acceptance of the root must not wait for OCI or credential retirement.
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  upgrade:
+    disableWait: true
+    strategy: {name: RetryOnFailure, retryInterval: 30s}
+  dependsOn:
+    - name: tamoss-bootstrap-api
+    - name: oci-services
+    - name: external-secrets
+  chart:
+    spec:
+      chart: ./charts/bootstrap-instance
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: {{ $.Values.sourceName }}, namespace: tamoss-infra}
+  valuesFrom:
+    - {kind: ConfigMap, name: tamoss-bootstrap-instance}
+{{- end }}
+{{- end }}
