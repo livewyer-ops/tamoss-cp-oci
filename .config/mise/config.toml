@@ -1,0 +1,33 @@
+min_version = "2026.11.3"
+
+[tools]
+"aqua:kubernetes-sigs/kind" = "v0.33.0"
+"aqua:kubernetes/kubectl" = "v1.37.1"
+"aqua:helm/helm" = "v4.3.1"
+"aqua:helmfile/helmfile" = "v1.8.2"
+"aqua:crossplane/cli" = "v2.5.0"
+"aqua:mikefarah/yq" = "v4.54.1"
+"aqua:kyverno/chainsaw" = "v0.2.15"
+"aqua:tsenart/vegeta" = "v12.13.0"
+"aqua:Orange-OpenSource/hurl" = "8.0.1"
+"aqua:fluxcd/flux2" = "v2.9.6"
+"aqua:cli/cli" = "v2.103.3"
+"uv" = "0.13.7"
+"pypi:oci-cli" = { "version" = "{{ vars.OCI_VERSION }}", "python" = "3.12" }
+
+[env]
+OCI_CLI_CONFIG_FILE = '{{ env.OCI_CLI_CONFIG_FILE | default(value=env.HOME ~ "/.oci/config") }}'
+OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
+
+[task_config]
+shell = "bash -euo pipefail -c"
+includes = ["tasks/check.toml"]
+
+[vars]
+ROOT_DIR = "{{config_root}}"
+ENV_DIR = '''{% if env.ENV_DIR | default(value="") %}{{ env.ENV_DIR | absolute }}{% else %}{{ config_root }}/.local/environment{% endif %}'''
+ENV_PATH = "{{vars.ENV_DIR | absolute}}"
+CORE = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.crossplane.imageRepository }}:v{{ dependencies.crossplane.version }}'''
+OCI = "oci --connection-timeout 10 --read-timeout 30 --max-retries 0"
+OCI_VERSION = '''{% set dependencies = read_yaml(path=vars.ROOT_DIR ~ "/dependencies.yaml") %}{{ dependencies.oci.version }}'''
+

@@ -1,0 +1,37 @@
+
+["verify:tools"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise install --locked",
+  '''test "$(oci --version)" = "$(yq -r .oci.version dependencies.yaml)"''',
+  '''{% for item in ["kind", "kubectl", "helm", "helmfile", "crossplane", "yq", "chainsaw", "vegeta", "hurl", "flux", "uv", "oci"] %}
+mise which {{ item }} > /dev/null
+{% endfor %}''',
+]
+
+["verify:privacy"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "test ! -d scripts",
+  "git ls-files --cached --others --exclude-standard -z -- '*.py' '*.sh' | wc -c | xargs test 0 -eq",
+  "git ls-files -z -- AGENTS.md CLAUDE.md .local | wc -c | xargs test 0 -eq",
+  "git check-ignore -q AGENTS.md",
+  "git check-ignore -q .local/AGENTS.md",
+]
+
+["verify:artifact"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''(echo "${TASKV_SHA}  ${TASKV_CACHE}/${TASKV_TARGET}" | sha256sum --check --status)'''
+run = [
+  "curl --fail --location --silent --show-error --max-time 60 --max-filesize 16777216 --create-dirs --output '{{ env.TASKV_CACHE }}/{{ env.TASKV_TARGET }}.download' '{{ env.TASKV_URL }}'",
+  "echo '{{ env.TASKV_SHA }}  {{ env.TASKV_CACHE }}/{{ env.TASKV_TARGET }}.download' | sha256sum --check --status",
+  "mv '{{ env.TASKV_CACHE }}/{{ env.TASKV_TARGET }}.download' '{{ env.TASKV_CACHE }}/{{ env.TASKV_TARGET }}'",
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+env.TASKV_SHA = '''{{ env.SHA | default(value="") }}'''
+env.TASKV_TARGET = '''{{ env.TARGET | default(value="") }}'''
+env.TASKV_URL = '''{{ env.URL | default(value="") }}'''
+
