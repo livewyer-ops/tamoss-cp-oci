@@ -50,3 +50,12 @@ run = [
   '''test ! -s '{{ vars.ENV_DIR }}/environment-source.json' || { printf '%s\n' "Settings come from https://github.com/$(yq -r .repository '{{ vars.ENV_DIR }}/environment-source.json'); change them there instead of with apply." >&2; exit 1; }''',
 ]
 
+["environment:revoke"]
+hide = true
+skip_if = '''test ! -s '{{ vars.ENV_DIR }}/environment-source.json' || yq -e '.keyRevoked == true' '{{ vars.ENV_DIR }}/environment-source.json' > /dev/null'''
+run = [
+  # The repository and its settings stay with their owner; only OKE's read access is removed.
+  '''gh api --paginate "repos/$(yq -r .repository '{{ vars.ENV_DIR }}/environment-source.json')/keys" --jq '.[].id' > '{{ vars.ENV_DIR }}/environment-key-ids'''',
+  '''if grep -Fxq "$(yq -r .keyId '{{ vars.ENV_DIR }}/environment-source.json')" '{{ vars.ENV_DIR }}/environment-key-ids'; then gh api --method DELETE "repos/$(yq -r .repository '{{ vars.ENV_DIR }}/environment-source.json')/keys/$(yq -r .keyId '{{ vars.ENV_DIR }}/environment-source.json')"; fi''',
+  "yq -i -o=json '.keyRevoked = true' '{{ vars.ENV_DIR }}/environment-source.json'",
+]

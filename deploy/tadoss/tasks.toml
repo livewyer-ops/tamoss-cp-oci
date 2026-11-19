@@ -87,6 +87,15 @@ env.TEST_TLS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check"
 env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .qualification.postgres16Image " ~ (vars.ROOT_DIR) ~ "/dependencies.yaml") }}'''
 env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"docker.io/\" + .runtimeImage' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
 
+["tadoss:remove-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''((CRD="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' get crd tadosses.tadoss.livewyer.io --ignore-not-found -o name)" && test -z "$CRD") || (RESOURCE="$(kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tads get tadoss/tadoss --ignore-not-found -o name)" && test -z "$RESOURCE"))'''
+run = [
+  '''yq -n '{"workloads": [{"namespace": "tads", "resource": "tadosses.tadoss.livewyer.io", "name": "tadoss"}]}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
+]
+
 ["tadoss:fetch"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

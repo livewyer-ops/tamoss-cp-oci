@@ -1,0 +1,195 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: lifecycle-identities
+spec:
+  steps:
+    - name: prepare private identities for this disposable cluster
+      try:
+        - command:
+            entrypoint: env
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: CHECK_DIRECTORY, value: ($values.directory)}
+              - {name: MANAGEMENT_KUBECONFIG, value: ($values.kubeconfig)}
+              - {name: OCI_CLI_CONFIG_FILE, value: "(join('/', [$values.root, 'tests/lifecycle/oci-config']))"}
+              - {name: OCI_CLI_PROFILE, value: DEFAULT}
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "MANAGEMENT_KUBECONFIG=$MANAGEMENT_KUBECONFIG", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare"]
+        - command: &management
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:management"]
+        - command: &remote
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:remote"]
+    - name: repeat bootstrap without replacing identity
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:repeat-bootstrap"]
+    - name: reject stale local configuration after write authority is relinquished
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: tamoss-infra}
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:prepare-composite"]
+        - command: &localOwner
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:local-owner"]
+        - patch:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: qualification, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
+        - command:
+            <<: *localOwner
+            check:
+              ($error != null): true
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: TamossEnvironment
+              metadata: {name: qualification, namespace: tamoss-infra}
+              spec:
+                managementPolicies: [Observe]
+      finally:
+        - command:
+            entrypoint: kubectl
+            args: [delete, tamossenvironment, qualification, -n, tamoss-infra, --ignore-not-found, --wait=false]
+    - name: allow local cleanup after the original composite has disappeared
+      try:
+        - command: *localOwner
+    - name: reject a missing identity record for existing state
+      try:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.yaml, $CHECK_DIRECTORY/identity.saved.yaml]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:initialise"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Existing state has no identity record')): true
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.saved.yaml, $CHECK_DIRECTORY/identity.yaml]
+    - name: reject a changed management cluster
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.managementUID = "different-cluster"', $CHECK_DIRECTORY/identity.yaml]
+        - command:
+            <<: *management
+            check: {($error != null): true}
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:create-management"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'restart the original Kind')): true
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity-valid.yaml, $CHECK_DIRECTORY/identity.yaml]
+    - name: reject a changed remote cluster
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.remoteUID = "different-cluster"', $CHECK_DIRECTORY/identity.yaml]
+        - command:
+            <<: *remote
+            check: {($error != null): true}
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity-valid.yaml, $CHECK_DIRECTORY/identity.yaml]
+    - name: refuse replacement after management state loss
+      try:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/management.kubeconfig, $CHECK_DIRECTORY/management.saved.kubeconfig]
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:create-management"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'restart the original Kind')): true
+      finally:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/management.saved.kubeconfig, $CHECK_DIRECTORY/management.kubeconfig]
+    - name: remove live objects without an application marker and repeat cleanup
+      try:
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [apply, --server-side, -f, $PROJECT_ROOT/.local/tmp/check/schemas/operator.yaml]
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: tamosses.tamoss.livewyer.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata: {name: ingestruns.tamoss.livewyer.io}
+              status:
+                (conditions[?type == 'Established'] | [0].status): 'True'
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [apply, --server-side, -f, $PROJECT_ROOT/.local/tmp/check/tamoss.yaml]
+        - command:
+            entrypoint: kubectl
+            env: *paths
+            args: [apply, --server-side, -k, $PROJECT_ROOT/deploy/tamoss/ingest]
+        - command:
+            entrypoint: test
+            env: *paths
+            args: ['!', -e, $CHECK_DIRECTORY/application-started]
+        - command: &remove
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:lifecycle:remove-instance"]
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: Tamoss
+              metadata: {name: tamoss, namespace: tams}
+        - error:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: IngestRun
+              metadata: {name: qualification, namespace: tams}
+        - command: *remove
+    - name: refuse to finalise Kind without a deployment-bound audit checkpoint
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "bootstrap:down:finish"]
+            check: {($error != null): true}
+        - command: *management

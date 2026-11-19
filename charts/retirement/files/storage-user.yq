@@ -1,0 +1,7 @@
+(.data.resources | tag == "!!seq") and
+((.data.resources | length) == ([strenv(USER_ID) | select(. != "")] | length)) and
+([.data.resources[] | [
+  (.ocid == strenv(USER_ID)),
+  (."external-id" == strenv(DEPLOYMENT)),
+  (.ocid != strenv(OCI_CLI_USER))
+] | all] | all)

@@ -1,0 +1,54 @@
+{{- $retiring := ne ($p.retirementId | default "") "" -}}
+{{- $checkpoint := dig "status" "retirement" (dict) $xr -}}
+{{- $phase := $checkpoint.phase | default "WaitingForServices" -}}
+{{- $next := $phase -}}
+{{- $removeBase := and $retiring (has $phase (list "RemovingInfrastructure" "Retired")) -}}
+{{- $observerUid := $checkpoint.observerUid | default "" -}}
+{{- $revision := $checkpoint.revision | default "" -}}
+{{- if $retiring }}
+{{- if or (ne $p.retirementId $p.deploymentId) (and $checkpoint.deploymentId (ne $checkpoint.deploymentId $p.deploymentId)) }}
+{{ fail "Bootstrap retirement identity changed" }}
+{{- end }}
+{{- if eq $phase "WaitingForServices" }}
+{{- if $p.retirementBeforeAccess }}
+{{- $next = "AccessNeverIssued" }}
+{{- else }}
+{{- $observer := dig "service-retirement" "resource" (dict) (.observed.resources | default dict) }}
+{{- range (dig "status" "conditions" (list) $observer) }}
+{{- if and (eq .type "Ready") (eq .status "True") (dig "status" "lastAppliedRevision" "" $observer) (eq (dig "metadata" "generation" -1 $observer) (dig "status" "observedGeneration" -2 $observer)) (eq (dig "metadata" "annotations" "tamoss.livewyer.io/deployment-id" "" $observer) $p.deploymentId) }}
+{{- $next = "RemoteRetired" }}
+{{- $observerUid = $observer.metadata.uid }}
+{{- $revision = $observer.status.lastAppliedRevision }}
+{{- end }}
+{{- end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: service-retirement
+  namespace: {{ $xr.metadata.namespace }}
+  annotations:
+    {{ setResourceNameAnnotation "service-retirement" }}
+    tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+spec:
+  interval: 1m
+  retryInterval: 20s
+  timeout: 3m
+  prune: false
+  kubeConfig: {secretRef: {name: oke-bootstrap-access}}
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  path: ./deploy/gitops/readiness
+  healthChecks:
+    - {apiVersion: tamoss.livewyer.io/v1alpha1, kind: TamossServices, name: {{ $xr.metadata.name }}, namespace: {{ $xr.metadata.namespace }}}
+  healthCheckExprs:
+    - apiVersion: tamoss.livewyer.io/v1alpha1
+      kind: TamossServices
+      current: >-
+        spec.deploymentId == '{{ $p.deploymentId }}' && spec.ownerUid == '{{ (dig "metadata" "uid" "unobserved" $environment) }}' &&
+        has(spec.retirementId) && spec.retirementId == spec.deploymentId &&
+        has(status.retirement) && status.retirement.deploymentId == spec.retirementId &&
+        status.retirement.observedGeneration == metadata.generation && status.retirement.phase == 'Retired' &&
+        has(status.conditions) && status.conditions.exists(c, c.type == 'Retired' && c.status == 'True')
+{{- end }}
+{{- end }}
+{{- end }}

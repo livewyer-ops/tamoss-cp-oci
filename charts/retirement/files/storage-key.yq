@@ -1,0 +1,7 @@
+(.data | tag == "!!seq") and (.data | length <= 1) and
+(strenv(KEY_ID) != "" or (.data | length == 1)) and
+([.data[] | [
+  (."display-name" == "tamoss-" + strenv(DEPLOYMENT) + "-" + strenv(ATTEMPT)),
+  (.id | length > 0),
+  (strenv(KEY_ID) == "" or .id == strenv(KEY_ID))
+] | all] | all)

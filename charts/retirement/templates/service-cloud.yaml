@@ -1,0 +1,138 @@
+{{- with .Values.serviceRetirement }}
+{{- $drain := eq .step "drain" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: retire-services-{{ .step }}
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: 1500
+  backoffLimit: 5
+  template:
+    spec:
+      serviceAccountName: services-retirement
+      restartPolicy: Never
+      securityContext: {{- include "operation-common.podSecurity" $ | nindent 8 }}
+      initContainers:
+        - name: inventory
+          image: &oci {{ required "OCI CLI image is required" $.Values.images.oci | quote }}
+          command: &shell [/bin/sh, -ec]
+          args:
+            - |
+              oci lb load-balancer list --compartment-id "$COMPARTMENT" --all > /work/lbs
+              test -s /work/lbs || echo '{"data":[]}' > /work/lbs
+{{- if and $drain .bucketId }}
+              oci os bucket get --namespace-name "$NAMESPACE" --name "$BUCKET" > /work/bucket
+              oci os multipart list --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --limit 50 > /work/uploads
+              test -s /work/uploads || echo '{"data":[]}' > /work/uploads
+{{- else }}
+              oci os bucket list --namespace-name "$NAMESPACE" --compartment-id "$COMPARTMENT" --all > /work/buckets
+              test -s /work/buckets || echo '{"data":[]}' > /work/buckets
+{{- end }}
+{{- if and $drain .databaseId }}
+              oci psql db-system get --db-system-id "$DATABASE_ID" > /work/database
+{{- else }}
+              oci psql db-system-collection list-db-systems --compartment-id "$COMPARTMENT" --all > /work/databases
+{{- end }}
+{{- if not $drain }}
+              oci psql backup-collection list-backups --compartment-id "$COMPARTMENT" --all > /work/backups
+{{- end }}
+          env: &env
+            - {name: HOME, value: /tmp}
+            - {name: OCI_CLI_AUTH, value: oke_workload_identity}
+            - {name: OCI_CLI_REGION, value: {{ .region | quote }}}
+            - {name: OCI_RESOURCE_PRINCIPAL_REGION, value: {{ .region | quote }}}
+            - {name: COMPARTMENT, value: {{ .compartment | quote }}}
+            - {name: NAMESPACE, value: {{ .namespace | quote }}}
+            - {name: BUCKET, value: {{ .bucket | quote }}}
+            - {name: BUCKET_ID, value: {{ .bucketId | quote }}}
+            - {name: DATABASE_NAME, value: {{ .databaseName | quote }}}
+            - {name: DATABASE_ID, value: {{ .databaseId | quote }}}
+            - {name: OWNER_UID, value: {{ .ownerUid | quote }}}
+            - {name: DEPLOYMENT, value: {{ $.Values.deploymentId | quote }}}
+          volumeMounts: &mounts
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+          resources: &resources
+            {{- include "operation-common.resources" $ | nindent 12 }}
+          securityContext: &security
+            {{- include "operation-common.containerSecurity" $ | nindent 12 }}
+        - name: select-owned
+          image: &yq {{ required "yq image is required" $.Values.images.yq | quote }}
+          command: *shell
+          args:
+            - |
+              yq -e '(.data | tag == "!!seq") and ([.data[] | select(."lifecycle-state" != "DELETED")] | length == 0)' /work/lbs > /dev/null
+{{- if and $drain .bucketId }}
+              yq -e '.data.id == strenv(BUCKET_ID) and .data.name == strenv(BUCKET) and .data.namespace == strenv(NAMESPACE) and .data."compartment-id" == strenv(COMPARTMENT) and .data."freeform-tags"."tamoss-deployment-id" == strenv(DEPLOYMENT) and .data."freeform-tags"."tamoss-composite-uid" == strenv(OWNER_UID)' /work/bucket > /dev/null
+              yq -e '(.data | tag == "!!seq") and ([.data[] | [(.object | length > 0), (."upload-id" | length > 0)] | all] | all)' /work/uploads > /dev/null
+              yq -o=json -I=0 '.data[] | {"objectName": .object, "uploadId": ."upload-id"}' /work/uploads > /work/targets
+{{- else }}
+              yq -e '(.data | tag == "!!seq") and ([.data[] | select(.name == strenv(BUCKET))] | length == 0)' /work/buckets > /dev/null
+{{- end }}
+{{- if and $drain .databaseId }}
+              yq -e '.data.id == strenv(DATABASE_ID) and .data."compartment-id" == strenv(COMPARTMENT) and .data."freeform-tags"."tamoss-deployment-id" == strenv(DEPLOYMENT) and .data."freeform-tags"."tamoss-composite-uid" == strenv(OWNER_UID)' /work/database > /dev/null
+{{- else }}
+              yq -e '(.data.items | tag == "!!seq") and ([.data.items[] | select((.id == strenv(DATABASE_ID) or ."display-name" == strenv(DATABASE_NAME) or ."freeform-tags"."tamoss-deployment-id" == strenv(DEPLOYMENT)) and ."lifecycle-state" != "DELETED")] | length == 0)' /work/databases > /dev/null
+{{- end }}
+{{- if not $drain }}
+              yq -e '.data.items | tag == "!!seq"' /work/backups > /dev/null
+{{- if not .databaseId }}
+              yq -e '[.data.items[] | select(."lifecycle-state" != "DELETED")] | length == 0' /work/backups > /dev/null
+{{- end }}
+              yq -o=json -I=0 '.data.items[] | select(."db-system-id" == strenv(DATABASE_ID) and ."lifecycle-state" != "DELETED") | {"backupId": .id}' /work/backups > /work/targets
+{{- end }}
+          env: *env
+          volumeMounts: *mounts
+          resources: *resources
+          securityContext: *security
+        - name: purge
+          image: *oci
+          command: *shell
+          args:
+            - |
+              :
+{{- if and $drain .bucketId }}
+              xargs -r -d '\n' -n1 oci os multipart abort --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --force --from-json < /work/targets
+              oci os object bulk-delete-versions --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --force
+              oci os object bulk-delete --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --force
+              oci os object list --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --limit 1 > /work/objects
+              test -s /work/objects || echo '{"data":[]}' > /work/objects
+              oci os object list-object-versions --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --limit 1 > /work/versions
+              test -s /work/versions || echo '{"data":[]}' > /work/versions
+              oci os multipart list --namespace-name "$NAMESPACE" --bucket-name "$BUCKET" --limit 1 > /work/remaining
+              test -s /work/remaining || echo '{"data":[]}' > /work/remaining
+{{- else if not $drain }}
+              xargs -r -d '\n' -n1 oci psql backup delete --force --wait-for-state SUCCEEDED --max-wait-seconds 1200 --from-json < /work/targets
+              oci psql backup-collection list-backups --compartment-id "$COMPARTMENT" --all > /work/remaining
+{{- end }}
+          env: *env
+          volumeMounts: *mounts
+          resources: *resources
+          securityContext: *security
+      containers:
+        - name: confirm
+          image: *yq
+          command: *shell
+          args:
+            - |
+              :
+{{- if and $drain .bucketId }}
+              # OCI can return just an empty prefixes array when data is absent.
+              for page in /work/objects /work/versions; do
+                yq -e {{ $.Files.Get "files/empty-object-page.yq" | trim | replace "\n" " " | squote }} "$page" > /dev/null
+              done
+              yq -e '(.data | tag == "!!seq") and (.data | length == 0)' /work/remaining > /dev/null
+{{- else if not $drain }}
+              yq -e '(.data.items | tag == "!!seq") and ([.data.items[] | select(."db-system-id" == strenv(DATABASE_ID) and ."lifecycle-state" != "DELETED")] | length == 0)' /work/remaining > /dev/null
+{{- end }}
+          env: *env
+          volumeMounts: *mounts
+          resources: *resources
+          securityContext: *security
+      volumes:
+        {{- include "operation-common.volumes" $ | nindent 8 }}
+{{- end }}

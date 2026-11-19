@@ -1,0 +1,13 @@
+{
+  "data": [
+    {
+      "name": "media",
+      "version-id": "version-one"
+    },
+    {
+      "name": "media",
+      "version-id": "version-two"
+    }
+  ],
+  "prefixes": []
+}

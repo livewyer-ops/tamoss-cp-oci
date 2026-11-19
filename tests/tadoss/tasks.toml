@@ -1,3 +1,10 @@
+["test:tadoss:remove-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run tadoss:remove-instance",
+]
+
 ["test:tadoss:prepare-retirement"]
 hide = true
 quiet = true

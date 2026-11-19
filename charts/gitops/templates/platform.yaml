@@ -19,6 +19,7 @@
   (dict "name" "authentik" "namespace" "auth" "chart" "authentik" "source" "authentik" "version" $bom.authentik.chartVersion "values" $platform.authentikChart "connection" true "needs" (list (dict "name" "tamoss-database-init" "namespace" "tamoss-infra")))
   (dict "name" "tamoss-platform-config" "namespace" "tamoss-platform" "chart" "tamoss-platform-config" "values" (dict "authentik" $platform.authentik "authentikChart" $platform.authentikChart "tls" $platform.tls "clusterIssuer" $platform.clusterIssuer) "needs" (list (dict "name" "cert-manager" "namespace" "tamoss-infra") (dict "name" "authentik" "namespace" "tamoss-infra"))) -}}
 {{ range $releases }}
+{{ if and $.Values.retirementId (eq .name "traefik") }}{{ continue }}{{ end }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -36,6 +37,12 @@ spec:
   releaseName: {{ .name }}
   targetNamespace: {{ .namespace }}
   storageNamespace: {{ .namespace }}
+{{ if and $.Values.retirementId (has .name (list "authentik" "cert-manager")) }}
+  postRenderers:
+    - kustomize:
+        patches:
+{{ include "gitops.retirementBudgetPatch" (dict "field" "minAvailable" "value" 0) | indent 10 }}
+{{ end }}
 {{ with .needs }}
   dependsOn:
 {{ . | toYaml | indent 4 }}

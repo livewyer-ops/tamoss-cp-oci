@@ -71,10 +71,27 @@
 {{- $accessReady = and $accessReady $ready $synced -}}
 {{- end -}}
 {{- end -}}
+__RETIREMENT__
 __STORAGE_IDENTITY__
 apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
 kind: ExtraResources
 requirements:
+{{- if $removeBase }}
+  base:
+    apiVersion: tamoss.livewyer.io/v1alpha1
+    kind: TamossEnvironment
+    namespace: {{ $xr.metadata.namespace }}
+    matchName: {{ $xr.metadata.name }}
+{{- range $key, $resource := dict "runtimePolicies" (list "identity" "Policy" "runtime") "storagePolicies" (list "identity" "Policy" "storage") "storageUsers" (list "identitydomains" "User" "storage") "storageGroups" (list "identity" "Group" "storage") "storageMemberships" (list "identity" "UserGroupMembership" "storage") }}
+  {{ $key }}:
+    apiVersion: {{ index $resource 0 }}.oci.m.upbound.io/v1alpha1
+    kind: {{ index $resource 1 }}
+    namespace: {{ $xr.metadata.namespace }}
+    matchLabels:
+      tamoss.livewyer.io/deployment-id: {{ $p.deploymentId | quote }}
+      tamoss.livewyer.io/iam-role: {{ index $resource 2 }}
+{{- end }}
+{{- end }}
 {{- if hasKey $p "storageCredentials" }}
   storageJobs:
     apiVersion: batch/v1
@@ -102,6 +119,7 @@ requirements:
     namespace: {{ $xr.metadata.namespace }}
     matchLabels:
       tamoss.livewyer.io/credential: 'true'
+{{- if or $foundation (not $retiring) }}
 ---
 apiVersion: tamoss.livewyer.io/v1alpha1
 kind: SecretFoundation
@@ -113,6 +131,7 @@ metadata:
     gotemplating.fn.crossplane.io/ready: {{ $foundationReady | toString | title | quote }}
 spec:
 {{ $p.foundation | toYaml | indent 2 }}
+{{- end }}
 {{- if hasKey $p "vaultAuth" }}
 {{- $vault := dig "status" "vaultId" "" $foundation | default (dig "spec" "values" "oracle" "vault" "" $secretRelease) -}}
 {{- $key := dig "status" "keyId" "" $foundation | default (dig "spec" "values" "oracle" "encryptionKey" "" $secretRelease) -}}
@@ -158,7 +177,7 @@ spec:
   values:
 {{ $secretDefaults | toYaml | indent 4 }}
     deploymentId: {{ $p.deploymentId | quote }}
-    initialise: {{ and (not $p.released) (not $credentialsEstablished) }}
+    initialise: {{ and (not $retiring) (not $p.released) (not $credentialsEstablished) }}
 {{- with $p.storageCredentials }}
     s3:
       userId: {{ $storageUserId | quote }}
@@ -182,7 +201,7 @@ spec:
 {{- $policy := (get $.observed.resources (printf "runtime-policy-%s" $namespace) | default dict).resource | default dict -}}
 {{- $cluster = $cluster | default (dig "metadata" "annotations" "tamoss.livewyer.io/cluster-id" "" $policy) -}}
 {{- end -}}
-{{- if and $vault $cluster }}
+{{- if and (not $removeBase) $vault $cluster }}
 {{- if not (and (regexMatch "^ocid1\\.cluster\\.[a-zA-Z0-9.-]+$" $cluster) (regexMatch "^ocid1\\.vault\\.[a-zA-Z0-9.-]+$" $vault) (regexMatch "^ocid1\\.compartment\\.[a-zA-Z0-9.-]+$" $p.environment.compartmentId)) -}}
 {{- fail "Runtime policy inputs must be plain OCIDs" -}}
 {{- end }}
@@ -275,12 +294,12 @@ spec:
     description: Empty the media bucket and delete database backups from the cluster at teardown
     freeformTags: {tamoss-deployment: {{ $p.deploymentId | quote }}}
     statements:
-{{- range list "manage objects" "manage postgres-backups" "read postgres-work-requests" }}
+{{- range list "manage objects" "read buckets" "read load-balancers" "read postgres-db-systems" "manage postgres-backups" "read postgres-work-requests" }}
       - {{ printf "Allow any-user to %s in compartment id %s where all {request.principal.type = 'workload', request.principal.cluster_id = '%s', request.principal.namespace = 'tamoss-infra', request.principal.service_account = 'services-retirement'}" . $p.environment.compartmentId $cluster | quote }}
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if or $environment (not $p.released) }}
+{{- if and (not $removeBase) (or $environment (and (not $retiring) (not $p.released))) }}
 {{- $spec := $p.environment -}}
 {{- if $p.released -}}
 {{- $spec = omit $environment.spec "crossplane" -}}
@@ -299,12 +318,23 @@ spec:
 {{ $spec | toYaml | indent 2 }}
 {{- end }}
 ---
+__KIND_RETIREMENT__
+---
 apiVersion: {{ $xr.apiVersion }}
 kind: {{ $xr.kind }}
 metadata:
   annotations:
     gotemplating.fn.crossplane.io/ready: {{ (and $foundationReady $credentialsReady $storageIdentityReady $infrastructureReady $accessReady) | toString | title | quote }}
 status:
+{{- if $retiring }}
+  retirement:
+    deploymentId: {{ $p.deploymentId | quote }}
+    observedGeneration: {{ $xr.metadata.generation | default 1 }}
+    phase: {{ $next }}
+    foundationAbsent: {{ $noFoundation }}
+    observerUid: {{ $observerUid | quote }}
+    revision: {{ $revision | quote }}
+{{- end }}
   observedGeneration: {{ $xr.metadata.generation | default 1 }}
   foundationReady: {{ $foundationReady }}
   credentialsReady: {{ $credentialsReady }}

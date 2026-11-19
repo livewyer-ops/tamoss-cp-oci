@@ -22,7 +22,20 @@ spec:
             spec:
               type: object
               required: [deploymentId, ownerUid, region, compartmentId, providerConfigName, owner, database, storage]
+              x-kubernetes-validations:
+                - rule: "!has(self.retirementId) || self.retirementId == '' || self.retirementId == self.deploymentId"
+                  message: Retirement must target this deployment
+                - rule: "!has(oldSelf.retirementId) || oldSelf.retirementId == '' || has(self.retirementId)"
+                  message: An accepted retirement request cannot be removed
               properties:
+                retirementId:
+                  type: string
+                  default: ''
+                  maxLength: 32
+                  pattern: '^(|[a-f0-9]{32})$'
+                  x-kubernetes-validations:
+                    - rule: oldSelf == '' || self == oldSelf
+                      message: An accepted retirement request is permanent
                 deploymentId:
                   type: string
                   minLength: 1
@@ -96,10 +109,19 @@ spec:
             status:
               type: object
               properties:
+                retirement:
+                  type: object
+                  properties:
+                    deploymentId: {type: string}
+                    observedGeneration: {type: integer, format: int64}
+                    databaseId: {type: string}
+                    bucketId: {type: string}
+                    phase: {type: string}
                 outputs:
                   type: object
                   properties:
                     databaseId: {type: string}
                     databaseIp: {type: string}
                     bucket: {type: string}
+                    bucketId: {type: string}
                     objectEndpoint: {type: string}

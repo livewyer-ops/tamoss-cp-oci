@@ -22,3 +22,13 @@ hide = true
 quiet = true
 run = ["rm -f '{{ vars.ENV_DIR }}/git-secret.yaml' '{{ vars.ENV_DIR }}/github-known-hosts' '{{ vars.ENV_DIR }}/git-public-key'"]
 
+["source:revoke"]
+hide = true
+skip_if = "test ! -s '{{ vars.ENV_DIR }}/git-key-id'"
+run = [
+  '''gh api --paginate 'repos/{{ env.TASKV_REPOSITORY }}/keys' --jq '.[].id' > '{{ vars.ENV_DIR }}/source-key-ids'''',
+  '''if grep -Fxq -f '{{ vars.ENV_DIR }}/git-key-id' '{{ vars.ENV_DIR }}/source-key-ids'; then gh api --method DELETE 'repos/{{ env.TASKV_REPOSITORY }}/keys/'"$(cat '{{ vars.ENV_DIR }}/git-key-id')"; fi''',
+  "rm '{{ vars.ENV_DIR }}/git-key-id'",
+]
+env.TASKV_REPOSITORY = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="repository") }}'''
+

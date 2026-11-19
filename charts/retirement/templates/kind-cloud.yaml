@@ -1,0 +1,161 @@
+{{- with .Values.kindRetirement }}
+{{- $claim := lookup "v1" "ConfigMap" $.Release.Namespace "s3-credential-operation" | default dict }}
+{{- $identity := lookup "v1" "ConfigMap" $.Release.Namespace "storage-identity" | default dict }}
+{{- if $identity }}
+{{- if not (and $identity.immutable (eq $identity.data.BOOTSTRAP_UID .bootstrapUid) (eq $identity.data.DEPLOYMENT_ID $.Values.deploymentId) (eq $identity.data.DOMAIN_ID .domain) (eq $identity.data.IDCS_ENDPOINT .endpoint) (eq $identity.data.USER_ID .userId) (has .bootstrapUid (pluck "uid" (first $identity.metadata.ownerReferences)))) }}{{ fail "Storage identity differs from its ownership record" }}{{ end }}
+{{- end }}
+{{- if and .established (not (and $claim $identity)) }}{{ fail "Established credentials require their storage identity and operation receipt" }}{{ end }}
+{{- if $claim }}
+{{- if not (and $identity (ne .userId $.Values.oracle.auth.user) (eq (index $claim.metadata.annotations "tamoss.livewyer.io/deployment-id") $.Values.deploymentId) (eq (index $claim.metadata.annotations "tamoss.livewyer.io/storage-user") .userId) (regexMatch "^[a-f0-9-]{36}$" $claim.data.attempt)) }}{{ fail "The S3 operation receipt has an unexpected owner or attempt" }}{{ end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: retire-credentials, namespace: {{ $.Release.Namespace }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: retire-credentials, namespace: {{ $.Release.Namespace }}}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [s3-credential-operation]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: retire-credentials, namespace: {{ $.Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: retire-credentials}
+subjects: [{kind: ServiceAccount, name: retire-credentials, namespace: {{ $.Release.Namespace }}}]
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: retire-cloud-credentials
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: 480
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: {{ not (empty $claim) }}
+{{- if $claim }}
+      serviceAccountName: retire-credentials
+{{- end }}
+      securityContext: {{- include "operation-common.podSecurity" $ | nindent 8 }}
+      initContainers:
+        - name: inventory
+          image: &oci {{ required "OCI CLI image is required" $.Values.images.oci | quote }}
+          command: &shell [/bin/sh, -ec]
+          args:
+            - |
+{{- if $.Values.verifySecrets }}
+              oci vault secret list --compartment-id "$COMPARTMENT" --vault-id "$VAULT" --all > /work/secrets
+              test -s /work/secrets || echo '{"data":[]}' > /work/secrets
+              date -u -d '+25 hours' '+%Y-%m-%dT%H:%M:%SZ' > /work/deletion-time
+{{- end }}
+{{- if .endpoint }}
+              oci identity-domains users list --endpoint "$ENDPOINT" --filter "userName eq \"tamoss-storage-$DEPLOYMENT\"" --attributes id,ocid,userName,externalId --all > /work/users
+{{- end }}
+{{- if .userId }}
+              oci iam customer-secret-key list --user-id "$USER_ID" --all > /work/keys
+              test -s /work/keys || echo '{"data":[]}' > /work/keys
+{{- end }}
+          env: &env
+            - {name: HOME, value: /tmp}
+            - {name: OCI_CLI_KEY_FILE, value: /oci/privatekey}
+{{- range $key, $var := dict "user" "OCI_CLI_USER" "tenancy" "OCI_CLI_TENANCY" "fingerprint" "OCI_CLI_FINGERPRINT" "passphrase" "OCI_CLI_PASSPHRASE" }}
+            - name: {{ $var }}
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: {{ $key }}}}
+{{- end }}
+            - {name: OCI_CLI_REGION, value: {{ $.Values.oracle.region | quote }}}
+            - {name: VAULT, value: {{ $.Values.oracle.vault | quote }}}
+            - {name: COMPARTMENT, value: {{ $.Values.oracle.compartment | quote }}}
+            - {name: DEPLOYMENT, value: {{ $.Values.deploymentId | quote }}}
+            - {name: ENDPOINT, value: {{ .endpoint | default "" | quote }}}
+            - {name: USER_ID, value: {{ .userId | default "" | quote }}}
+{{- if $claim }}
+            - {name: RECEIPT_UID, value: {{ $claim.metadata.uid | quote }}}
+            - {name: RECEIPT_VERSION, value: {{ $claim.metadata.resourceVersion | quote }}}
+            - {name: ATTEMPT, value: {{ $claim.data.attempt | quote }}}
+            - {name: KEY_ID, value: {{ $claim.data.keyId | default "" | quote }}}
+{{- end }}
+          volumeMounts: &ociMounts
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+            - {name: oci, mountPath: /oci, readOnly: true}
+          resources: &resources
+            {{- include "operation-common.resources" $ | nindent 12 }}
+          securityContext: &security
+            {{- include "operation-common.containerSecurity" $ | nindent 12 }}
+        - name: check-ownership
+          image: &yq {{ required "yq image is required" $.Values.images.yq | quote }}
+          command: *shell
+          args:
+            - |
+{{- if $.Values.verifySecrets }}
+              yq -e '.data | tag == "!!seq"' /work/secrets > /dev/null
+              yq -o=json -I=0 '.data[] | select(."secret-name" | test("^" + strenv(DEPLOYMENT) + "-")) | select(."lifecycle-state" == "ACTIVE") | {"secretId": .id}' /work/secrets > /work/targets
+{{- end }}
+{{- if .endpoint }}
+              yq -e {{ $.Files.Get "files/storage-user.yq" | trim | replace "\n" " " | squote }} /work/users > /dev/null
+{{- end }}
+{{- if $claim }}
+              yq -e {{ $.Files.Get "files/storage-key.yq" | trim | replace "\n" " " | squote }} /work/keys > /dev/null
+              yq -o=json -I=0 '.data[] | {"customerSecretKeyId": .id}' /work/keys > /work/owned-key
+              yq -o=json '(.data[0].id // strenv(KEY_ID)) as $id | [{"op":"test","path":"/metadata/uid","value":strenv(RECEIPT_UID)},{"op":"test","path":"/metadata/resourceVersion","value":strenv(RECEIPT_VERSION)},{"op":"add","path":"/data/keyId","value":$id}]' /work/keys > /work/bind.json
+{{- else if .userId }}
+              yq -e '(.data | tag == "!!seq") and (.data | length == 0)' /work/keys > /dev/null
+{{- end }}
+          env: *env
+          volumeMounts: &work
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+          resources: *resources
+          securityContext: *security
+{{- if $claim }}
+        - name: record-key-id
+          image: {{ $.Values.images.kubectl | quote }}
+          command: [kubectl]
+          args: [patch, configmap/s3-credential-operation, --namespace, {{ $.Release.Namespace }}, --type=json, --patch-file=/work/bind.json, --output=name]
+          volumeMounts: *work
+          resources: *resources
+          securityContext: *security
+{{- end }}
+        - name: retire
+          image: *oci
+          command: *shell
+          args:
+            - |
+{{- if $claim }}
+              xargs -r -d '\n' -n1 oci iam customer-secret-key delete --user-id "$USER_ID" --force --from-json < /work/owned-key
+{{- end }}
+{{- if .userId }}
+              oci iam customer-secret-key list --user-id "$USER_ID" --all > /work/remaining
+              test -s /work/remaining || echo '{"data":[]}' > /work/remaining
+{{- end }}
+{{- if $.Values.verifySecrets }}
+              xargs -r -d '\n' -n1 oci vault secret schedule-secret-deletion --time-of-deletion "$(cat /work/deletion-time)" --from-json < /work/targets
+{{- end }}
+          env: *env
+          volumeMounts: *ociMounts
+          resources: *resources
+          securityContext: *security
+      containers:
+        - name: confirm
+          image: *yq
+          command: [yq]
+          args: {{ if .userId }}[-e, '(.data | tag == "!!seq") and (.data | length == 0)', /work/remaining]{{ else }}[-n, -e, 'true']{{ end }}
+          volumeMounts: *work
+          resources: *resources
+          securityContext: *security
+      volumes:
+        {{- include "operation-common.volumes" $ | nindent 8 }}
+        - name: oci
+          secret:
+            secretName: oci-vault-bootstrap
+            defaultMode: 0440
+            items: [{key: privatekey, path: privatekey}]
+{{- end }}

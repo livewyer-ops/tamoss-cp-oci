@@ -1,0 +1,104 @@
+["test:lifecycle:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ vars.ENV_DIR }}'",
+  "cp environments/example/environment.yaml '{{ vars.ENV_DIR }}/'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:observe-inputs",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+  "cp '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' '{{ vars.ENV_DIR }}/management.kubeconfig'",
+  "kubectl --kubeconfig '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ vars.ENV_DIR }}/management-uid'",
+  '''yq -i '.managementUID = load_str("{{ vars.ENV_DIR }}/management-uid")' {{ vars.ENV_DIR }}/identity.yaml''',
+  "cp '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' '{{ vars.ENV_DIR }}/remote.kubeconfig'",
+  '''yq -i '.users[0].user.exec = {"apiVersion":"client.authentication.k8s.io/v1beta1", "command":"oci", "args":["ce", "cluster", "generate-token", "--cluster-id", "ocid1.cluster.oc1.fixture"], "interactiveMode":"Never"}' '{{ vars.ENV_DIR }}/remote.kubeconfig'''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' config view --minify -o jsonpath='{.clusters[0].cluster.server}' > '{{ vars.ENV_DIR }}/remote-server'",
+  '''yq -i '.remoteUID = .managementUID | .remoteServer = load_str("{{ vars.ENV_DIR }}/remote-server") | .clusterID = "ocid1.cluster.oc1.fixture"' {{ vars.ENV_DIR }}/identity.yaml''',
+  "cp '{{ vars.ENV_DIR }}/identity.yaml' '{{ vars.ENV_DIR }}/identity-valid.yaml'",
+  '''umask 077
+yq 'del(.users[].user.exec) | .clusters[].cluster.server = "https://kubernetes.default.svc"' '{{ env.TASKV_MANAGEMENT_KUBECONFIG }}' > '{{ vars.ENV_DIR }}/job.kubeconfig'
+kubectl -n tamoss-infra create secret generic oke-bootstrap-access --from-file=value.yaml='{{ vars.ENV_DIR }}/job.kubeconfig' --dry-run=client -o yaml | kubectl apply --server-side -f -''',
+]
+env.TASKV_MANAGEMENT_KUBECONFIG = '''{{ env.MANAGEMENT_KUBECONFIG | default(value="") }}'''
+
+["test:lifecycle:management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:management",
+]
+
+["test:lifecycle:prepare-composite"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq '.metadata.annotations."tamoss.livewyer.io/deployment-id" = load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID | .metadata.annotations."crossplane.io/paused" = "true"' {{ vars.ENV_DIR }}/environment.yaml > {{ vars.ENV_DIR }}/composite-fixture.yaml''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/composite-fixture.yaml'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:record-composite",
+  "yq -e '.creationCompositeUID == .compositeUID and .creationCompositeUID != null' {{ vars.ENV_DIR }}/identity.yaml",
+  "cp '{{ vars.ENV_DIR }}/identity.yaml' '{{ vars.ENV_DIR }}/identity-valid.yaml'",
+
+]
+
+["test:lifecycle:local-owner"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:local-owner",
+]
+
+["test:lifecycle:initialise"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+]
+
+["test:lifecycle:repeat-bootstrap"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:initialise",
+  "cmp '{{ vars.ENV_DIR }}/identity-valid.yaml' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
+  "yq -n '[]' > {{ vars.ENV_DIR }}/owned-current.yaml",
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run cloud:remote",
+]
+
+["test:lifecycle:remote"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+]
+
+["test:lifecycle:create-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run lifecycle:create-management",
+]
+
+["test:lifecycle:remove-instance"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run application:remove-instance",
+]
+
+["test:lifecycle:absence"]
+hide = true
+run = [
+  "mkdir -p '{{ env.DIRECTORY }}/inventory-after'",
+  '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"audit": ."cloud:audit"}} | del(.tasks.audit.run[0])' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
+  '''yq -n -o=json '{"data": []}' > '{{ env.DIRECTORY }}/inventory-after/buckets.json'''',
+  '''yq -n -o=json '{"data": [{"name": "old", "lifecycle-state": "TERMINATED"}]}' > '{{ env.DIRECTORY }}/inventory-after/volumes.json'''',
+  "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
+]
+
+["test:lifecycle:bucket-versions"]
+hide = true
+run = [
+  "mkdir -p '{{ env.DIRECTORY }}'",
+  '''DIRECTORY='{{ env.DIRECTORY }}' yq -p=toml -o=toml '{"vars": {"ENV_DIR": strenv(DIRECTORY)}, "tasks": {"normalise": {"run": (."cloud:empty-bucket".run | map(select(test("^yq ") and contains("/versions.json"))))}}}' tasks/cloud.toml > '{{ env.DIRECTORY }}/fixture.mise.toml'''',
+  "mise trust '{{ env.DIRECTORY }}/fixture.mise.toml'",
+]

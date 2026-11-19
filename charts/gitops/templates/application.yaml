@@ -78,7 +78,7 @@ spec:
   timeout: 10m
   prune: false
   deletionPolicy: Orphan
-  dependsOn: [{name: platform}, {name: oke-prerequisites}]
+  dependsOn: {{ if .Values.retirementId }}[{name: oke-prerequisites}]{{ else }}[{name: platform}, {name: oke-prerequisites}]{{ end }}
   path: ./
   sourceRef: {kind: OCIRepository, name: tamoss-operator-source}
   healthChecks:
@@ -107,6 +107,7 @@ spec:
                     - labelSelector:
                         matchLabels: {control-plane: controller-manager}
                       topologyKey: kubernetes.io/hostname
+{{- if not .Values.retirementId }}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -177,3 +178,4 @@ spec:
           endpoint:
             default: {url: {{ .Values.runtime.objectEndpoint | quote }}}
             public: {url: {{ .Values.runtime.objectEndpoint | quote }}}
+{{- end }}

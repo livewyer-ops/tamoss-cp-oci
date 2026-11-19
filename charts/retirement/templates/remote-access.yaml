@@ -1,0 +1,84 @@
+{{- with (.Values.kindRetirement | default dict).clusterId }}
+{{- $access := lookup "v1" "Secret" $.Release.Namespace "oke-bootstrap-access" | default dict }}
+{{- if not (and $access (eq (index $access.metadata.labels "tamoss.livewyer.io/deployment-id") $.Values.deploymentId) (eq (index $access.metadata.annotations "tamoss.livewyer.io/cluster-id") .)) }}
+{{ fail "OKE access differs from the cluster acknowledged by Kind" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: retire-oke-access
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: 420
+  backoffLimit: 3
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext: {{- include "operation-common.podSecurity" $ | nindent 8 }}
+      initContainers:
+        - name: authenticate
+          image: {{ $.Values.images.oci | quote }}
+          command: [/bin/sh, -ec]
+          args: ['umask 077 && oci ce cluster generate-token --cluster-id "$CLUSTER" > /work/credential']
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: CLUSTER, value: {{ . | quote }}}
+            - {name: OCI_CLI_REGION, value: {{ $.Values.oracle.region | quote }}}
+            - {name: OCI_CLI_KEY_FILE, value: /oci/privatekey}
+{{- range $key, $var := dict "user" "OCI_CLI_USER" "tenancy" "OCI_CLI_TENANCY" "fingerprint" "OCI_CLI_FINGERPRINT" "passphrase" "OCI_CLI_PASSPHRASE" }}
+            - name: {{ $var }}
+              valueFrom: {secretKeyRef: {name: oci-vault-bootstrap, key: {{ $key }}}}
+{{- end }}
+          volumeMounts:
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+            - {name: oci, mountPath: /oci, readOnly: true}
+          resources: &resources
+            {{- include "operation-common.resources" $ | nindent 12 }}
+          securityContext: &security
+            {{- include "operation-common.containerSecurity" $ | nindent 12 }}
+        - name: configure
+          image: {{ $.Values.images.yq | quote }}
+          command: [/bin/sh, -ec]
+          args: ['umask 077 && yq -e ''.users[0].user = {"token": load("/work/credential").status.token}'' /access/value.yaml > /work/config']
+          volumeMounts:
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+            - {name: access, mountPath: /access, readOnly: true}
+          resources: *resources
+          securityContext: *security
+        - name: identify
+          image: &kubectl {{ $.Values.images.kubectl | quote }}
+          command: [kubectl]
+          args: [--kubeconfig=/work/config, wait, namespace/kube-system, {{ printf "--for=jsonpath={.metadata.uid}=%s" (required "OKE UID is required" (index $access.metadata.annotations "tamoss.livewyer.io/cluster-uid")) | quote }}, --timeout=10s]
+          volumeMounts: &mounts
+            {{- include "operation-common.mounts" $ | nindent 12 }}
+          resources: *resources
+          securityContext: *security
+{{- range $resource := list "clusterrolebinding" "namespace" }}
+        - name: revoke-{{ $resource }}
+          image: *kubectl
+          command: [kubectl]
+          args: [--kubeconfig=/work/config, delete, {{ $resource }}, {{ printf "--field-selector=metadata.name=%s" (ternary "tamoss-oke-bootstrap" "tamoss-bootstrap" (eq $resource "clusterrolebinding")) }}, {{ printf "--selector=tamoss.livewyer.io/deployment-id=%s" $.Values.deploymentId | quote }}, --wait=true, --timeout=90s]
+          volumeMounts: *mounts
+          resources: *resources
+          securityContext: *security
+{{- end }}
+      containers:
+        - name: confirm
+          image: *kubectl
+          command: [kubectl]
+          args: [--kubeconfig=/work/config, wait, --for=delete, clusterrolebinding/tamoss-oke-bootstrap, namespace/tamoss-bootstrap, --timeout=10s]
+          volumeMounts: *mounts
+          resources: *resources
+          securityContext: *security
+      volumes:
+        {{- include "operation-common.volumes" $ | nindent 8 }}
+        - name: access
+          secret: {secretName: oke-bootstrap-access, defaultMode: 0440}
+        - name: oci
+          secret: {secretName: oci-vault-bootstrap, defaultMode: 0440, items: [{key: privatekey, path: privatekey}]}
+{{- end }}

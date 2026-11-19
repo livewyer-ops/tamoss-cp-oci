@@ -17,7 +17,7 @@ spec:
         source: Inline
         inline:
           template: |
-{{ .Files.Get "composition.gotmpl" | indent 12 }}
+{{ .Files.Get "composition.gotmpl" | replace "__RETIREMENT__" (.Files.Get "retirement.gotmpl") | replace "__RETIREMENT_IMAGES__" (.Values.connectionImages | default dict | toJson) | indent 12 }}
     - step: readiness
       functionRef:
         name: function-auto-ready

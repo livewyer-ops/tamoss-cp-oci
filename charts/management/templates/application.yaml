@@ -9,6 +9,7 @@ metadata:
   namespace: tamoss-infra
   labels: {{ $label | toJson }}
 spec:
+  suspend: {{ .Values.retirementBeforeAccess }}
   interval: 1m
   timeout: 5m
   releaseName: tamoss-root
@@ -39,6 +40,13 @@ spec:
     - {kind: Secret, name: {{ .Values.assets.secretName }}, valuesKey: values.yaml}
 {{- end }}
   values:
+{{- if .Values.retirementId }}
+{{- $inputs := include "management.settingsInputs" . | fromYaml }}
+    retirementValues:
+{{ mergeOverwrite (index $inputs "tamoss-gitops-values") (index $inputs "tamoss-assets") | toYaml | indent 6 }}
+{{- end }}
+    connectionImages: {{ .Values.connectionImages | toJson }}
+    retirementId: {{ .Values.retirementId | quote }}
     deploymentId: {{ .Values.deploymentId | quote }}
     source:
       url: {{ .Values.assets.url | quote }}

@@ -14,6 +14,7 @@ spec:
       reconcileStrategy: Revision
       valuesFiles: [./charts/management/values.yaml, ./pins.yaml]
       sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  values: {retirementId: '', retirementBeforeAccess: false, accessIssued: false}
   valuesFrom:
     - {kind: ConfigMap, name: tamoss-deployment, valuesKey: values.yaml}
     - {kind: ConfigMap, name: tamoss-deployment, valuesKey: deployment.yaml}

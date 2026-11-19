@@ -1,3 +1,5 @@
+retirementBeforeAccess: false
+retirementId: ''
 # Deployment settings. Private values.yaml overrides these defaults.
 name: media-demo
 source: {private: true}

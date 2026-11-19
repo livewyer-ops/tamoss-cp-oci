@@ -1,0 +1,194 @@
+["storage:identity"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap storage-identity -o json > '{{ vars.ENV_DIR }}/storage-identity.json'",
+  '''yq -e '. as $record | load("{{ vars.ENV_DIR }}/identity.yaml") as $i | load("{{ vars.ENV_DIR }}/settings.yaml").storageIdentity as $s |
+    [$record.immutable == true, $record.data.DEPLOYMENT_ID == $i.deploymentUID, $record.data.BOOTSTRAP_UID == $i.bootstrapUID,
+    ($record.metadata.ownerReferences | map(.uid) | contains([$i.bootstrapUID])),
+    $record.data.DOMAIN_ID == $s.domainId, $record.data.IDCS_ENDPOINT == $s.idcsEndpoint,
+    ($record.data.USER_ID | test("^ocid1[.]user[.]")), $record.data.USER_ID != $i.oci.user] | all' '{{ vars.ENV_DIR }}/storage-identity.json' > /dev/null''',
+]
+
+["storage:observe"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run identity:management",
+  "mise run storage:identity",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation -o json > '{{ vars.ENV_DIR }}/s3-operation.json' ''',
+  '''yq -e '.metadata.annotations."tamoss.livewyer.io/deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .metadata.annotations."tamoss.livewyer.io/storage-user" == load("{{ vars.ENV_DIR }}/storage-identity.json").data.USER_ID' '{{ vars.ENV_DIR }}/s3-operation.json' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get jobs,pods -l tamoss.livewyer.io/credential-operation=s3 -o json | yq -e '.items | length == 0' > /dev/null''',
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key list --user-id "$(yq -r .data.USER_ID '{{ vars.ENV_DIR }}/storage-identity.json')" --all > '{{ vars.ENV_DIR }}/s3-keys.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/s3-keys.json' ''',
+  '''yq -e -o=json '(.data | tag) as $responseType | load("{{ vars.ENV_DIR }}/s3-operation.json") as $operation |
+    ($operation.data // {}) as $claim |
+    ("tamoss-" + $operation.metadata.annotations."tamoss.livewyer.io/deployment-id" + "-" + ($claim.attempt // "")) as $name |
+    [.data[] | select(."display-name" == $name or (.id == $claim.keyId and ($claim.keyId // "") != ""))] as $keys |
+    {"attempt": ($claim.attempt // ""), "keyId": ($claim.keyId // ""), "keys": $keys,
+    "name": $name, "resourceVersion": $operation.metadata.resourceVersion} |
+    with(select(.keys | length == 1); .keyId = .keys[0].id) |
+    select($responseType == "!!seq" and ($keys | length) <= 1 and
+    ($keys | map(."display-name" == $name and (($claim.keyId // "") == "" or .id == $claim.keyId)) | all) and
+    (($claim.attempt // "") == "" or ($claim.keyId // "") != "" or ($keys | length) == 1)) '\
+    '{{ vars.ENV_DIR }}/s3-keys.json' > '{{ vars.ENV_DIR }}/s3-key-observed.json' ||
+    { printf '%s\n' 'The S3 creation outcome is uncertain or conflicts with its receipt. Retain Kind and audit OCI before retrying.' >&2; exit 1; }''',
+]
+
+["storage:revoke"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run storage:observe",
+  "mise run storage:record-key",
+  "mise run storage:delete-key",
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key list --user-id "$(yq -r .data.USER_ID '{{ vars.ENV_DIR }}/storage-identity.json')" --all > '{{ vars.ENV_DIR }}/s3-keys-after.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/s3-keys-after.json' ''',
+  '''yq -e 'load("{{ vars.ENV_DIR }}/s3-key-observed.json") as $owned | ((.data | tag) == "!!seq" and ([.data[] | select(.id == $owned.keyId or ."display-name" == $owned.name)] | length) == 0)' '{{ vars.ENV_DIR }}/s3-keys-after.json' > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation -o json > '{{ vars.ENV_DIR }}/s3-current.json'",
+  '''yq -e -o=json 'load("{{ vars.ENV_DIR }}/s3-key-observed.json") as $owned |
+    select((.data.attempt // "") == $owned.attempt and (.data.keyId // "") == $owned.keyId) |
+    [{"op":"test", "path":"/metadata/resourceVersion", "value":.metadata.resourceVersion},
+    {"op":"test", "path":"/metadata/annotations/tamoss.livewyer.io~1deployment-id", "value":load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID},
+    {"op":"add", "path":"/data", "value":{"attempt":$owned.attempt,"keyId":$owned.keyId,"retired":"true"}}]' '{{ vars.ENV_DIR }}/s3-current.json' > '{{ vars.ENV_DIR }}/s3-retired-patch.json' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch configmap s3-credential-operation --type=json --patch-file='{{ vars.ENV_DIR }}/s3-retired-patch.json' -o name''',
+]
+
+["storage:record-key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.keyId == ""' '{{ vars.ENV_DIR }}/s3-key-observed.json' > /dev/null'''
+run = [
+  '''yq -o=json '[{"op":"test", "path":"/metadata/resourceVersion", "value":.resourceVersion},
+    {"op":"test", "path":"/data/attempt", "value":.attempt},
+    {"op":"add", "path":"/data/keyId", "value":.keyId}]' '{{ vars.ENV_DIR }}/s3-key-observed.json' > '{{ vars.ENV_DIR }}/s3-key-patch.json' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch configmap s3-credential-operation --type=json --patch-file='{{ vars.ENV_DIR }}/s3-key-patch.json' -o name''',
+]
+
+["storage:delete-key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.keys | length == 0' '{{ vars.ENV_DIR }}/s3-key-observed.json' > /dev/null'''
+run = [
+  '''yq -n '{"storageKey": {"userId": load("{{ vars.ENV_DIR }}/storage-identity.json").data.USER_ID, "keyId": load("{{ vars.ENV_DIR }}/s3-key-observed.json").keyId}}' > '{{ vars.ENV_DIR }}/retirement-values.yaml'''',
+  { task = "retirement:run" },
+]
+
+["storage:inventory"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run identity:management",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get tamossbootstrap "$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')" -o json > '{{ vars.ENV_DIR }}/storage-bootstrap.json' ''',
+  '''yq -e '. as $root | load("{{ vars.ENV_DIR }}/identity.yaml") as $i | [$i.teardownStarted == true, $root.metadata.uid == $i.bootstrapUID, $root.spec.deploymentId == $i.deploymentUID, $root.spec.released == true, $root.status.released == true, $root.metadata.annotations."crossplane.io/paused" == "true"] | all' '{{ vars.ENV_DIR }}/storage-bootstrap.json' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get managed -l "tamoss.livewyer.io/iam-role=storage,tamoss.livewyer.io/deployment-id=$(yq -r .deploymentUID '{{ vars.ENV_DIR }}/identity.yaml')" -o json > '{{ vars.ENV_DIR }}/storage-resources.json' ''',
+  '''yq -e '.items as $resources | load("{{ vars.ENV_DIR }}/identity.yaml") as $i |
+    [($resources | length <= 4), ([$resources[] | . as $resource |
+      [($resource.metadata.ownerReferences | map(.uid) | contains([$i.bootstrapUID])),
+      $resource.metadata.name == $i.environment.name + "-storage-" + ({"User":"user","Group":"group","UserGroupMembership":"membership","Policy":"policy"}[$resource.kind]),
+      (["User","Group","UserGroupMembership","Policy"] | contains([$resource.kind])), $resource.spec.providerConfigRef.name == "oci",
+      ($i.storageKeyRetired == true or ($resource.metadata.annotations."crossplane.io/paused" == "true" and ($resource.spec.managementPolicies | join(",")) == "Observe")),
+      ([$resource.status.conditions[] | select(.type == "AsyncOperation" and .status == "True")] | length) == 0] | all] | all)] | all' '{{ vars.ENV_DIR }}/storage-resources.json' > /dev/null''',
+  '''yq '[.items[] | {"apiVersion":.apiVersion,"kind":.kind,"name":.metadata.name,"uid":.metadata.uid,"externalName":.metadata.annotations."crossplane.io/external-name","id":.status.atProvider.id,"ocid":(.status.atProvider.ocid // .status.atProvider.id)} | select(.id != null)]' '{{ vars.ENV_DIR }}/storage-resources.json' > '{{ vars.ENV_DIR }}/storage-current.yaml' ''',
+  "touch '{{ vars.ENV_DIR }}/storage-inventory.yaml'",
+  '''yq eval-all '. as $record ireduce ([]; . + ($record // [])) | unique | select(length == (unique_by(.name) | length))' '{{ vars.ENV_DIR }}/storage-inventory.yaml' '{{ vars.ENV_DIR }}/storage-current.yaml' > '{{ vars.ENV_DIR }}/storage-inventory.pending.yaml' ''',
+  '''yq -e 'tag == "!!seq"' '{{ vars.ENV_DIR }}/storage-inventory.pending.yaml' > /dev/null''',
+  "mv '{{ vars.ENV_DIR }}/storage-inventory.pending.yaml' '{{ vars.ENV_DIR }}/storage-inventory.yaml'",
+]
+
+["storage:retire"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run storage:inventory",
+  "mise run storage:retire-key",
+]
+
+["storage:retire-key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.storageKeyRetired == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null'''
+run = [
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get jobs,pods -l tamoss.livewyer.io/credential-operation=s3 -o json | yq -e '.items | length == 0' > /dev/null''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap s3-credential-operation --ignore-not-found -o json > '{{ vars.ENV_DIR }}/s3-operation-before-retirement.json'",
+  "mise run storage:retire-recorded-key",
+  "mise run storage:retire-unused-identity",
+  "yq -i '.storageKeyRetired = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+]
+
+["storage:retire-recorded-key"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "test ! -s '{{ vars.ENV_DIR }}/s3-operation-before-retirement.json'"
+run = [
+  "mise run storage:revoke",
+  '''yq -e '.data | length == 0' '{{ vars.ENV_DIR }}/s3-keys-after.json' > /dev/null || { printf '%s\n' 'The storage user still has unrelated keys; retain its identity and audit their ownership.' >&2; exit 1; }''',
+]
+
+["storage:inspect-users"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 identity-domains users list --endpoint "$(yq -r .storageIdentity.idcsEndpoint '{{ vars.ENV_DIR }}/settings.yaml')" --filter "userName eq \"tamoss-storage-$(yq -r .deploymentUID '{{ vars.ENV_DIR }}/identity.yaml')\" or id eq \"$(yq -r '[.[] | select(.kind == "User")][0].id // "never-created"' '{{ vars.ENV_DIR }}/storage-inventory.yaml')\"" --attributes id,ocid,userName,externalId --all > '{{ vars.ENV_DIR }}/storage-users.json' ''',
+  '''yq -e '(.data.resources | tag) == "!!seq" and (.data.resources | length <= 1) and ([.data.resources[] | ."external-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID] | all)' '{{ vars.ENV_DIR }}/storage-users.json' > /dev/null''',
+]
+
+["storage:retire-unused-identity"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "test -s '{{ vars.ENV_DIR }}/s3-operation-before-retirement.json'"
+run = [
+  '''yq -e '(.status.credentialsEstablished // .spec.credentialsEstablished) != true' '{{ vars.ENV_DIR }}/storage-bootstrap.json' > /dev/null || { printf '%s\n' 'Established S3 credentials have lost their receipt; retain Kind and recover the ownership record.' >&2; exit 1; }''',
+  "mise run storage:inspect-users",
+  "mise run storage:verify-no-keys",
+]
+
+["storage:verify-no-keys"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.data.resources | length == 0' '{{ vars.ENV_DIR }}/storage-users.json' > /dev/null'''
+run = [
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam customer-secret-key list --user-id "$(yq -r .data.resources[0].ocid '{{ vars.ENV_DIR }}/storage-users.json')" --all > '{{ vars.ENV_DIR }}/s3-unused-keys.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/s3-unused-keys.json' ''',
+  '''yq -e '(.data | tag) == "!!seq" and (.data | length) == 0' '{{ vars.ENV_DIR }}/s3-unused-keys.json' > /dev/null || { printf '%s\n' 'The storage user has unrecorded keys; retain Kind and audit their ownership.' >&2; exit 1; }''',
+]
+
+["storage:delete-identity"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run storage:inventory",
+  '''yq -e '.storageKeyRetired == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete usage.protection.crossplane.io/"$(yq -r .environment.name '{{ vars.ENV_DIR }}/identity.yaml')"-storage-credentials --ignore-not-found --wait=true --timeout=120s''',
+  "mise run storage:delete-managed",
+  "mise run storage:audit",
+]
+
+["storage:delete-managed"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = '''yq -e '.items | length == 0' '{{ vars.ENV_DIR }}/storage-resources.json' > /dev/null'''
+run = [
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch -f '{{ vars.ENV_DIR }}/storage-resources.json' --type=merge -p '{"metadata":{"annotations":{"crossplane.io/paused":null}},"spec":{"managementPolicies":["Observe","Delete"]}}' || kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait -f '{{ vars.ENV_DIR }}/storage-resources.json' --for=delete --timeout=600s''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra delete -f '{{ vars.ENV_DIR }}/storage-resources.json' --ignore-not-found --wait=true --timeout=600s",
+]
+
+["storage:audit"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mise run storage:inspect-users",
+  '''yq -e '.data.resources | length == 0' '{{ vars.ENV_DIR }}/storage-users.json' > /dev/null''',
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam group list --compartment-id "$(yq -r .oci.tenancy '{{ vars.ENV_DIR }}/identity.yaml')" --all > '{{ vars.ENV_DIR }}/storage-groups.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/storage-groups.json' ''',
+  '''yq -e '(.data | tag) == "!!seq" and ([.data[] | select(.name == "tamoss-storage-" + load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID or (.id as $id | load("{{ vars.ENV_DIR }}/storage-inventory.yaml") | map(.id) | contains([$id])))] | length) == 0' '{{ vars.ENV_DIR }}/storage-groups.json' > /dev/null''',
+  '''oci --connection-timeout 10 --read-timeout 30 --max-retries 0 iam policy list --compartment-id "$(yq -r .environment.compartmentId '{{ vars.ENV_DIR }}/identity.yaml')" --all > '{{ vars.ENV_DIR }}/storage-policies.json' ''',
+  '''yq -i '. // {"data": []}' '{{ vars.ENV_DIR }}/storage-policies.json' ''',
+  '''yq -e '(.data | tag) == "!!seq" and ([.data[] | select(.name == "tamoss-storage-" + load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID or (.id as $id | load("{{ vars.ENV_DIR }}/storage-inventory.yaml") | map(.id) | contains([$id])))] | length) == 0' '{{ vars.ENV_DIR }}/storage-policies.json' > /dev/null''',
+]

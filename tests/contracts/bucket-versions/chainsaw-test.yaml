@@ -1,0 +1,47 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: bucket-version-list}
+spec:
+  bindings:
+    - {name: directory, value: "(join('/', [$values.root, '.local/tmp/check/bucket-versions']))"}
+  steps:
+    - name: accept the CLI metadata-only response for an empty bucket
+      try:
+        - command:
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: DIRECTORY, value: ($directory)}
+            entrypoint: mise
+            args: [-C, "$PROJECT_ROOT", run, 'test:lifecycle:bucket-versions']
+        - command:
+            env: *paths
+            entrypoint: cp
+            args: [empty.json, "$DIRECTORY/versions.json"]
+        - command: &normalise
+            env: *paths
+            entrypoint: env
+            args: [MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml, mise, -C, "$DIRECTORY", run, normalise]
+        - command:
+            env: *paths
+            entrypoint: yq
+            args: [-e, '.data | length == 0', "$DIRECTORY/versions.json"]
+    - name: retain every listed version for deletion
+      try:
+        - command:
+            env: *paths
+            entrypoint: cp
+            args: [populated.json, "$DIRECTORY/versions.json"]
+        - command: *normalise
+        - command:
+            env: *paths
+            entrypoint: diff
+            args: [populated.json, "$DIRECTORY/versions.json"]
+    - name: reject a malformed version collection
+      try:
+        - command:
+            env: *paths
+            entrypoint: yq
+            args: [-i, '.data = {}', "$DIRECTORY/versions.json"]
+        - command:
+            <<: *normalise
+            check: {($error != null): true}

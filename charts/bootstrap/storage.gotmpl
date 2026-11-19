@@ -54,7 +54,7 @@
 {{- end -}}
 {{- end -}}
 {{- $policies := list "Observe" "Create" "Update" "Delete" -}}
-{{- if $record -}}{{- $policies = list "Observe" "Delete" -}}{{- end -}}
+{{- if or $record $retiring -}}{{- $policies = list "Observe" "Delete" -}}{{- end -}}
 {{- if $p.released -}}{{- $policies = list "Observe" -}}{{- end -}}
 {{- $tags := list (dict "key" "tamoss-deployment-id" "value" $p.deploymentId) (dict "key" "tamoss-bootstrap-uid" "value" $xr.metadata.uid) -}}
 {{- $userParameters := dict "idcsEndpoint" $s.idcsEndpoint "schemas" (list "urn:ietf:params:scim:schemas:core:2.0:User" "urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User" "urn:ietf:params:scim:schemas:oracle:idcs:extension:capabilities:User" "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociTags") "userName" $name "displayName" $name "name" (list (dict "givenName" "TAMOSS" "familyName" "Storage")) "externalId" $p.deploymentId "active" true "forceDelete" false "emails" (list (dict "value" $s.email "primary" true "type" "work")) "urnietfparamsscimschemasoracleidcsextensionuserUser" (list (dict "bypassNotification" true)) "urnietfparamsscimschemasoracleidcsextensioncapabilitiesUser" (list $capabilities) "urnietfparamsscimschemasoracleidcsextensionOciTags" (list (dict "freeformTags" $tags)) -}}
@@ -74,7 +74,7 @@
 {{- $policyParameters := dict "compartmentId" $p.environment.compartmentId "name" $name "description" "Application access to the deployment media bucket" "freeformTags" (dict "tamoss-deployment-id" $p.deploymentId "tamoss-bootstrap-uid" $xr.metadata.uid) "statements" $statements -}}
 {{- $resources := dict "storage-user" (dict "apiVersion" "identitydomains.oci.m.upbound.io/v1alpha1" "kind" "User" "parameters" $userParameters "observed" $user "emit" true) "storage-group" (dict "apiVersion" "identity.oci.m.upbound.io/v1alpha1" "kind" "Group" "parameters" $groupParameters "observed" $group "emit" (and (not (empty $userId)) $restricted)) "storage-membership" (dict "apiVersion" "identity.oci.m.upbound.io/v1alpha1" "kind" "UserGroupMembership" "parameters" $membershipParameters "observed" $membership "emit" (and (not (empty $storageUserId)) (not (empty $storageGroupId)) $restricted)) "storage-policy" (dict "apiVersion" "identity.oci.m.upbound.io/v1alpha1" "kind" "Policy" "parameters" $policyParameters "observed" $policy "emit" (not (empty $statements))) -}}
 {{- range $key, $resource := $resources -}}
-{{- if and (or $resource.emit $resource.observed) (or (not $p.released) $resource.observed) }}
+{{- if and (not $removeBase) (or $resource.emit $resource.observed) (or (and (not $p.released) (not $retiring)) $resource.observed) }}
 ---
 apiVersion: {{ $resource.apiVersion }}
 kind: {{ $resource.kind }}
@@ -99,6 +99,7 @@ spec:
 {{ $resource.parameters | toYaml | indent 4 }}
 {{- end -}}
 {{- end }}
+{{- if not $removeBase }}
 ---
 apiVersion: protection.crossplane.io/v1beta1
 kind: Usage
@@ -115,6 +116,7 @@ spec:
     kind: User
     resourceRef: {name: {{ $xr.metadata.name }}-storage-user}
   reason: Revoke and verify the deployment S3 key before retiring its storage identity
+{{- end }}
 {{- if or $record $storageIdentityReady }}
 ---
 apiVersion: v1

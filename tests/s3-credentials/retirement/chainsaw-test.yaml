@@ -1,0 +1,121 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: s3-owned-key-retirement}
+spec:
+  steps:
+    - name: substitute only cloud requests and the fixture identity entry point
+      try:
+        - command:
+            entrypoint: mise
+            env: [{name: ROOT, value: ($values.root)}]
+            args: [-C, $ROOT, run, test:s3:retirement-fixture]
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: storage-owner, namespace: tamoss-infra}
+    - name: bind the receipt to its real Kubernetes owner
+      bindings:
+        - name: owner
+          value: (x_k8s_get($client, 'v1', 'ConfigMap', 'tamoss-infra', 'storage-owner'))
+      try:
+        - command:
+            entrypoint: yq
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: OWNER_UID, value: ($owner.metadata.uid)}
+            args: [-i, '.bootstrapUID = strenv(OWNER_UID)', $ROOT/.local/tmp/check/s3-credentials/retirement/identity.yaml]
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: storage-identity
+                namespace: tamoss-infra
+                ownerReferences:
+                  - {apiVersion: v1, kind: ConfigMap, name: storage-owner, uid: ($owner.metadata.uid)}
+              immutable: true
+              data:
+                DEPLOYMENT_ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                BOOTSTRAP_UID: ($owner.metadata.uid)
+                DOMAIN_ID: ocid1.domain.oc1.fixture
+                IDCS_ENDPOINT: https://identity.example.test
+                USER_ID: ocid1.user.oc1..storage
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: s3-credential-operation
+                namespace: tamoss-infra
+                annotations:
+                  tamoss.livewyer.io/deployment-id: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                  tamoss.livewyer.io/storage-user: ocid1.user.oc1..storage
+              data: {attempt: fixture-attempt}
+    - name: identify an incomplete key and revoke only that key
+      try:
+        - command: &revoke
+            entrypoint: mise
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: MISE_OVERRIDE_CONFIG_FILENAMES, value: fixture.mise.toml}
+            args: [-C, $ROOT/.local/tmp/check/s3-credentials/retirement, run, 'storage:revoke']
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: s3-credential-operation, namespace: tamoss-infra}
+              data: {attempt: fixture-attempt, keyId: fixture-key, retired: 'true'}
+        - command:
+            entrypoint: yq
+            env: [{name: ROOT, value: ($values.root)}]
+            args: [-e, '(.data | length) == 1 and .data[0].id == "unrelated-key"', $ROOT/.local/tmp/check/s3-credentials/retirement/keys.json]
+    - name: resume after a successful deletion without deleting another key
+      try:
+        - command: *revoke
+        - command:
+            entrypoint: yq
+            env: [{name: ROOT, value: ($values.root)}]
+            args: [-e, '(.data | length) == 1 and .data[0].id == "unrelated-key"', $ROOT/.local/tmp/check/s3-credentials/retirement/keys.json]
+    - name: block identity retirement while an unrelated key remains
+      try:
+        - command:
+            entrypoint: mise
+            env: [{name: ROOT, value: ($values.root)}]
+            args: [-C, $ROOT, run, test:s3:retirement-receipt]
+        - command:
+            entrypoint: mise
+            env:
+              - {name: ROOT, value: ($values.root)}
+              - {name: MISE_OVERRIDE_CONFIG_FILENAMES, value: fixture.mise.toml}
+            args: [-C, $ROOT/.local/tmp/check/s3-credentials/retirement, run, 'storage:retire-recorded-key']
+            check:
+              ($error != null): true
+              (contains($stderr, 'unrelated keys')): true
+    - name: reject an uncertain creation outcome
+      try:
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, patch, configmap, s3-credential-operation, --type=json, '-p=[{"op":"replace","path":"/data","value":{"attempt":"uncertain-attempt"}}]']
+        - command:
+            <<: *revoke
+            check: {($error != null): true}
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: s3-credential-operation, namespace: tamoss-infra}
+              data: {attempt: uncertain-attempt}
+              (data.retired == null): true
+    - name: reject a conflicting recorded identity
+      try:
+        - command:
+            entrypoint: kubectl
+            args: [-n, tamoss-infra, patch, configmap, s3-credential-operation, --type=json, '-p=[{"op":"replace","path":"/data","value":{"attempt":"fixture-attempt","keyId":"unrelated-key"}}]']
+        - command:
+            <<: *revoke
+            check: {($error != null): true}
+        - command:
+            entrypoint: yq
+            env: [{name: ROOT, value: ($values.root)}]
+            args: [-e, '(.data | length) == 1 and .data[0].id == "unrelated-key"', $ROOT/.local/tmp/check/s3-credentials/retirement/keys.json]

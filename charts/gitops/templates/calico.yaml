@@ -10,3 +10,7 @@ spec:
   path: ./deploy/calico
   healthChecks:
     - {apiVersion: apps/v1, kind: DaemonSet, name: calico-node, namespace: kube-system}
+{{- if .Values.retirementId }}
+  patches:
+{{ include "gitops.retirementBudgetPatch" (dict "field" "maxUnavailable" "value" "100%") | indent 4 }}
+{{- end }}

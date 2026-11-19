@@ -1,0 +1,60 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: remote-retirement}
+spec:
+  steps:
+    - name: allow cleanup before any remote access was established
+      try:
+        - command: &revoke
+            entrypoint: mise
+            env: &paths
+              - {name: ROOT, value: ($values.root)}
+              - {name: ENV_DIR, value: ($values.directory)}
+            args: [-C, $ROOT, run, 'bootstrap:remote-revoke:apply']
+    - name: require revocation for a running deployment even with an empty inventory
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.remoteUID = "fixture-remote"', $ENV_DIR/identity.yaml]
+        - command: &require-access
+            <<: *revoke
+            check:
+              ($error != null): true
+              (contains($stderr, 'bootstrap:remote-rbac')): true
+    - name: repeat teardown after verified cluster deletion without contacting its API
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.teardownStarted = true', $ENV_DIR/identity.yaml]
+        - command: *revoke
+        - command: *revoke
+    - name: require revocation while the cluster still exists
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '[{"id":"ocid1.cluster.oc1.fixture"}]', $ENV_DIR/owned-current.yaml]
+        - command: *require-access
+    - name: reject null inventory as evidence of deletion
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, 'null', $ENV_DIR/owned-current.yaml]
+        - command: *require-access
+    - name: reject malformed inventory as evidence of deletion
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '{}', $ENV_DIR/owned-current.yaml]
+        - command: *require-access
+    - name: reject missing inventory as evidence of deletion
+      try:
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$ENV_DIR/owned-current.yaml, $ENV_DIR/owned-saved.yaml]
+        - command: *require-access

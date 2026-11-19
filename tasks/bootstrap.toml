@@ -48,6 +48,8 @@ oci ce cluster create-kubeconfig --cluster-id {{ env.TASKV_CLUSTER | quote }} --
   '''yq -i '.remoteUID = load_str("{{ vars.ENV_DIR }}/remote-uid") | .remoteServer = load("{{ vars.ENV_DIR }}/remote.kubeconfig").clusters[0].cluster.server' '{{ vars.ENV_DIR }}/identity.yaml'''',
   "mise run bootstrap:remote-rbac",
   "flux --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' install --components=source-controller,helm-controller,kustomize-controller --timeout=5m",
+  # Claim the handoff on the same object as down, before publishing the remote token.
+  """kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch helmrelease/tamoss-management --type=json -p '[{"op":"test","path":"/spec/values/retirementId","value":""},{"op":"replace","path":"/spec/values/accessIssued","value":true}]'""",
   "mise run bootstrap:remote-access:issue",
 ]
 env.TASKV_CLUSTER = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="clusterID") }}'''
@@ -123,6 +125,144 @@ run = [
   "yq -e '.teardownStarted != true and .teardownComplete != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null",
   "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:remote",
   "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir deploy/gitops/readiness-check --assert-timeout=1800s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready",
+]
+
+["bootstrap:down"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "test -s '{{ vars.ENV_DIR }}/identity.yaml' || { printf '%s\\n' 'No deployment identity; no deletion attempted' >&2; exit 1; }",
+  "mise run identity:inputs",
+  "mise run bootstrap:down:dispatch"
+]
+
+["bootstrap:down:dispatch"]
+hide = true
+skip_if = "yq -e '.teardownComplete == true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
+run = [
+  "yq -i '.teardownStarted = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+  "mise run bootstrap:down:cloud",
+  "mise run bootstrap:down:finish",
+]
+
+["bootstrap:down:cloud"]
+hide = true
+skip_if = '''yq -e '.cleanupVerified == .deploymentUID' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null'''
+run = [
+  "mise run bootstrap:down:discover",
+  # Before a management release exists there is no controller to accept a request.
+  '''if test -s '{{ vars.ENV_DIR }}/management-release.json'; then mise run bootstrap:down:managed; else mise run bootstrap:down:early; fi''',
+  "mise run source:revoke",
+  "mise run environment:revoke",
+  "yq -i '.cleanupVerified = .deploymentUID' '{{ vars.ENV_DIR }}/identity.yaml'",
+]
+
+["bootstrap:down:discover"]
+hide = true
+skip_if = '''yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null'''
+run = [
+  "mise run management:start-kind",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get crd helmreleases.helm.toolkit.fluxcd.io --ignore-not-found -o name > '{{ vars.ENV_DIR }}/helm-crd' ''',
+  '''if test -s '{{ vars.ENV_DIR }}/helm-crd'; then kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get helmrelease/tamoss-management --ignore-not-found -o json > '{{ vars.ENV_DIR }}/management-release.json'; else : > '{{ vars.ENV_DIR }}/management-release.json'; fi''',
+]
+
+["bootstrap:down:managed"]
+hide = true
+run = [
+  '''yq -e '.spec.values | has("retirementId")' '{{ vars.ENV_DIR }}/management-release.json' > /dev/null || { echo 'Use the original product checkout to remove this older deployment.' >&2; exit 1; }''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap tamoss-deployment -o json | yq -e '(.data."deployment.yaml" | from_yaml).deploymentId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID' > /dev/null''',
+  "mise run bootstrap:down:request",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' wait --for=create crd/tamossbootstraps.tamoss.livewyer.io --timeout=10m",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' wait --for=condition=Established crd/tamossbootstraps.tamoss.livewyer.io --timeout=2m",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait --for=create tamossbootstrap/{{ env.TASKV_NAME }} --timeout=10m''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra wait tamossbootstrap/{{ env.TASKV_NAME }} --for=jsonpath='{.status.retirement.phase}'=Retired --timeout=120m''',
+  "mise run bootstrap:observe",
+  '''yq -e '.spec.retirementId == .spec.deploymentId and .status.retirement.deploymentId == .spec.deploymentId and .status.retirement.observedGeneration == .metadata.generation and .status.retirement.phase == "Retired"' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null''',
+  "mise run bootstrap:down:storage-record",
+  "mise run cloud:audit",
+  "mise run storage:audit",
+  "mise run bootstrap:down:audit-foundation",
+
+]
+env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''
+
+["bootstrap:down:request"]
+hide = true
+skip_if = '''yq -e '.spec.values.retirementId == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID' '{{ vars.ENV_DIR }}/management-release.json' > /dev/null'''
+run = [
+  "mise run bootstrap:down:verify-root",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secret/oke-bootstrap-access --ignore-not-found -o custom-columns=DEPLOYMENT:.metadata.labels.tamoss\\.livewyer\\.io/deployment-id,CLUSTER:.metadata.annotations.tamoss\\.livewyer\\.io/cluster-id,UID:.metadata.annotations.tamoss\\.livewyer\\.io/cluster-uid --no-headers > '{{ vars.ENV_DIR }}/access-identity' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get helmrelease/oke-root --ignore-not-found -o json > '{{ vars.ENV_DIR }}/remote-root.json' ''',
+  '''yq -ne 'load("{{ vars.ENV_DIR }}/identity.yaml") as $i | load_str("{{ vars.ENV_DIR }}/access-identity") as $access |
+    select(($access == "" and load("{{ vars.ENV_DIR }}/management-release.json").spec.values.accessIssued == false and (load("{{ vars.ENV_DIR }}/remote-root.json").status.history // [] | length == 0)) or
+      ($i.remoteUID != null and $i.clusterID != null and $access != "" and load("{{ vars.ENV_DIR }}/management-release.json").spec.values.accessIssued == true)) |
+    {"beforeAccess": ($access == "")}' > '{{ vars.ENV_DIR }}/retirement-access.yaml' ''',
+  '''if test -s '{{ vars.ENV_DIR }}/access-identity'; then read -r deployment cluster uid < '{{ vars.ENV_DIR }}/access-identity'; DEPLOYMENT="$deployment" CLUSTER="$cluster" REMOTE_UID="$uid" yq -e '.deploymentUID == strenv(DEPLOYMENT) and .clusterID == strenv(CLUSTER) and .remoteUID == strenv(REMOTE_UID)' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null; fi''',
+  '''yq -eo=json 'select(.spec.values.retirementId == "") | [{"op":"test","path":"/spec/values/accessIssued","value":.spec.values.accessIssued},{"op":"test","path":"/metadata/uid","value":.metadata.uid},{"op":"test","path":"/spec/values/retirementId","value":""},{"op":"replace","path":"/spec/values/retirementId","value":load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID},{"op":"add","path":"/spec/values/retirementBeforeAccess","value":load("{{ vars.ENV_DIR }}/retirement-access.yaml").beforeAccess}]' '{{ vars.ENV_DIR }}/management-release.json' > '{{ vars.ENV_DIR }}/retirement-request.json' ''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra patch helmrelease/tamoss-management --type=json --patch-file='{{ vars.ENV_DIR }}/retirement-request.json' ''',
+]
+
+["bootstrap:down:verify-root"]
+hide = true
+run = [
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get crd tamossbootstraps.tamoss.livewyer.io --ignore-not-found -o name > '{{ vars.ENV_DIR }}/root-crd' ''',
+  '''if test -s '{{ vars.ENV_DIR }}/root-crd'; then mise run bootstrap:observe; else yq -e '.bootstrapUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null; fi''',
+]
+
+["bootstrap:down:storage-record"]
+hide = true
+run = [
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get configmap/storage-identity --ignore-not-found -o json > '{{ vars.ENV_DIR }}/storage-identity-observed.json' ''',
+  '''yq -n '[load("{{ vars.ENV_DIR }}/storage-identity-observed.json").data | select(.USER_SCIM_ID != null) | {"kind":"User","id":.USER_SCIM_ID}, {"kind":"Group","id":.GROUP_ID}]' > '{{ vars.ENV_DIR }}/storage-inventory.yaml' ''',
+]
+
+["bootstrap:down:audit-foundation"]
+hide = true
+skip_if = """yq -e '.spec.retirementBeforeAccess == true and .status.retirement.foundationAbsent == true' '{{ vars.ENV_DIR }}/bootstrap-observed.json' > /dev/null && test ! -s '{{ vars.ENV_DIR }}/foundation-record.yaml'"""
+run = [
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' -n tamoss-infra get secretfoundation/{{ env.TASKV_FOUNDATION }} key.kms.oci.m.upbound.io/{{ env.TASKV_FOUNDATION }} -o json > '{{ vars.ENV_DIR }}/retained-resources.json' ''',
+  '''yq -e '(.items[] | select(.kind == "Key")) as $key | .items[] | select(.kind == "SecretFoundation") | .metadata.uid as $foundationUid |
+    select(([.metadata.ownerReferences[].uid] | contains([load("{{ vars.ENV_DIR }}/identity.yaml").bootstrapUID])) and
+      ([$key.metadata.ownerReferences[].uid] | contains([$foundationUid])) and .status.keyId != null and .status.vaultId != null) |
+    {"name": .metadata.name, "owner": .spec.owner, "region": .spec.region, "compartmentId": .spec.compartmentId, "creationCompositeUID": (.spec.adoption.creationCompositeUID // .metadata.uid), "vaultId": .status.vaultId, "keyId": .status.keyId, "managementEndpoint": .status.managementEndpoint, "keyExternalName": $key.metadata.annotations."crossplane.io/external-name"}' '{{ vars.ENV_DIR }}/retained-resources.json' > '{{ vars.ENV_DIR }}/foundation-observed.yaml' ''',
+  '''if test -s '{{ vars.ENV_DIR }}/foundation-record.yaml'; then yq -e '(sort_keys(..) | to_json(0)) == (load("{{ vars.ENV_DIR }}/foundation-observed.yaml") | sort_keys(..) | to_json(0))' '{{ vars.ENV_DIR }}/foundation-record.yaml' > /dev/null; else cp '{{ vars.ENV_DIR }}/foundation-observed.yaml' '{{ vars.ENV_DIR }}/foundation-record.yaml'; fi''',
+  "mise run cloud:secret-inventory",
+  '''yq -e '[.[] | (."lifecycle-state" == "PENDING_DELETION" or ."lifecycle-state" == "DELETED")] | all' '{{ vars.ENV_DIR }}/environment-secrets.json' > /dev/null''',
+  "mise run cloud:retained-foundation",
+]
+env.TASKV_FOUNDATION = '''{{ read_yaml(path=vars.ENV_DIR ~ "/foundation.yaml") | get(key="metadata") | get(key="name") }}'''
+
+["bootstrap:down:finish"]
+hide = true
+run = [
+  '''yq -e '.cleanupVerified == .deploymentUID' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null''',
+  '''kind get clusters > '{{ vars.ENV_DIR }}/remaining-kind' ''',
+  '''if grep -Fxq 'tamoss-cp-{{ env.TASKV_NAME }}' '{{ vars.ENV_DIR }}/remaining-kind'; then mise run management:start-kind && kind delete cluster --name 'tamoss-cp-{{ env.TASKV_NAME }}'; fi''',
+  "rm -f '{{ vars.ENV_DIR }}/management.kubeconfig' '{{ vars.ENV_DIR }}/remote.kubeconfig' '{{ vars.ENV_DIR }}/remote.pending.kubeconfig'",
+  "yq -i '.teardownComplete = true' '{{ vars.ENV_DIR }}/identity.yaml'",
+]
+env.TASKV_NAME = '''{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'''
+
+["bootstrap:down:early"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "yq -e '.bootstrapUID == null and .compositeUID == null and .remoteUID == null and .credentialsEstablished != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\\n' 'Restore the retained foundation record before managed teardown' >&2; exit 1; }",
+  "mise run bootstrap:down:early-management",
+  "INVENTORY_DIR='{{ vars.ENV_DIR }}/inventory-early-down' mise run cloud:inventory",
+  "yq eval-all -e '[.data | (select(tag == \"!!seq\"), (select(tag == \"!!map\") | .items)) | .[] | select(.\"lifecycle-state\" != \"DELETED\" and .\"lifecycle-state\" != \"TERMINATED\") | select(.\"freeform-tags\".\"tamoss-deployment-id\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").deploymentUID or .\"freeform-tags\".\"tamoss-environment\" == load(\"{{ vars.ENV_DIR }}/identity.yaml\").environment.name or .name == load(\"{{ vars.ENV_DIR }}/identity.yaml\").environment.storage.bucket)] | length == 0' '{{ vars.ENV_DIR }}/inventory-early-down/'*.json > /dev/null",
+
+]
+
+["bootstrap:down:early-management"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+skip_if = "yq -e '.managementUID == null' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null"
+run = [
+  "mise run management:start-kind",
+  "mise run identity:management",
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/management.kubeconfig' get customresourcedefinitions -o json > '{{ vars.ENV_DIR }}/early-crds.json'",
+  "yq -p=json -e '[.items[] | select(.metadata.name | test(\"[.]oci[.]|[.]tamoss[.]livewyer[.]io$\"))] | length == 0' '{{ vars.ENV_DIR }}/early-crds.json' > /dev/null || { printf '%s\\n' 'Cloud controllers may have started; recover the foundation record before teardown' >&2; exit 1; }"
 ]
 
 ["bootstrap:converged"]

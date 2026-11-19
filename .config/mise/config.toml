@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/environment.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/kind-restart/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/retirement.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/environment.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tasks/storage.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/retirement/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -78,3 +78,11 @@ run = [
   "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} REPOSITORY=\"${usage_repository}\" mise run environment:handover",
 ]
 
+[tasks."down"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Remove the application and OCI resources, then retire credentials"
+run = [
+  "mise run verify:tools",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run bootstrap:down",
+]
