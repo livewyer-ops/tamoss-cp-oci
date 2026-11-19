@@ -211,6 +211,48 @@ env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(com
 env.TASKV_OUTPUT = '''{% if env.OUTPUT is defined %}{{ env.OUTPUT }}{% else %}{{ env.OUTPUT_DIR | default(value=(env.TASKV_CACHE) ~ "/operator") }}{% endif %}'''
 env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}{% endif %}"
 
+["tamoss:source-check"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ASSETS={{ ((env.TASKV_ASSETS)) | quote }} mise run tamoss:compare-source",
+]
+env.TASKV_LOCK = '''{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ env.RELEASE_LOCK | default(value=(vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -e -r '.releaseSha256 | select(test(\"^[a-f0-9]{64}$\"))' " ~ ((env.TASKV_LOCK) | quote)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}{% endif %}"
+
+["tamoss:compare-source:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_ASSETS | quote }} || { printf '%s\n' "Missing required input: ASSETS" >&2; exit 1; }''',
+  "rm -rf '{{ env.TASKV_ASSETS }}/source-reference'",
+  "mkdir -p -m 700 '{{ env.TASKV_ASSETS }}/source-reference'",
+  "tar --extract --gzip --file '{{ env.TASKV_ASSETS }}/source.tar.gz' --strip-components=1 --no-same-owner --directory '{{ env.TASKV_ASSETS }}/source-reference'",
+  "diff --brief --recursive --no-dereference '{{ env.TASKV_ASSETS }}/source-reference' '{{ env.TASKV_ASSETS }}/source'",
+]
+env.TASKV_ASSETS = '''{{ env.ASSETS | default(value="") }}'''
+depends_post = ["tamoss:compare-source:cleanup"]
+
+["tamoss:compare-source:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_ASSETS | quote }} || { printf '%s\n' "Missing required input: ASSETS" >&2; exit 1; }''',
+  "rm -rf '{{ env.TASKV_ASSETS }}/source-reference'",
+]
+env.TASKV_ASSETS = '''{{ env.ASSETS | default(value="") }}'''
+
+["tamoss:compare-source"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_ASSETS | quote }} || { printf '%s\n' "Missing required input: ASSETS" >&2; exit 1; }''',
+  "CACHE={{ env.TASKV_CACHE | quote }} mise run tamoss:compare-source:protected",
+]
+env.TASKV_ASSETS = '''{{ env.ASSETS | default(value="") }}'''
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+
 ["tamoss:tls:protected:protected:protected"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"
@@ -323,3 +365,36 @@ env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " 
 env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .runtime.images.api " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
 env.TEST_DB_REVISION = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .runtime.schema.databaseRevision " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
 
+["tamoss:media"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p '{{ env.TASKV_CACHE }}/media'",
+  "cp '{{ env.TASKV_ASSETS }}/source/tests/fixtures/e2e/tiny-ingest.mp4' '{{ env.TASKV_CACHE }}/media/fixture.mp4'",
+  '''docker run --rm --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp -v '{{ env.TASKV_CACHE }}/media:/media' --entrypoint ffmpeg '{{ env.TASKV_TAMSIN }}' -hide_banner -loglevel error -i /media/fixture.mp4 -f lavfi -i sine=frequency=1000:sample_rate=48000 -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -t 1 -map_metadata -1 -fflags +bitexact -flags +bitexact -movflags +faststart -y /media/qualification.mp4''',
+  '''docker run --rm --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges -v '{{ env.TASKV_CACHE }}/media:/media:ro' --entrypoint ffprobe '{{ env.TASKV_TAMSIN }}' -v error -show_streams -show_format -of json /media/qualification.mp4 > '{{ env.TASKV_CACHE }}/media/probe.json'''',
+  '''yq -p=json -e '(.streams | length) == 2 and .streams[0].codec_name == "h264" and .streams[1].codec_name == "aac" and (.format.duration | tonumber) <= 1.1 and (.format.size | tonumber) < 65536' {{ env.TASKV_CACHE }}/media/probe.json''',
+  "sha256sum '{{ env.TASKV_CACHE }}/media/qualification.mp4' > '{{ env.TASKV_CACHE }}/media/qualification.sha256'",
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+env.TASKV_LOCK = '''{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ env.RELEASE_LOCK | default(value=(vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -e -r '.releaseSha256 | select(test(\"^[a-f0-9]{64}$\"))' " ~ ((env.TASKV_LOCK) | quote)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}{% endif %}"
+env.TASKV_TAMSIN = '''{% if env.TAMSIN is defined %}{{ env.TAMSIN }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -e -r '.runtime.images.tamsin | select(test(\"@sha256:[a-f0-9]{64}$\"))' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}{% endif %}'''
+
+["tamoss:browser-build"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/source'",
+  "mkdir -p -m 700 '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/source' '{{ vars.ROOT_DIR }}/.local/reports'",
+  "cp -a '{{ env.TASKV_ASSETS }}/source/.' '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/source/'",
+  "cp deploy/tamoss/browser/Dockerfile deploy/tamoss/browser/.dockerignore '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/'",
+  "echo 'Building upstream browser tests; log: .local/reports/browser-build.log'",
+  "docker build --tag tamoss-qualification-browser:local '{{ vars.ROOT_DIR }}/.local/tmp/browser-build' > '{{ vars.ROOT_DIR }}/.local/reports/browser-build.log' 2>&1",
+  "docker image inspect tamoss-qualification-browser:local --format '{% raw %}{{.Id}}{% endraw %}' > '{{ vars.ROOT_DIR }}/.local/tmp/browser-build/image-id'",
+  '''xargs -d '\n' -a deploy/tamoss/browser/tests.txt docker run --rm --network none --read-only --tmpfs /tmp tamoss-qualification-browser:local --collect-only -q > '{{ vars.ROOT_DIR }}/.local/reports/browser-selection.log'''',
+]
+env.TASKV_LOCK = '''{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ env.RELEASE_LOCK | default(value=(vars.ROOT_DIR) ~ "/deploy/tamoss/release.yaml") }}{% endif %}'''
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -e -r '.releaseSha256 | select(test(\"^[a-f0-9]{64}$\"))' " ~ ((env.TASKV_LOCK) | quote)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}{% endif %}"

@@ -1,0 +1,38 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: console-network-policy
+spec:
+  steps:
+    - name: compare allowed and denied clients
+      try:
+        - apply:
+            file: probe.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata: {name: qualification-allowed, namespace: tams}
+              status:
+                phase: Succeeded
+            timeout: 2m
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata: {name: qualification-denied, namespace: tams}
+              status:
+                phase: Failed
+                containerStatuses:
+                  - name: probe
+                    state:
+                      terminated:
+                        (exitCode != `0`): true
+            timeout: 2m
+        - command:
+            entrypoint: kubectl
+            args: [-n, tams, logs, qualification-denied]
+            check:
+              ($error == null): true
+              (contains($stdout, 'tams-console.tams.svc.cluster.local')): true
+              (contains($stdout, '(28)')): true

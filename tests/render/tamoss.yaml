@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Render
+(resources[?kind == 'StorageBackend'] | [0]):
+  metadata: {name: tams-storage-default, namespace: tams}
+  spec:
+    tamossRef: {name: tamoss}
+    provider: external-s3
+    defaultStorage: true
+    credentials:
+      existingSecret: tams-s3
+      secretKeys: {accessKey: accessKey, secretKey: secretKey}
+(resources[?kind == 'Tamoss'] | [0]):
+  spec:
+    profile: multi-server
+    (version != ''): true
+    paused: false
+    publicEndpoint:
+      tlsSecretName: tams-public-tls
+    backends:
+      db:
+        providedBy: external
+        external:
+          tls:
+            caConfigMap: {name: database-ca, key: ca.pem}
+      s3: {providedBy: external}
+    api: &ha
+      replicaCount: 2
+      pdb: {enabled: true, minAvailable: 1}
+      affinity:
+        podAntiAffinity:
+          (length(requiredDuringSchedulingIgnoredDuringExecution) > `0`): true
+    worker: *ha
+    ui: *ha
+    console: *ha
+    networkPolicy: {enabled: true}
+    auth:
+      authentikBlueprints:
+        groupBindings:
+          - groupName: authentik Admins
+            permissions: [admin]
+    ingest:
+      sourcePolicy: {mode: Restricted}
+    (api.image.repository): docker.io/livewyer/tamoss-api
+    (api.preStopSleepSeconds): 5
+    (ui.image.repository): docker.io/livewyer/tamoss-ui
+    (console.image.repository): docker.io/livewyer/tamoss-console-api
+    (api.image.tag == null && worker.image == null && ui.image.tag == null && console.image.tag == null): true
+    (starts_with(images.schemaMigrationPostgresClient, 'docker.io/library/postgres:')): true
+    (api.env == null && worker.env == null): true
+    (advanced.resourcePatches == null): true

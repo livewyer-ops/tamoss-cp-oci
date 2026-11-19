@@ -1,0 +1,15 @@
+apiVersion: qualification.livewyer.io/v1alpha1
+kind: AvailabilityCheck
+drainStart: 100
+drainEnd: 150
+endpoints:
+- url: https://api.example.invalid/flows
+  before: 0
+  during: 0
+  after: 10
+  failed: 0
+- url: https://app.example.invalid/
+  before: 0
+  during: 0
+  after: 10
+  failed: 0

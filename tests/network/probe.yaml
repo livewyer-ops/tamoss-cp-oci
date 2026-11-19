@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qualification-network
+  namespace: tams
+data:
+  probe.hurl: |
+    GET http://tams-api.tams.svc.cluster.local:8000/healthz
+    HTTP 200
+
+    GET http://tams-console.tams.svc.cluster.local:8080/ui-api/v1/healthz
+    HTTP 200
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qualification-allowed
+  namespace: tams
+  labels:
+    app.kubernetes.io/name: tamoss
+    app.kubernetes.io/instance: tamoss
+    app.kubernetes.io/component: ui
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  containers:
+    - name: probe
+      image: ($values.qualification.hurlImage)
+      args: [--no-output, --connect-timeout, '10', --max-time, '20', /checks/probe.hurl]
+      # A probe with UI policy labels must never become a UI Service endpoint.
+      readinessProbe:
+        tcpSocket: {port: 65534}
+        periodSeconds: 1
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 64Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+      volumeMounts:
+        - {name: checks, mountPath: /checks, readOnly: true}
+  volumes:
+    - name: checks
+      configMap: {name: qualification-network}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qualification-denied
+  namespace: tams
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  containers:
+    - name: probe
+      image: ($values.qualification.hurlImage)
+      args: [--no-output, --connect-timeout, '10', --max-time, '20', /checks/probe.hurl]
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 64Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+      volumeMounts:
+        - {name: checks, mountPath: /checks, readOnly: true}
+  volumes:
+    - name: checks
+      configMap: {name: qualification-network}

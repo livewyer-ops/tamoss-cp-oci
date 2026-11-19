@@ -1,0 +1,33 @@
+apiVersion: qualification.livewyer.io/v1alpha1
+kind: IdentityCheck
+recorded:
+  environment:
+    name: fixture
+    namespace: tamoss-infra
+    region: eu-test-1
+    compartmentId: ocid1.compartment.test
+    providerConfigName: oci
+    storage:
+      namespace: test
+      bucket: fixture
+  oci:
+    tenancy: ocid1.tenancy.test
+    user: ocid1.user.test
+    fingerprint: fixture
+    region: eu-test-1
+  deploymentUID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+observed:
+  environment:
+    name: fixture
+    namespace: tamoss-infra
+    region: eu-test-1
+    compartmentId: ocid1.compartment.test
+    providerConfigName: oci
+    storage:
+      namespace: test
+      bucket: fixture
+  oci:
+    tenancy: wrong
+    user: ocid1.user.test
+    fingerprint: fixture
+    region: eu-test-1

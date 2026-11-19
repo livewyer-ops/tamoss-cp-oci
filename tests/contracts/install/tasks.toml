@@ -1,0 +1,40 @@
+["test:install:prepare"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ env.TASKV_DIRECTORY }}'",
+  "mkdir -p -m 700 '{{ env.TASKV_DIRECTORY }}'",
+  '''DIRECTORY={{ env.TASKV_DIRECTORY | quote }} PROJECT_ROOT={{ vars.ROOT_DIR | quote }} yq eval-all -p=toml -o=toml '
+select(fileIndex == 0) as $root | select(fileIndex == 1) as $bootstrap |
+select(fileIndex == 2) as $boundaries |
+select(fileIndex == 0) |
+{"vars": $root.vars, "tools": $root.tools, "task_config": {"shell": $root.task_config.shell},
+"tasks": ($boundaries + ($bootstrap | with_entries(select(.key | test("^bootstrap:install$")))) +
+{"public-up": $root.tasks.up})} |
+.vars.ROOT_DIR = strenv(PROJECT_ROOT) | .vars.ROOT_DIR = strenv(PROJECT_ROOT) | .vars.ROOT_DIR = strenv(PROJECT_ROOT) |
+.vars.ENV_DIR = strenv(DIRECTORY) | .vars.ENV_PATH = strenv(DIRECTORY) |
+.tasks[].dir = strenv(DIRECTORY)' {{ vars.ROOT_DIR | quote }}/.config/mise/config.toml {{ vars.ROOT_DIR | quote }}/tasks/bootstrap.toml {{ vars.ROOT_DIR | quote }}/tests/contracts/install/boundaries.toml > {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml''',
+  "mise trust {{ env.TASKV_DIRECTORY | quote }}/fixture.mise.toml",
+  '''yq -n '{"deploymentUID": "original", "deploymentReady": true, "gitopsEstablished": true, "provisions": 0, "starts": 0, "publications": 0, "observations": 0}' > '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/install-flow{% endif %}"
+
+
+["test:install:up"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ env.TASKV_DIRECTORY }} STOP_AT={{ env.STOP_AT | default(value=\"none\") }} MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C {{ env.TASKV_DIRECTORY }} run public-up",
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/install-flow{% endif %}"
+
+
+["test:install:deployed"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -e '[.deploymentUID == "original", .deploymentReady == true, .gitopsEstablished == false, .starts == 0, .publications == 0] | all' '{{ env.TASKV_DIRECTORY }}/identity.yaml'''',
+]
+env.TASKV_DIRECTORY = "{% if env.DIRECTORY is defined %}{{ env.DIRECTORY }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check/install-flow{% endif %}"
+

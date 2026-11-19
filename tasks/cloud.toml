@@ -169,6 +169,19 @@ run = [
 ]
 env.TASKV_CLUSTER_ID = '''{% if env.CLUSTER_ID is defined %}{{ env.CLUSTER_ID }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '[.[] | select(.id | test(\"^ocid1[.]cluster[.]\"))] | .[0].id // \"\"' " ~ (vars.ENV_DIR) ~ "/owned-current.yaml") }}{% endif %}'''
 
+["cloud:fixture"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "ENV_DIR={{ ((vars.ENV_DIR)) | quote }} mise run identity:remote",
+  "{{ vars.OCI }} os bucket get --namespace-name {{ (env.TASKV_NAMESPACE) | quote }} --name {{ (env.TASKV_BUCKET) | quote }} > {{ vars.ENV_DIR }}/fixture-bucket.json",
+  '''yq -e '.data."freeform-tags"."tamoss-deployment-id" == load("{{ vars.ENV_DIR }}/identity.yaml").deploymentUID and .data."freeform-tags"."tamoss-composite-uid" == (load("{{ vars.ENV_DIR }}/identity.yaml").creationCompositeUID // load("{{ vars.ENV_DIR }}/identity.yaml").compositeUID)' {{ vars.ENV_DIR }}/fixture-bucket.json''',
+  "{{ vars.OCI }} os object put --namespace-name '{{ env.TASKV_NAMESPACE }}' --bucket-name '{{ env.TASKV_BUCKET }}' --name 'qualification-input/{{ env.TASKV_HASH }}.mp4' --file '{{ vars.ROOT_DIR }}/.local/tmp/check/media/qualification.mp4' --content-type video/mp4 --force --verify-checksum > '{{ vars.ENV_DIR }}/fixture-upload.json'",
+]
+env.TASKV_BUCKET = '''{% if env.BUCKET is defined %}{{ env.BUCKET }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.storage.bucket " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+env.TASKV_HASH = '''{% if env.HASH is defined %}{{ env.HASH }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "cut -d ' ' -f 1 '" ~ (vars.ROOT_DIR) ~ "/.local/tmp/check/media/qualification.sha256'") }}{% endif %}'''
+env.TASKV_NAMESPACE = '''{% if env.NAMESPACE is defined %}{{ env.NAMESPACE }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .environment.storage.namespace " ~ (vars.ENV_DIR) ~ "/identity.yaml") }}{% endif %}'''
+
 ["cloud:secret-inventory"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

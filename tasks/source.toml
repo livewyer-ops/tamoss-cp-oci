@@ -32,3 +32,17 @@ run = [
 ]
 env.TASKV_REPOSITORY = '''{{ read_yaml(path=vars.ENV_DIR ~ "/source.json") | get(key="repository") }}'''
 
+["source:verify"]
+hide = true
+run = [
+  '''{% for path in ["deploy/platform/charts/authentik-bootstrap", "deploy/platform/charts/config", "deploy/instances/multi-server", "deploy/instances/components/shared-defaults", "LICENSE", "NOTICE"] %}
+diff -r '{{ env.TASKV_UPSTREAM }}/{{ path }}' '{{ vars.ROOT_DIR }}/deploy/tamoss/instance/upstream/{{ path }}'
+{% endfor %}''',
+  "cmp '{{ env.TASKV_UPSTREAM }}/deploy/platform/values/defaults.yaml' '{{ vars.ROOT_DIR }}/deploy/gitops/platform-defaults/upstream/defaults.yaml'",
+  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/calico-policy-only.yaml' '{{ vars.ROOT_DIR }}/deploy/calico/upstream/calico-policy-only.yaml'",
+  "cmp '{{ vars.ROOT_DIR }}/.local/tmp/check/calico/LICENSE.md' '{{ vars.ROOT_DIR }}/deploy/calico/upstream/LICENSE.md'",
+  "RELEASE_LOCK='{{ vars.ROOT_DIR }}/deploy/tamoss/release.yaml' OUTPUT='{{ vars.ROOT_DIR }}/.local/tmp/check/source-pins.yaml' mise run gitops:pins",
+  "cmp pins.yaml '{{ vars.ROOT_DIR }}/.local/tmp/check/source-pins.yaml'",
+  "kubectl kustomize deploy/tamoss/instance > /dev/null",
+]
+env.TASKV_UPSTREAM = '{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ read_yaml(path=vars.ROOT_DIR ~ "/deploy/tamoss/release.yaml") | get(key="releaseSha256") }}/source'

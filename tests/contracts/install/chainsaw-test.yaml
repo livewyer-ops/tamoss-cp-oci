@@ -1,0 +1,108 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: fresh-installation
+spec:
+  timeouts:
+    exec: 30s
+  steps:
+  - name: fresh deployment refuses another installation
+    try:
+    - command: &id004
+        entrypoint: env
+        env: &id001
+        - name: PROJECT_ROOT
+          value: ($values.root)
+        args:
+        - mise
+        - -C
+        - $PROJECT_ROOT
+        - run
+        - test:install:prepare
+    - command: &id005
+        entrypoint: yq
+        env: *id001
+        args:
+        - -i
+        - .deploymentReady = false | .gitopsEstablished = false
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
+    - command: &id006
+        entrypoint: mv
+        env: *id001
+        args:
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/fresh-identity.yaml
+    - command:
+        entrypoint: env
+        env: *id001
+        args: &id002
+        - mise
+        - -C
+        - $PROJECT_ROOT
+        - run
+        - test:install:up
+    - command: &id003
+        entrypoint: env
+        env: *id001
+        args:
+        - mise
+        - -C
+        - $PROJECT_ROOT
+        - run
+        - test:install:deployed
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -e
+        - .observations == 1 and .provisions == 1 and .accessReads == 1 and .kindStops == 1
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
+    - command: &id007
+        entrypoint: cp
+        env: *id001
+        args:
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/before-rejected.yaml
+    - command: &id008
+        entrypoint: env
+        env: *id001
+        args: *id002
+        check:
+          ($error != null): true
+          (contains($stderr, 'up requires a fresh deployment')): true
+    - command: &id009
+        entrypoint: cmp
+        env: *id001
+        args:
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/before-rejected.yaml
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
+    - command: *id003
+  - name: installation failure stops later stages and preserves records without resuming
+    try:
+    - command: *id004
+    - command: *id005
+    - command: *id006
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - STOP_AT=during-install
+        - mise
+        - -C
+        - $PROJECT_ROOT
+        - run
+        - test:install:up
+        check:
+          ($error != null): true
+          (contains($stderr, 'Injected interruption')): true
+    - command:
+        entrypoint: yq
+        env: *id001
+        args:
+        - -e
+        - .deploymentUID == "original" and .deploymentReady == false and .provisions
+          == 0 and .observations == 0 and .accessReads == null
+        - $PROJECT_ROOT/.local/tmp/check/install-flow/identity.yaml
+    - command: *id007
+    - command: *id008
+    - command: *id009

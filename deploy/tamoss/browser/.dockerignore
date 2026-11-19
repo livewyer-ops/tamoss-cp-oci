@@ -1,0 +1,13 @@
+*
+!Dockerfile
+!source
+source/*
+!source/src
+!source/tests
+!source/vendor
+**/.git
+**/.local
+**/AGENTS.md
+**/CLAUDE.md
+**/__pycache__
+**/.venv

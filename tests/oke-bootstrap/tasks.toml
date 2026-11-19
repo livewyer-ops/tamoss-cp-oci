@@ -1,0 +1,98 @@
+["test:oke-bootstrap:retirement"]
+hide = true
+run = [
+  "install -d -m 700 '{{ env.ENV_DIR }}'",
+  '''yq -n '{"teardownStarted": false}' > '{{ env.ENV_DIR }}/identity.yaml'''',
+  '''yq -n '[]' > '{{ env.ENV_DIR }}/owned-current.yaml'''',
+  "chainsaw test --no-cluster --test-dir tests/oke-bootstrap/retirement --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ env.ENV_DIR }}' --exec-timeout=30s --report-format JUNIT-TEST --report-path .local/reports --report-name remote-retirement",
+]
+env.ENV_DIR = "{{ vars.ROOT_DIR }}/.local/tmp/check/remote-retirement"
+
+["test:oke-bootstrap:check"]
+hide = true
+run = [
+  "install -d -m 700 '{{ env.DIRECTORY }}'",
+  "TARGET={{ env.TARGET | quote }} DIRECTORY={{ env.DIRECTORY | quote }} mise run test:oke-bootstrap:run",
+]
+env.DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/check/oke-bootstrap"
+env.TARGET = 'tamoss-remote-seed-{{ now() | date(format="%s") }}'
+
+["test:oke-bootstrap:run"]
+hide = true
+run = [
+  "kind create cluster --name '{{ env.TARGET }}' --config deploy/management/kind.yaml --kubeconfig '{{ env.DIRECTORY }}/target.kubeconfig' --wait 120s",
+  "mise run test:oke-bootstrap:prepare",
+  "chainsaw test --skip-delete --test-dir tests/oke-bootstrap/management --cluster remote='{{ env.DIRECTORY }}/target.kubeconfig' --set-string root='{{ vars.ROOT_DIR }}' --set-string directory='{{ env.DIRECTORY }}' --exec-timeout 180s --assert-timeout 600s --report-format JUNIT-TEST --report-path .local/reports --report-name oke-bootstrap",
+]
+depends_post = ["test:oke-bootstrap:cleanup"]
+
+["test:oke-bootstrap:cleanup"]
+hide = true
+run = [
+  "kubectl -n tamoss-infra delete helmrelease seed-proof --ignore-not-found --timeout=60s",
+  "kubectl -n tamoss-infra delete secret oke-bootstrap-access proof-values --ignore-not-found",
+  "kubectl -n flux-system scale deployment/kustomize-controller deployment/helm-controller --replicas=1",
+  "kubectl -n tamoss-infra delete kustomization oke-workload oke-ready --ignore-not-found --timeout=60s",
+  "kind delete cluster --name '{{ env.TARGET }}'",
+  "rm -f '{{ env.DIRECTORY }}/target.kubeconfig' '{{ env.DIRECTORY }}/management.kubeconfig' '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.pending.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig' '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' '{{ env.DIRECTORY }}/remote-token.json' '{{ env.DIRECTORY }}/remote-access.yaml' '{{ env.DIRECTORY }}/expired-access.yaml'",
+]
+
+["test:oke-bootstrap:prepare"]
+hide = true
+run = [
+  '''cp "$KUBECONFIG" '{{ env.DIRECTORY }}/management.kubeconfig'''',
+  # Earlier suites in the shared Kind leave a loopback access Secret behind.
+  "kubectl -n tamoss-infra delete secret oke-bootstrap-access --ignore-not-found",
+  '''yq '.metadata.name = "host-seed" | .metadata.namespace = "tamoss-infra" | .metadata.annotations."crossplane.io/paused" = "true" | .spec.credentialsEstablished = true' '.local/tmp/check/bootstrap/native-root.yaml' > '{{ env.DIRECTORY }}/bootstrap.yaml'''',
+  '''yq '{"apiVersion": .apiVersion, "kind": "TamossEnvironment", "metadata": {"name": .metadata.name, "namespace": .metadata.namespace}, "spec": .spec.environment}' '{{ env.DIRECTORY }}/bootstrap.yaml' > '{{ env.DIRECTORY }}/environment.yaml'''',
+  "ENV_DIR={{ env.DIRECTORY | quote }} mise run identity:observe-inputs",
+  "kubectl get namespace kube-system -o jsonpath='{.metadata.uid}' > '{{ env.DIRECTORY }}/management-uid'",
+  '''yq '.deploymentUID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" | .managementUID = load_str("{{ env.DIRECTORY }}/management-uid")' '{{ env.DIRECTORY }}/identity-inputs.yaml' > '{{ env.DIRECTORY }}/identity.yaml'''',
+  '''yq '.users[0].user.exec = {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "oci", "args": ["ce", "cluster", "generate-token", "--cluster-id", "ocid1.cluster.oc1.fixture"], "interactiveMode": "Never"}' '{{ env.DIRECTORY }}/target.kubeconfig' > '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
+  '''docker inspect '{{ env.TARGET }}-control-plane' --format '{{"{{"}}(index .NetworkSettings.Networks "kind").IPAddress{{"}}"}}' > '{{ env.DIRECTORY }}/target-address'''',
+  '''yq -i '.clusters[0].cluster.server = ("https://" + (load_str("{{ env.DIRECTORY }}/target-address") | trim) + ":6443")' '{{ env.DIRECTORY }}/remote.pending.kubeconfig'''',
+  "ENV_DIR={{ env.DIRECTORY | quote }} CLUSTER_ID=ocid1.cluster.oc1.fixture mise run cloud:remote:record",
+  "cp '{{ env.DIRECTORY }}/remote.kubeconfig' '{{ env.DIRECTORY }}/remote.saved.kubeconfig'",
+  '''yq -n '{"vaultId": "ocid1.vault.oc1.fixture"}' > '{{ env.DIRECTORY }}/foundation-record.yaml'''',
+]
+env.OCI_CLI_CONFIG_FILE = "{{ vars.ROOT_DIR }}/tests/lifecycle/oci-config"
+
+["test:oke-bootstrap:reject-identity"]
+hide = true
+run = [
+  '''yq '.remoteUID = "different-cluster"' '{{ env.DIRECTORY }}/identity.yaml' > '{{ env.DIRECTORY }}/identity.wrong.yaml'''',
+  "cp '{{ env.DIRECTORY }}/identity.yaml' '{{ env.DIRECTORY }}/identity.saved.yaml'",
+  "mv '{{ env.DIRECTORY }}/identity.wrong.yaml' '{{ env.DIRECTORY }}/identity.yaml'",
+  "ENV_DIR={{ env.DIRECTORY | quote }} mise run test:oke-bootstrap:seed",
+]
+depends_post = ["test:oke-bootstrap:restore-identity"]
+
+["test:oke-bootstrap:restore-identity"]
+hide = true
+run = ["mv '{{ env.DIRECTORY }}/identity.saved.yaml' '{{ env.DIRECTORY }}/identity.yaml'"]
+
+["test:oke-bootstrap:seed"]
+hide = true
+run = [
+  "mise run bootstrap:remote-guard",
+  "mise run identity:remote",
+  "mise run bootstrap:remote-rbac",
+  "mise run bootstrap:remote-access:issue",
+]
+
+["test:oke-bootstrap:capture-access"]
+hide = true
+quiet = true
+run = [
+  "install -m 600 /dev/null '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig'",
+  '''kubectl --kubeconfig '{{ env.DIRECTORY }}/management.kubeconfig' -n tamoss-infra get secret oke-bootstrap-access -o json | yq -p=json -r '.data."value.yaml" | @base64d' > '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' ''',
+  "kubectl --kubeconfig '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' --request-timeout=10s get namespace kube-system -o name",
+]
+
+["test:oke-bootstrap:retired-access"]
+hide = true
+quiet = true
+run = [
+  "kubectl --kubeconfig '{{ env.DIRECTORY }}/bootstrap-token.kubeconfig' --request-timeout=10s get namespace kube-system -o name",
+]
+

@@ -1,0 +1,83 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: tamoss-ingest
+spec:
+  steps:
+    - name: application and external services
+      try:
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: Tamoss
+              metadata: {name: tamoss, namespace: tams}
+              spec:
+                profile: multi-server
+                backends:
+                  db:
+                    providedBy: external
+                    external:
+                      tls:
+                        caConfigMap: {name: database-ca, key: ca.pem}
+                  s3: {providedBy: external}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+              (status.currentVersion == spec.version): true
+              (status.resolved.versions.tamoss == spec.version): true
+            timeout: 5m
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: StorageBackend
+              metadata: {namespace: tams}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+            timeout: 5m
+    - name: bounded ingest
+      try:
+        - assert:
+            resource:
+              apiVersion: tamoss.livewyer.io/v1alpha1
+              kind: IngestRun
+              metadata:
+                name: qualification
+                namespace: tams
+                (uid != $values.previousUID): true
+              status:
+                phase: Succeeded
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+                (output.rootFlowID != ''): true
+                (output.sourceID != ''): true
+            timeout: 10m
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                namespace: tams
+                labels:
+                  tamoss.livewyer.io/ingest-run: qualification
+                (ownerReferences[?kind == 'IngestRun'].uid | [0]): (x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'IngestRun', 'tams', 'qualification').metadata.uid)
+              status:
+                (conditions[?type == 'Complete'] | [0].status): 'True'
+            timeout: 30s
+    - name: public certificates
+      try:
+        - assert:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: tams-public-tls, namespace: tams}
+              spec:
+                (length(dnsNames)): 2
+                (contains(dnsNames, x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'Tamoss', 'tams', 'tamoss').spec.ingress.api.host)): true
+                (contains(dnsNames, x_k8s_get($client, 'tamoss.livewyer.io/v1alpha1', 'Tamoss', 'tams', 'tamoss').spec.ingress.ui.web.host)): true
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'
+        - assert:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata: {name: authentik-public-tls, namespace: auth}
+              status:
+                (conditions[?type == 'Ready'] | [0].status): 'True'

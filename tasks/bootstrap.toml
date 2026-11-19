@@ -127,6 +127,18 @@ run = [
   "KUBECONFIG='{{ vars.ENV_DIR }}/remote.kubeconfig' chainsaw test --skip-delete --namespace tamoss-infra --test-dir deploy/gitops/readiness-check --assert-timeout=1800s --report-format JUNIT-TEST --report-path '{{ vars.ENV_DIR }}/reports' --report-name deployment-ready",
 ]
 
+["bootstrap:qualify"]
+hide = true
+run = [
+  { task = "bootstrap:ready" },
+  { task = "assets:restore-runtime" },
+  "RELEASE_LOCK='{{ vars.ENV_DIR }}/tamoss-release.current.yaml' mise run tamoss:release",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get tamossservices/{{ env.TASKV_NAME }} -o jsonpath='{.status.outputs}' | yq -p=json -o=json 'load("{{ vars.ENV_DIR }}/base-outputs.json") * .' > '{{ vars.ENV_DIR }}/outputs.json'''',
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get configmap/database-connection -o json | yq -p=json -o=json -e 'select(.data.DATABASE_ID == load("{{ vars.ENV_DIR }}/outputs.json").databaseId) | {"data": {"primary-db-endpoint": {"fqdn": .data.DATABASE_HOST}, "ca-certificate": (.data.DATABASE_CA_BASE64 | @base64d)}}' > '{{ vars.ENV_DIR }}/database-connection.json'''',
+  { task = "qualification:run" },
+]
+env.TASKV_NAME = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="environment") | get(key="name") }}'
+
 ["bootstrap:down"]
 hide = true
 dir = "{{ vars.ROOT_DIR }}"

@@ -1,0 +1,19 @@
+apiVersion: tamoss.livewyer.io/v1alpha1
+kind: IngestRun
+metadata:
+  name: qualification
+  namespace: tams
+spec:
+  tamossRef:
+    name: tamoss
+  input:
+    kind: S3
+    uri: s3://qualification-media/qualification-input/REPLACE.mp4
+    sourceRef:
+      name: qualification
+  profile: mpegts-segments@1
+  sizeClass: small
+  options:
+    verify: true
+    maxInputs: 1
+    concurrency: 1

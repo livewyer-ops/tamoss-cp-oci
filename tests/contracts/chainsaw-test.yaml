@@ -1,0 +1,195 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: operation-contracts
+spec:
+  steps:
+  - name: valid-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - valid-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+  - name: wrong-compartment-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - wrong-compartment-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: wrong-tenancy-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - wrong-tenancy-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: wrong-provider-identity
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - wrong-provider-identity.yaml
+        - -f
+        - ../../deploy/contracts/identity.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: valid-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - valid-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+  - name: late-probe-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - late-probe-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: failed-request-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - failed-request-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: missing-endpoint-availability
+    try:
+    - command:
+        entrypoint: chainsaw
+        args:
+        - assert
+        - -r
+        - missing-endpoint-availability.yaml
+        - -f
+        - ../../deploy/contracts/availability.yaml
+        - --timeout
+        - 1ms
+        check:
+          ($error != null): true
+          (contains($stderr, 'assertion failed')): true
+  - name: repository privacy is checked during development checks
+    try:
+    - command:
+        entrypoint: mkdir
+        args:
+        - ../../scripts
+    - command:
+        entrypoint: env
+        workDir: ../..
+        args:
+        - mise
+        - -C
+        - .
+        - run
+        - check
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    - command:
+        entrypoint: env
+        workDir: ../..
+        args:
+        - mise
+        - -C
+        - .
+        - run
+        - check:management
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    finally:
+    - command:
+        entrypoint: rmdir
+        args:
+        - ../../scripts
+  - name: reject a public script before executing checks
+    try:
+    - command:
+        entrypoint: touch
+        args:
+        - ../../forbidden.py
+    - command:
+        entrypoint: env
+        workDir: ../..
+        args:
+        - mise
+        - -C
+        - .
+        - run
+        - check
+        check:
+          ($error != null): true
+          (contains($stderr, 'verify:privacy')): true
+    finally:
+    - command:
+        entrypoint: rm
+        args:
+        - ../../forbidden.py
+  - name: reject placeholder environment inputs
+    try:
+    - command:
+        entrypoint: env
+        workDir: ../..
+        args:
+        - helm
+        - template
+        - management
+        - charts/management
+        - -f
+        - environments/example/values.yaml
+        - --set
+        - deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        check:
+          ($error != null): true
+          (contains($stderr, 'compartmentId')): true

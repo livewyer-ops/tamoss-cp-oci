@@ -1,0 +1,50 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: replica-placement
+spec:
+  steps:
+    - name: api
+      bindings: [{name: namespace, value: tams}, {name: deployment, value: tams-api}]
+      try: &placement
+        - assert:
+            bindings:
+              - name: selector
+                value: (x_k8s_get($client, 'apps/v1', 'Deployment', $namespace, $deployment).spec.selector.matchLabels)
+              - name: nodes
+                value: (x_k8s_list($client, 'v1', 'Pod', $namespace).items[?label_match($selector, metadata.labels) && status.conditions[?type == 'Ready' && status == 'True'] && metadata.deletionTimestamp == null].spec.nodeName)
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: ($deployment)
+                namespace: ($namespace)
+              spec:
+                replicas: 2
+              status:
+                readyReplicas: 2
+                updatedReplicas: 2
+              (length($nodes)): 2
+              ($nodes[0] != $nodes[1]): true
+            timeout: 1s
+    - name: ui
+      bindings: [{name: namespace, value: tams}, {name: deployment, value: tams-ui}]
+      try: *placement
+    - name: worker
+      bindings: [{name: namespace, value: tams}, {name: deployment, value: tams-worker}]
+      try: *placement
+    - name: console
+      bindings: [{name: namespace, value: tams}, {name: deployment, value: tams-console}]
+      try: *placement
+    - name: authentik-server
+      bindings: [{name: namespace, value: auth}, {name: deployment, value: authentik-server}]
+      try: *placement
+    - name: authentik-worker
+      bindings: [{name: namespace, value: auth}, {name: deployment, value: authentik-worker}]
+      try: *placement
+    - name: ingress
+      bindings: [{name: namespace, value: traefik}, {name: deployment, value: traefik}]
+      try: *placement
+    - name: operator
+      bindings: [{name: namespace, value: tamoss-system}, {name: deployment, value: operator-controller-manager}]
+      try: *placement

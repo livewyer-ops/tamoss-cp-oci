@@ -1,0 +1,134 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: tamoss-release-selection
+spec:
+  timeouts:
+    exec: 2m
+  steps:
+    - name: record the release and accept an unchanged selection
+      try:
+        - command:
+            entrypoint: env
+            env: &paths
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: CHECK_DIRECTORY, value: "(join('/', [$values.root, '.local/tmp/release-test']))"}
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:prepare"]
+        - command: &match
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:match"]
+    - name: reject a changed selection before deployment
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:match"]
+            check:
+              ($error != null): true
+              (contains($stderr, 'differs from the repository pin')): true
+    - name: reject a release record describing a different tag
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "RELEASE_LOCK=$CHECK_DIRECTORY/candidate/release.yaml", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:metadata"]
+            check: {($error != null): true}
+    - name: reject damaged downloads without installing them
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:bad-download"]
+            check: {($error != null): true}
+        - command:
+            entrypoint: test
+            env: *paths
+            args: ['!', -e, $CHECK_DIRECTORY/download/release.json]
+    - name: reject a source tree without required deployment entrypoints
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "CHECK_ASSETS=$CHECK_DIRECTORY/absent", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:entrypoints"]
+            check: {($error != null): true}
+    - name: prepare teardown from the recorded release despite a different current selection
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:prepare-removal-alternate"]
+        - command:
+            entrypoint: cmp
+            env: *paths
+            args: [$CHECK_DIRECTORY/operator-removal/rendered.yaml, $PROJECT_ROOT/.local/tmp/check/operator.yaml]
+    - name: accept source contents despite different archive ownership and permissions
+      try:
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:source-fixture"]
+        - command: &compareSource
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:compare-source"]
+    - name: reject changed source bytes
+      try:
+        - command:
+            entrypoint: yq
+            env: *paths
+            args: [-i, '.tag = "changed"', $CHECK_DIRECTORY/source-fixture/source/release.yaml]
+        - command:
+            <<: *compareSource
+            check: {($error != null): true}
+        - command:
+            entrypoint: cp
+            env: *paths
+            args: [$PROJECT_ROOT/deploy/tamoss/release.yaml, $CHECK_DIRECTORY/source-fixture/source/release.yaml]
+    - name: reject added source files
+      try:
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$CHECK_DIRECTORY/source-fixture/source/extra.yaml]
+        - command:
+            <<: *compareSource
+            check: {($error != null): true}
+        - command:
+            entrypoint: rm
+            env: *paths
+            args: [$CHECK_DIRECTORY/source-fixture/source/extra.yaml]
+    - name: reject changed source link targets
+      try:
+        - command:
+            entrypoint: ln
+            env: *paths
+            args: [-sfn, absent.yaml, $CHECK_DIRECTORY/source-fixture/source/current.yaml]
+        - command:
+            <<: *compareSource
+            check: {($error != null): true}
+    - name: refuse to invent a missing release record for existing state
+      try:
+        - command:
+            entrypoint: touch
+            env: *paths
+            args: [$CHECK_DIRECTORY/identity.yaml]
+        - command:
+            entrypoint: mv
+            env: *paths
+            args: [$CHECK_DIRECTORY/tamoss-release.yaml, $CHECK_DIRECTORY/recorded.yaml]
+        - command:
+            <<: *match
+            check:
+              ($error != null): true
+              (contains($stderr, 'no TAMOSS release record')): true
+        - command:
+            entrypoint: env
+            env: *paths
+            args: ["PROJECT_ROOT=$PROJECT_ROOT", "ENV_DIR=$CHECK_DIRECTORY", "mise", "-C", "$PROJECT_ROOT", "run", "test:release:record"]
+            check: {($error != null): true}
+      finally:
+        - command:
+            entrypoint: rm
+            env: *paths
+            args: [-rf, $CHECK_DIRECTORY]

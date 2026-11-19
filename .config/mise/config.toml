@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/retirement.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/environment.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tasks/storage.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/retirement/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/application.toml", "tasks/assets.toml", "tasks/retirement.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/cloud.toml", "tasks/environment.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/qualification.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tasks/storage.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/contracts/install/tasks.toml", "tests/controller-state/tasks.toml", "tests/flux-bootstrap/tasks.toml", "tests/kind-restart/tasks.toml", "tests/lifecycle/tasks.toml", "tests/oke-bootstrap/tasks.toml", "tests/release/tasks.toml", "tests/retirement/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml", "tests/status.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -44,6 +44,41 @@ run = [
   """COMPARTMENT="${usage_compartment_id:-}" CONTACT="${usage_contact_email:-}" yq -i 'with(select(strenv(COMPARTMENT) != ""); .compartmentId = strenv(COMPARTMENT)) | with(select(strenv(CONTACT) != ""); .contactEmail = strenv(CONTACT))' '{{ vars.ENV_DIR }}/values.yaml'""",
   { task = "setup:discover" },
   """yq -e '(.compartmentId // "") as $c | (.contactEmail // "") as $e | [($c | test("^ocid1[.]compartment[.]")), ($c | test("REPLACE") | not), ($e | test("@")), ($e | test("[.]invalid$") | not)] | all' '{{ vars.ENV_DIR }}/values.yaml' > /dev/null 2>&1 && echo 'Settings are ready in {{ vars.ENV_DIR }}/values.yaml. Review them, then run: mise run up' || echo 'Enter compartmentId and contactEmail in {{ vars.ENV_DIR }}/values.yaml, then run: mise run up'""",
+]
+
+[tasks."check"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Contributor: validate pinned artefacts, composition lifecycle and deployment configuration"
+run = [
+  "mise run verify:tools",
+  "echo 'Running local checks; reports: .local/reports'",
+  "mise run verify:privacy",
+  "mkdir -p -m 700 '{{ vars.ROOT_DIR }}/.local/reports'",
+  "mise run verify:artifacts",
+  "mise run tamoss:fetch",
+  "mise run tamoss:release",
+  "mise run tamoss:bundle",
+  "mise run tadoss:fetch",
+  "mise run tadoss:bundle",
+  "mise run source:verify",
+  "mise run verify:render",
+  "mise run verify:database",
+  "mise run tamoss:tls",
+  "mise run tadoss:tls",
+  "mise run runtime:check",
+  "mise run verify:contracts",
+  "mise run tamoss:source-check",
+  "chainsaw test --no-cluster --test-dir tests/release --set-string root='{{ vars.ROOT_DIR }}' --report-format JUNIT-TEST --report-path .local/reports --report-name release",
+]
+
+[tasks."check:management"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Contributor: run local checks and a disposable credential-free Kind bootstrap"
+run = [
+  "mise run check",
+  "mise run management:check",
 ]
 
 [tasks."up"]
@@ -76,6 +111,22 @@ flag "--repository <owner/name>" required=#true help="Existing, empty, private G
 run = [
   "mise run verify:tools",
   "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} REPOSITORY=\"${usage_repository}\" mise run environment:handover",
+]
+
+[tasks."qualify"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Contributor: qualify ingest, media reads, availability during one worker drain and enabled TADOSS"
+run = [
+  '''test -s '{{ vars.ENV_PATH }}/tamoss-release.yaml' || { printf '%s\n' "Selected environment has no TAMOSS release record" >&2; exit 1; }''',
+  "mise run verify:tools",
+  "mise run verify:privacy",
+  "ENV_DIR={{ vars.ENV_PATH | quote }} mise run identity:remote",
+  '''enabled="$(mise run --quiet tadoss:selection)"
+if test "$enabled" = true; then mise run tadoss:baseline; fi
+mise run bootstrap:qualify
+test "$(mise run --quiet tadoss:selection)" = "$enabled" || { echo 'TADOSS selection changed during qualification' >&2; exit 1; }
+if test "$enabled" = true; then mise run tadoss:qualify; fi''',
 ]
 
 [tasks."down"]
