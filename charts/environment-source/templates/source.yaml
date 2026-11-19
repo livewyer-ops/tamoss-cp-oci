@@ -1,0 +1,28 @@
+{{- $labels := dict "tamoss.livewyer.io/deployment-id" (required "deploymentId is required" .Values.deploymentId) -}}
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: tamoss-environment
+  namespace: {{ .Release.Namespace }}
+  labels: {{ $labels | toJson }}
+spec:
+  interval: 1m
+  url: {{ required "url is required" .Values.url | quote }}
+  ref: {branch: {{ required "branch is required" .Values.branch | quote }}}
+  secretRef: {name: environment-git}
+---
+# The repository holds the tamoss-gitops-values and tamoss-assets ConfigMaps that the host applied before handover.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tamoss-environment
+  namespace: {{ .Release.Namespace }}
+  labels: {{ $labels | toJson }}
+spec:
+  interval: 1m
+  timeout: 2m
+  # Removing a file from the repository must not delete the settings the platform depends on.
+  prune: false
+  path: ./
+  targetNamespace: {{ .Release.Namespace }}
+  sourceRef: {kind: GitRepository, name: tamoss-environment}

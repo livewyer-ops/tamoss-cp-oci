@@ -1,0 +1,55 @@
+apiVersion: tadoss.livewyer.io/v1alpha1
+kind: Tadoss
+metadata: {name: tadoss, namespace: tads}
+spec:
+  version: ${TADOSS_VERSION}
+  profile: multi-server
+  deletionProtection: true
+  deletionPolicy: Retain
+  backends:
+    db:
+      providedBy: external
+      external:
+        existingSecret: tadoss-database
+        caConfigMap: {name: tadoss-database-ca, key: ca.pem}
+  auth:
+    oauth2:
+      issuer: https://auth.${DOMAIN}/application/o/tadoss/
+      audience: tadoss-${DEPLOYMENT_ID}
+      jwksURI: https://auth.${DOMAIN}/application/o/tadoss/jwks/
+      algorithms: [RS256]
+  ingress:
+    host: tads.${DOMAIN}
+    className: traefik
+    clusterIssuer: tamoss-public
+    tlsSecretName: tadoss-public-tls
+  api:
+    image: ${TADOSS_IMAGE}
+    replicaCount: 2
+    minAvailable: 1
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels: {app.kubernetes.io/instance: tadoss, app.kubernetes.io/component: api}
+            topologyKey: kubernetes.io/hostname
+  worker:
+    image: ${TADOSS_IMAGE}
+    replicaCount: 2
+    minAvailable: 1
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels: {app.kubernetes.io/instance: tadoss, app.kubernetes.io/component: worker}
+            topologyKey: kubernetes.io/hostname
+  networkPolicy:
+    enabled: true
+    api:
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels: {kubernetes.io/metadata.name: traefik}
+              podSelector:
+                matchLabels: {app.kubernetes.io/name: traefik}
+          ports: [{protocol: TCP, port: 8000}]

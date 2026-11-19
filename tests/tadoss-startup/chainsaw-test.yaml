@@ -1,0 +1,130 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: tadoss-authentik-startup}
+spec:
+  concurrent: false
+  timeouts: {exec: 12m, assert: 1m, cleanup: 2m}
+  steps:
+    - name: cold-start-with-external-TLS-database
+      try:
+        - apply: {file: resources.yaml}
+        - command:
+            entrypoint: mkdir
+            env: &env
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: TEST_DIRECTORY, value: ($values.directory)}
+              - {name: CHART_VERSION, value: ($values.chartVersion)}
+            args: [-p, -m, '700', $TEST_DIRECTORY]
+        - command:
+            entrypoint: openssl
+            env: *env
+            args: [req, -x509, -newkey, 'rsa:2048', -nodes, -days, '1', -subj, /CN=authentik-test-db, -addext, 'subjectAltName=DNS:authentik-test-db', -keyout, '$TEST_DIRECTORY/server.key', -out, '$TEST_DIRECTORY/server.crt']
+        - command:
+            entrypoint: kubectl
+            env: *env
+            args: [-n, authentik-startup, create, secret, tls, database-tls, '--key=$TEST_DIRECTORY/server.key', '--cert=$TEST_DIRECTORY/server.crt']
+        - command:
+            entrypoint: kubectl
+            env: *env
+            args: [-n, authentik-startup, create, configmap, database-ca, '--from-file=ca.pem=$TEST_DIRECTORY/server.crt']
+        - command: &blueprint
+            entrypoint: kubectl
+            env: *env
+            args: [apply, -f, '$PROJECT_ROOT/.local/tmp/check/tadoss-startup-blueprint.yaml']
+        - command: &install
+            entrypoint: helm
+            env: *env
+            args: [upgrade, --install, authentik, authentik, --repo, 'https://charts.goauthentik.io', --version, $CHART_VERSION, -n, authentik-startup, -f, '$PROJECT_ROOT/.local/tmp/check/tadoss-authentik-values.yaml', -f, values.yaml, --wait, --timeout=10m]
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: tadoss-authentik-blueprint, namespace: authentik-startup}
+              spec: {backoffLimit: 2, activeDeadlineSeconds: 300}
+              status: {succeeded: 1}
+        - assert: &ready
+            bindings:
+              - name: pods
+                value: (x_k8s_list($client, 'v1', 'Pod', 'authentik-startup').items[?metadata.labels."app.kubernetes.io/name" == 'authentik'])
+            file: ready.yaml
+        - command: &provider
+            entrypoint: kubectl
+            args:
+              - -n
+              - authentik-startup
+              - exec
+              - deployment/authentik-test-db
+              - --
+              - psql
+              - -U
+              - authentik
+              - -Atc
+              - "SELECT count(*) = 1 FROM authentik_core_application a JOIN authentik_core_provider p ON a.provider_id = p.id JOIN authentik_providers_oauth2_oauth2provider o ON o.provider_ptr_id = p.id WHERE a.slug = 'tadoss' AND p.name = 'tadoss' AND o.client_id <> '' AND o.signing_key_id IS NOT NULL;"
+            check:
+              (trim_space($stdout)): 't'
+      catch: &diagnostics
+        - command:
+            entrypoint: kubectl
+            args: [-n, authentik-startup, get, 'pods,jobs', -o, json]
+        - command:
+            entrypoint: kubectl
+            args: [-n, authentik-startup, logs, -l, job-name=tadoss-authentik-blueprint, --all-containers=true, --prefix, --tail=40]
+    - name: repeat-and-reject-invalid-blueprint-without-worker-restarts
+      bindings:
+        - name: podUIDs
+          value: (sort(x_k8s_list($client, 'v1', 'Pod', 'authentik-startup').items[?metadata.labels."app.kubernetes.io/name" == 'authentik'].metadata.uid))
+      try:
+        - command: *install
+        - assert: &firstAttempt
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: tadoss-authentik-blueprint, namespace: authentik-startup}
+              status:
+                succeeded: 1
+                (not_null(failed, `0`)): 0
+        - command: *provider
+        - patch:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata: {name: tadoss-authentik-blueprint, namespace: authentik-startup}
+              data:
+                tadoss.yaml: |
+                  version: 1
+                  metadata: {name: tadoss}
+                  entries:
+                    - model: deliberately.invalid
+                      identifiers: {name: tadoss}
+        - command:
+            <<: *install
+            check:
+              ($error != null): true
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: tadoss-authentik-blueprint, namespace: authentik-startup}
+              status:
+                (conditions[?type == 'Failed'] | [0].status): 'True'
+        - assert: *ready
+        - command: *blueprint
+        - command: *install
+        - assert:
+            bindings:
+              - name: currentUIDs
+                value: (sort(x_k8s_list($client, 'v1', 'Pod', 'authentik-startup').items[?metadata.labels."app.kubernetes.io/name" == 'authentik'].metadata.uid))
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata: {name: tadoss-authentik-blueprint, namespace: authentik-startup}
+              status:
+                succeeded: 1
+                (not_null(failed, `0`)): 0
+              ($currentUIDs == $podUIDs): true
+        - command: *provider
+      catch: *diagnostics
+      finally:
+        - command:
+            entrypoint: helm
+            args: [uninstall, authentik, -n, authentik-startup, --ignore-not-found, --wait, --timeout=2m]

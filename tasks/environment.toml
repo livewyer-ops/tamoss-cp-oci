@@ -1,0 +1,52 @@
+["environment:handover"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_REPOSITORY | quote }} || { printf '%s\n' "Missing required input: --repository OWNER/NAME" >&2; exit 1; }''',
+  '''printf '%s\n' {{ env.TASKV_REPOSITORY | quote }} | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || { printf '%s\n' "Give the GitHub repository as OWNER/NAME" >&2; exit 1; }''',
+  '''test ! -e '{{ vars.ENV_DIR }}/environment-source.json' || { printf '%s\n' "Settings were already handed over to $(yq -r .repository '{{ vars.ENV_DIR }}/environment-source.json')" >&2; exit 1; }''',
+  '''yq -e '.deploymentReady == true and .teardownStarted != true' '{{ vars.ENV_DIR }}/identity.yaml' > /dev/null || { printf '%s\n' "Hand over a ready deployment that is not being removed" >&2; exit 1; }''',
+  '''gh api 'repos/{{ env.TASKV_REPOSITORY }}' --jq .private | grep -qx true || { printf '%s\n' "The environment repository must exist and be private" >&2; exit 1; }''',
+  '''test -z "$(git ls-remote 'https://github.com/{{ env.TASKV_REPOSITORY }}.git')" || { printf '%s\n' "The environment repository must be empty" >&2; exit 1; }''',
+  "ENV_DIR={{ vars.ENV_DIR | quote }} mise run identity:remote",
+  # The repository starts from the settings OKE holds now, not from values.yaml, so handover changes nothing.
+  '''umask 077
+rm -rf '{{ vars.ENV_DIR }}/environment-repository'
+git init --quiet --initial-branch=main '{{ vars.ENV_DIR }}/environment-repository'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra get configmap tamoss-gitops-values tamoss-assets -o yaml | yq '.items[] | {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": .metadata.name, "labels": {"reconcile.fluxcd.io/watch": "Enabled"}}, "data": .data} | split_doc' > '{{ vars.ENV_DIR }}/environment-repository/settings.yaml'
+yq eval-all -e '[select(.kind == "ConfigMap")] | [length == 2, ([.[] | select(.data."values.yaml" | length > 0)] | length == 2)] | all' '{{ vars.ENV_DIR }}/environment-repository/settings.yaml' > /dev/null
+yq -n '{"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": ["settings.yaml"]}' > '{{ vars.ENV_DIR }}/environment-repository/kustomization.yaml'
+git -C '{{ vars.ENV_DIR }}/environment-repository' add settings.yaml kustomization.yaml
+git -C '{{ vars.ENV_DIR }}/environment-repository' commit --quiet -m 'Add the TAMOSS deployment settings'
+git -C '{{ vars.ENV_DIR }}/environment-repository' push --quiet 'https://github.com/{{ env.TASKV_REPOSITORY }}.git' main''',
+  # Record the key before OKE uses it, so down can remove it even if handover stops part-way.
+  '''umask 077
+flux create secret git environment-git --namespace=tamoss-infra --url='ssh://git@github.com/{{ env.TASKV_REPOSITORY }}.git' --ssh-key-algorithm=ed25519 --export > '{{ vars.ENV_DIR }}/environment-git.yaml'
+gh api meta --jq '.ssh_keys[] | "github.com " + .' > '{{ vars.ENV_DIR }}/environment-known-hosts'
+yq -i '.stringData.known_hosts = load_str("{{ vars.ENV_DIR }}/environment-known-hosts")' '{{ vars.ENV_DIR }}/environment-git.yaml'
+yq -r '.stringData."identity.pub"' '{{ vars.ENV_DIR }}/environment-git.yaml' > '{{ vars.ENV_DIR }}/environment-public-key'
+KEY_ID="$(gh api --method POST 'repos/{{ env.TASKV_REPOSITORY }}/keys' -f title='tamoss-{{ env.TASKV_DEPLOYMENT }}' -F key=@'{{ vars.ENV_DIR }}/environment-public-key' -F read_only=true --jq .id)"
+COMMIT="$(git -C '{{ vars.ENV_DIR }}/environment-repository' rev-parse HEAD)"
+KEY_ID="$KEY_ID" COMMIT="$COMMIT" yq -n -o=json '{"repository": "{{ env.TASKV_REPOSITORY }}", "url": "ssh://git@github.com/{{ env.TASKV_REPOSITORY }}.git", "branch": "main", "keyId": strenv(KEY_ID), "commit": strenv(COMMIT)}' > '{{ vars.ENV_DIR }}/environment-source.json'
+kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f '{{ vars.ENV_DIR }}/environment-git.yaml' > /dev/null''',
+  "helm template environment-source charts/environment-source -n tamoss-infra --set deploymentId='{{ env.TASKV_DEPLOYMENT }}' --set url='ssh://git@github.com/{{ env.TASKV_REPOSITORY }}.git' | kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' apply --server-side -f -",
+  '''kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait kustomization/tamoss-environment --for=jsonpath='{.status.lastAppliedRevision}'="main@sha1:$(yq -r .commit '{{ vars.ENV_DIR }}/environment-source.json')" --timeout=300s''',
+  "kubectl --kubeconfig '{{ vars.ENV_DIR }}/remote.kubeconfig' -n tamoss-infra wait kustomization/tamoss-environment --for=condition=Ready --timeout=120s",
+  '''echo 'Settings now come from https://github.com/{{ env.TASKV_REPOSITORY }}. Change settings.yaml there; Flux in OKE applies each pushed commit. mise run apply no longer applies values.yaml.' ''',
+]
+depends_post = ["environment:cleanup"]
+env.TASKV_REPOSITORY = '''{{ env.REPOSITORY | default(value="") }}'''
+env.TASKV_DEPLOYMENT = '{{ read_yaml(path=vars.ENV_DIR ~ "/identity.yaml") | get(key="deploymentUID") }}'
+
+["environment:cleanup"]
+hide = true
+quiet = true
+run = ["rm -rf '{{ vars.ENV_DIR }}/environment-git.yaml' '{{ vars.ENV_DIR }}/environment-known-hosts' '{{ vars.ENV_DIR }}/environment-public-key' '{{ vars.ENV_DIR }}/environment-repository'"]
+
+["environment:local"]
+hide = true
+quiet = true
+run = [
+  '''test ! -s '{{ vars.ENV_DIR }}/environment-source.json' || { printf '%s\n' "Settings come from https://github.com/$(yq -r .repository '{{ vars.ENV_DIR }}/environment-source.json'); change them there instead of with apply." >&2; exit 1; }''',
+]
+

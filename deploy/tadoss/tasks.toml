@@ -1,0 +1,130 @@
+
+["tadoss:selection"]
+hide = true
+quiet = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''export KUBECONFIG={{ (vars.ENV_DIR ~ "/remote.kubeconfig") | quote }}
+desired="$(kubectl -n tamoss-infra get configmap tamoss-gitops-values -o json | yq -er '.data."values.yaml" | from_yaml | .tadoss.enabled | select(tag == "!!bool") | to_string')"
+applied="$(helm get values tamoss-gitops -n tamoss-infra -o json | yq -p=json -er '.tadoss.enabled | select(tag == "!!bool") | to_string')"
+test "$desired" = "$applied" || { echo 'Flux has not applied the TADOSS selection yet' >&2; exit 1; }
+echo "$applied"''',
+]
+
+["tadoss:tls:protected:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml pull --quiet migration database",
+  "openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=database -addext subjectAltName=DNS:database -keyout '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check/server.key' -out '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check/server.crt' 2>/dev/null",
+  "openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=untrusted -keyout '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check/untrusted.key' -out '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check/untrusted.crt' 2>/dev/null",
+  "chmod 644 '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check/server.crt' '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check/untrusted.crt'",
+  "docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml run --rm certificates",
+  "docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml up --wait --wait-timeout 45 database plaintext",
+  "chainsaw test --no-cluster --test-dir tests/tadoss-tls --report-format JUNIT-TEST --report-path .local/reports --report-name tadoss-database-tls",
+]
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"
+env.TEST_TLS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check"
+env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .qualification.postgres16Image " ~ (vars.ROOT_DIR) ~ "/dependencies.yaml") }}'''
+env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"docker.io/\" + .runtimeImage' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
+depends_post = ["tadoss:tls:protected:cleanup"]
+
+["tadoss:tls:protected:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "docker compose --project-name tadoss-cp-tls-check -f tests/tadoss-tls/compose.yaml down --volumes",
+]
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"
+env.TEST_TLS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check"
+env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .qualification.postgres16Image " ~ (vars.ROOT_DIR) ~ "/dependencies.yaml") }}'''
+env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"docker.io/\" + .runtimeImage' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
+
+["tadoss:tls:protected"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "LOCK={{ env.TASKV_LOCK | quote }} KEY={{ env.TASKV_KEY | quote }} ASSETS={{ env.TASKV_ASSETS | quote }} CACHE={{ env.TASKV_CACHE | quote }} mise run tadoss:tls:protected:protected",
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"
+env.TEST_TLS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check"
+env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .qualification.postgres16Image " ~ (vars.ROOT_DIR) ~ "/dependencies.yaml") }}'''
+env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"docker.io/\" + .runtimeImage' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
+depends_post = ["tadoss:tls:cleanup"]
+
+["tadoss:tls:cleanup"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -r '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check'",
+]
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"
+env.TEST_TLS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check"
+env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .qualification.postgres16Image " ~ (vars.ROOT_DIR) ~ "/dependencies.yaml") }}'''
+env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"docker.io/\" + .runtimeImage' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
+
+["tadoss:tls"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "mkdir -p -m 700 '{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check'",
+  "LOCK={{ env.TASKV_LOCK | quote }} KEY={{ env.TASKV_KEY | quote }} ASSETS={{ env.TASKV_ASSETS | quote }} CACHE={{ env.TASKV_CACHE | quote }} mise run tadoss:tls:protected",
+]
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"
+env.TEST_TLS_DIRECTORY = "{{ vars.ROOT_DIR }}/.local/tmp/tadoss-tls-check"
+env.TEST_DB_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .qualification.postgres16Image " ~ (vars.ROOT_DIR) ~ "/dependencies.yaml") }}'''
+env.TEST_API_IMAGE = '''{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '\"docker.io/\" + .runtimeImage' " ~ (env.TASKV_ASSETS) ~ "/release.json") }}'''
+
+["tadoss:fetch"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''yq -e '(.tag | test("^v[0-9]+[.][0-9]+[.][0-9]+[-a-zA-Z0-9.]*$")) and ([.artifacts[] | test("^[a-f0-9]{64}$")] | all)' {{ env.TASKV_LOCK }} > /dev/null''',
+  "mkdir -p -m 700 '{{ env.TASKV_ASSETS }}'",
+  '''{% for item in ["release.json", "catalogue.json", "compatibility.yaml", "install.yaml"] %}
+CACHE={{ ((env.TASKV_ASSETS)) | quote }} URL={{ ("https://github.com/livewyer-ops/tadoss/releases/download/" ~ (env.TASKV_TAG) ~ "/" ~ (item)) | quote }} TARGET={{ ((item)) | quote }} SHA="$(yq -r '.artifacts."{{ item }}"' {{ env.TASKV_LOCK }})" mise run verify:artifact
+{% endfor %}''',
+  '''yq -e '.version == (load("{{ env.TASKV_LOCK }}").tag | sub("^v"; "")) and (.sourceRevision | test("^[a-f0-9]{40}$")) and (.runtimeImage | test("^livewyer/tadoss-api@sha256:[a-f0-9]{64}$")) and (.operatorImage | test("^livewyer/tadoss-operator@sha256:[a-f0-9]{64}$")) and .version == load("{{ env.TASKV_ASSETS }}/compatibility.yaml").version and .runtimeImage == load("{{ env.TASKV_ASSETS }}/catalogue.json")[0].apiImage' '{{ env.TASKV_ASSETS }}/release.json' > /dev/null''',
+]
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_TAG = '''{% if env.TAG is defined %}{{ env.TAG }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .tag " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"
+
+["tadoss:bundle"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  "rm -rf '{{ env.TASKV_BUNDLE }}'",
+  "mkdir -p -m 700 '{{ env.TASKV_BUNDLE }}' '{{ env.TASKV_CACHE }}'",
+  '''{% for item in ["install.yaml", "release.json", "compatibility.yaml", "catalogue.json"] %}
+cp '{{ env.TASKV_ASSETS }}/{{ item }}' '{{ env.TASKV_BUNDLE }}/{{ item }}'
+{% endfor %}''',
+  "cp '{{ vars.ROOT_DIR }}/deploy/tadoss/bundle/kustomization.yaml' '{{ env.TASKV_BUNDLE }}/'",
+  "find '{{ env.TASKV_BUNDLE }}' -mindepth 1 -maxdepth 1 -type f -printf '%f\\n' | sort > '{{ env.TASKV_CACHE }}/tadoss-bundle-files.txt'",
+  "diff -u '{{ vars.ROOT_DIR }}/deploy/tadoss/bundle/files.txt' '{{ env.TASKV_CACHE }}/tadoss-bundle-files.txt'",
+  '''{% for item in ["install.yaml", "release.json", "compatibility.yaml", "catalogue.json"] %}
+cmp '{{ env.TASKV_ASSETS }}/{{ item }}' '{{ env.TASKV_BUNDLE }}/{{ item }}'
+{% endfor %}''',
+  "kubectl kustomize '{{ env.TASKV_BUNDLE }}' > '{{ env.TASKV_CACHE }}/tadoss-operator.yaml'",
+  "flux build artifact --path '{{ env.TASKV_BUNDLE }}' --output '{{ env.TASKV_CACHE }}/tadoss-bundle.tgz'",
+  "flux build artifact --path '{{ env.TASKV_BUNDLE }}' --output '{{ env.TASKV_CACHE }}/tadoss-bundle-repeat.tgz'",
+  "cmp '{{ env.TASKV_CACHE }}/tadoss-bundle.tgz' '{{ env.TASKV_CACHE }}/tadoss-bundle-repeat.tgz'",
+]
+env.TASKV_BUNDLE = "{% if env.BUNDLE is defined %}{{ env.BUNDLE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss-bundle{% endif %}"
+env.TASKV_CACHE = "{% if env.CACHE is defined %}{{ env.CACHE }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/check{% endif %}"
+env.TASKV_LOCK = "{% if env.LOCK is defined %}{{ env.LOCK }}{% else %}{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml{% endif %}"
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (env.TASKV_LOCK)) }}{% endif %}'''
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_KEY }}{% endif %}"

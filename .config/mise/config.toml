@@ -21,7 +21,7 @@ OCI_CLI_PROFILE = '{{ env.OCI_CLI_PROFILE | default(value="DEFAULT") }}'
 
 [task_config]
 shell = "bash -euo pipefail -c"
-includes = ["deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/kind-restart/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
+includes = ["deploy/tadoss/tasks.toml", "deploy/tamoss/tasks.toml", "tasks/account.toml", "tasks/assets.toml", "tasks/bootstrap.toml", "tasks/check.toml", "tasks/environment.toml", "tasks/gitops.toml", "tasks/identity.toml", "tasks/lifecycle.toml", "tasks/management.toml", "tasks/runtime.toml", "tasks/setup.toml", "tasks/source.toml", "tasks/seed.toml", "tests/account/tasks.toml", "tests/bootstrap/tasks.toml", "tests/controller-state/tasks.toml", "tests/kind-restart/tasks.toml", "tests/setup/tasks.toml", "tests/source/tasks.toml", "tests/tadoss/tasks.toml", "tests/s3-credentials/tasks.toml", "tests/storage-identity/tasks.toml", "tests/sequences.toml"]
 
 [vars]
 ROOT_DIR = "{{config_root}}"
@@ -55,5 +55,26 @@ run = [
   { task = "bootstrap:install" },
   { task = "bootstrap:access" },
   { task = "management:stop-kind" },
+]
+
+[tasks."apply"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Apply changed deployment settings to OKE and wait for readiness"
+run = [
+  "mise run verify:tools",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} mise run settings:update",
+]
+
+[tasks."handover"]
+hide = false
+dir = "{{ vars.ROOT_DIR }}"
+description = "Move the deployment settings to a private GitHub repository that Flux in OKE follows"
+usage = '''
+flag "--repository <owner/name>" required=#true help="Existing, empty, private GitHub repository"
+'''
+run = [
+  "mise run verify:tools",
+  "ENV_DIR={{ ((vars.ENV_PATH)) | quote }} REPOSITORY=\"${usage_repository}\" mise run environment:handover",
 ]
 

@@ -1,0 +1,118 @@
+{{- if .Values.tadoss.enabled -}}
+{{- $domain := printf "%s.sslip.io" (replace "." "-" .Values.runtime.publicIp) -}}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: tadoss-config, namespace: tamoss-infra}
+spec:
+  interval: 5m
+  timeout: 10m
+  releaseName: tadoss-config
+  targetNamespace: auth
+  storageNamespace: auth
+  # The chart also writes to the operator's namespace, which may not exist yet.
+  install: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  upgrade: {strategy: {name: RetryOnFailure, retryInterval: 30s}}
+  dependsOn:
+    - {name: tamoss-secrets-auth, namespace: tamoss-infra}
+    - {name: tamoss-database-init, namespace: tamoss-infra}
+  chart:
+    spec:
+      chart: ./deploy/tadoss/config
+      reconcileStrategy: Revision
+      sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product}
+  valuesFrom:
+    - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_HOST, targetPath: host}
+    - {kind: ConfigMap, name: database-connection, valuesKey: DATABASE_CA_BASE64, targetPath: caBase64}
+  values:
+    clientId: tadoss-{{ .Values.deploymentId }}
+    image: {{ .Values.release.postgresImage | quote }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: tadoss-credentials, namespace: tamoss-infra}
+spec:
+  interval: 1m
+  timeout: 5m
+  prune: false
+  deletionPolicy: Orphan
+  dependsOn: [{name: database-connection}]
+  path: ./deploy/tadoss/credentials
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  postBuild:
+    substituteFrom: [{kind: ConfigMap, name: database-connection}]
+    substitute:
+      DEPLOYMENT_ID: {{ .Values.deploymentId | quote }}
+      OCI_REGION: {{ .Values.region }}
+      VAULT_ID: {{ .Values.vaultId }}
+  healthChecks:
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-config, namespace: tamoss-infra}
+    - {apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, name: tadoss-secrets, namespace: tamoss-infra}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: tadoss-operator, namespace: tamoss-infra}
+spec:
+  interval: 5m
+  timeout: 10m
+  prune: false
+  deletionPolicy: Orphan
+  dependsOn: [{name: platform}, {name: oke-prerequisites}]
+  path: ./
+  sourceRef: {kind: OCIRepository, name: tadoss-operator-source}
+  healthChecks:
+    - {apiVersion: apps/v1, kind: Deployment, name: tadoss-operator, namespace: tadoss-system}
+  images:
+    - {name: livewyer/tadoss-operator, newName: docker.io/livewyer/tadoss-operator}
+  patches:
+    - target: {kind: Namespace, name: tadoss-system}
+      patch: |-
+        apiVersion: v1
+        kind: Namespace
+        metadata: {name: tadoss-system}
+        $patch: delete
+    - target: {kind: Deployment, name: tadoss-operator}
+      patch: |-
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata: {name: tadoss-operator}
+        spec:
+          replicas: 2
+          template:
+            spec:
+              affinity:
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchLabels: {app.kubernetes.io/name: tadoss-operator}
+                      topologyKey: kubernetes.io/hostname
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: tadoss, namespace: tamoss-infra}
+spec:
+  interval: 5m
+  timeout: 15m
+  prune: false
+  deletionPolicy: Orphan
+  dependsOn: [{name: tadoss-operator}, {name: tadoss-credentials}, {name: platform}, {name: calico}]
+  path: ./deploy/tadoss/instance
+  sourceRef: {kind: GitRepository, name: tamoss-bootstrap-product, namespace: tamoss-infra}
+  postBuild:
+    substitute:
+      TADOSS_VERSION: {{ .Values.tadoss.release.version | quote }}
+      TADOSS_IMAGE: {{ .Values.tadoss.release.runtimeImage | quote }}
+      DOMAIN: {{ $domain }}
+      DEPLOYMENT_ID: {{ .Values.deploymentId | quote }}
+  healthChecks:
+    - {apiVersion: tadoss.livewyer.io/v1alpha1, kind: Tadoss, name: tadoss, namespace: tads}
+  healthCheckExprs:
+    - apiVersion: tadoss.livewyer.io/v1alpha1
+      kind: Tadoss
+      failed: has(status.phase) && status.phase == 'Error'
+      current: >-
+        has(status.observedGeneration) && status.observedGeneration == metadata.generation &&
+        has(status.currentVersion) && status.currentVersion == spec.version &&
+        has(status.readyReplicas) && status.readyReplicas == spec.api.replicaCount &&
+        has(status.workerReadyReplicas) && status.workerReadyReplicas == spec.worker.replicaCount &&
+        has(status.conditions) && status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+{{- end }}

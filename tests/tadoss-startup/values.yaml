@@ -1,0 +1,11 @@
+namespaceOverride: authentik-startup
+global:
+  namespaceOverride: authentik-startup
+server:
+  replicas: 2
+  affinity: null
+worker:
+  replicas: 2
+  affinity: null
+serviceAccount:
+  namespaceOverride: authentik-startup

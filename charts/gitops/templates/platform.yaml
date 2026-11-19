@@ -6,6 +6,10 @@
 {{- $context := dict "Values" (dict "runtime" $r) -}}
 {{- $platform := mergeOverwrite (deepCopy .Values) (tpl (.Files.Get "files/platform-values.yaml.gotmpl") $context | fromYaml) -}}
 {{- $bom := .Values.dependencies.platform -}}
+{{- if .Values.tadoss.enabled -}}
+{{- $blueprintJob := tpl (.Files.Get "files/tadoss-authentik-job.yaml.gotmpl") (dict "Values" $platform.authentikChart) | fromYaml -}}
+{{- $_ := set $platform.authentikChart "additionalObjects" (append ($platform.authentikChart.additionalObjects | default list) $blueprintJob) -}}
+{{- end -}}
 {{- $releases := list
   (dict "name" "cert-manager" "namespace" "cert-manager" "chart" "cert-manager" "source" "jetstack" "version" $bom.certManager.chartVersion "values" (index $platform "cert-manager"))
   (dict "name" "traefik" "namespace" "traefik" "chart" "traefik" "source" "traefik" "version" $bom.traefik.chartVersion "values" $platform.traefik)
@@ -35,6 +39,9 @@ spec:
 {{ with .needs }}
   dependsOn:
 {{ . | toYaml | indent 4 }}
+{{ end }}
+{{ if and $.Values.tadoss.enabled (eq .name "authentik") }}
+    - {name: tadoss-config, namespace: tamoss-infra}
 {{ end }}
 {{ if .source }}
   chart:

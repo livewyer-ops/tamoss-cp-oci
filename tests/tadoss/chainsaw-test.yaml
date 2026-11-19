@@ -1,0 +1,32 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: tadoss-integration}
+spec:
+  concurrent: false
+  steps:
+    - name: shared-platform-and-protected-installation
+      try:
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/tadoss-gitops-list.yaml, -f, gitops.yaml, --timeout, 1s]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/tadoss-instance-render-list.yaml, -f, instance.yaml, --timeout, 1s]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/tadoss-secrets-list.yaml, -f, secrets.yaml, --timeout, 1s]
+        - command:
+            entrypoint: chainsaw
+            args: [assert, -r, ../../.local/tmp/check/tadoss-config-list.yaml, -f, config.yaml, --timeout, 1s]
+        - command:
+            entrypoint: yq
+            args: [-e, 'select(.kind == "HelmRelease" and .metadata.name == "authentik") | (.spec.values | del(.additionalObjects) | to_json) == (load("../../.local/tmp/check/tadoss-disabled.yaml")[] | select(.kind == "HelmRelease" and .metadata.name == "authentik") | .spec.values | to_json)', ../../.local/tmp/check/tadoss-gitops.yaml]
+    - name: reject-incomplete-release
+      try:
+        - command:
+            entrypoint: helm
+            args: [template, integration, ../../charts/gitops, -f, ../gitops/values.yaml, -f, ../../.local/tmp/check/gitops-pins.yaml, --set, tadoss.enabled=true, --set-string, tadoss.release.releaseSha256=invalid]
+            check:
+              ($error != null): true
+              (contains($stderr, '/tadoss/release')): true
+              (contains($stderr, 'releaseSha256')): true

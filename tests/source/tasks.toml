@@ -65,3 +65,34 @@ run = [
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/source-inputs'
 
+["test:source:tadoss-handover"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+env.FIXTURE = "{{ vars.ROOT_DIR }}/.local/tmp/check/git-source"
+run = [
+  '''git -C "$FIXTURE/repository" worktree add --quiet --detach "$FIXTURE/settings"
+git -C "$FIXTURE/settings" switch --orphan handover-test
+cd "$FIXTURE/settings"
+kubectl create configmap tamoss-gitops-values --from-literal=values.yaml='tadoss: {enabled: false}' --dry-run=client -o yaml > settings.yaml
+printf 'resources: [settings.yaml]\n' > kustomization.yaml
+git add settings.yaml kustomization.yaml
+git -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm handover
+kubectl create namespace handover-test
+kubectl -n handover-test apply -f settings.yaml
+yq '.metadata.namespace = "handover-test" | .metadata.name = "environment-git"' "$FIXTURE/secret.yaml" | kubectl apply -f -
+uid="$(kubectl -n handover-test get configmap tamoss-gitops-values -o jsonpath='{.metadata.uid}')"
+helm template environment-source "$ROOT/charts/environment-source" -n handover-test --set deploymentId=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --set branch=handover-test --set-string url="$(yq -r .assets.url "$FIXTURE/values.yaml")" | kubectl apply -f -
+kubectl -n handover-test wait kustomization/tamoss-environment --for=jsonpath='{.status.lastAppliedRevision}'="handover-test@sha1:$(git rev-parse HEAD)" --timeout=150s
+test "$(kubectl -n handover-test get configmap tamoss-gitops-values -o jsonpath='{.data.values\.yaml}')" = 'tadoss: {enabled: false}'
+sed -i 's/enabled: false/enabled: true/' settings.yaml
+git -c user.name=Fixture -c user.email=fixture@example.invalid commit -qam enable
+kubectl -n handover-test wait kustomization/tamoss-environment --for=jsonpath='{.status.lastAppliedRevision}'="handover-test@sha1:$(git rev-parse HEAD)" --timeout=150s
+test "$(kubectl -n handover-test get configmap tamoss-gitops-values -o jsonpath='{.data.values\.yaml}')" = 'tadoss: {enabled: true}'
+test "$(kubectl -n handover-test get configmap tamoss-gitops-values -o jsonpath='{.metadata.uid}')" = "$uid"''',
+  # Kind retained disabled inputs; the live operator must survive retirement.
+  '''deploy=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+kubectl -n handover-test get kustomization tamoss-environment -o json | yq -p=json 'del(.status) | .metadata = {"name":"tadoss-operator","namespace":"handover-test","labels":{"tamoss.livewyer.io/deployment-id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}} | .spec.suspend = true' | kubectl apply -f -
+helm template root charts/remote-root -n handover-test --dry-run=server --set-string deploymentId="$deploy",retirementId="$deploy",source.commit=fixture,source.url=https://example.invalid/repo,facts.vaultId=v,facts.environmentUid=u,facts.databaseSubnetId=s,facts.publicIp=ip,facts.loadBalancerSubnetId=l --set retirementValues.tadoss.enabled=false | yq -e 'select(.metadata.name == "tamoss-retirement-values") | .data."values.yaml" | from_yaml | .tadoss.enabled == true' > /dev/null
+kubectl delete namespace handover-test --wait=true''',
+]
+env.ROOT = "{{ vars.ROOT_DIR }}"

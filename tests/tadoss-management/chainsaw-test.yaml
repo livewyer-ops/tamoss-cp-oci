@@ -1,0 +1,86 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: tadoss-lifecycle}
+spec:
+  concurrent: false
+  timeouts: {assert: 3m, exec: 3m}
+  steps:
+    - name: install-released-operator-without-CNPG
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: tadoss-system}
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata: {name: tads}
+        - command:
+            entrypoint: kubectl
+            env: &env
+              - {name: PROJECT_ROOT, value: ($values.root)}
+              - {name: ENV_DIR, value: ($values.directory)}
+              - {name: TEST_KUBECONFIG, value: ($values.kubeconfig)}
+            args: [apply, --server-side, -f, '$PROJECT_ROOT/.local/tmp/check/tadoss-operator-management.yaml']
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata: {name: tadoss-operator, namespace: tadoss-system}
+              status: {readyReplicas: 1}
+        - command:
+            entrypoint: mkdir
+            env: *env
+            args: [-p, -m, '700', '$ENV_DIR']
+        - command:
+            entrypoint: cp
+            env: *env
+            args: ['$TEST_KUBECONFIG', '$ENV_DIR/remote.kubeconfig']
+        - command:
+            entrypoint: mise
+            env: *env
+            args: [run, 'test:tadoss:prepare-retirement']
+        - command:
+            entrypoint: kubectl
+            env: *env
+            args: [apply, --server-side, -f, '$PROJECT_ROOT/.local/tmp/check/tadoss-instance-render.yaml']
+        - assert:
+            resource:
+              apiVersion: tadoss.livewyer.io/v1alpha1
+              kind: Tadoss
+              metadata:
+                name: tadoss
+                namespace: tads
+                (contains(not_null(finalizers, `[]`), 'tadoss.livewyer.io/finalizer')): true
+    - name: reject-protected-deletion-and-resume-authorised-removal
+      try:
+        - command:
+            entrypoint: kubectl
+            args: [-n, tads, delete, tadoss/tadoss, --wait=false]
+            check:
+              ($error != null): true
+              (contains($stderr, 'Set spec.deletionProtection=false')): true
+        - assert:
+            resource:
+              apiVersion: tadoss.livewyer.io/v1alpha1
+              kind: Tadoss
+              metadata: {name: tadoss, namespace: tads}
+              spec: {deletionProtection: true}
+        - patch:
+            resource:
+              apiVersion: tadoss.livewyer.io/v1alpha1
+              kind: Tadoss
+              metadata: {name: tadoss, namespace: tads}
+              spec: {deletionProtection: false}
+        - command: &remove
+            entrypoint: env
+            env: *env
+            args: ["mise", "-C", "$PROJECT_ROOT", "run", "test:tadoss:remove-instance"]
+        - error:
+            resource:
+              apiVersion: tadoss.livewyer.io/v1alpha1
+              kind: Tadoss
+              metadata: {name: tadoss, namespace: tads}
+        - command: *remove

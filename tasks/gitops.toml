@@ -1,0 +1,14 @@
+["gitops:pins"]
+hide = true
+dir = "{{ vars.ROOT_DIR }}"
+run = [
+  '''test -n {{ env.TASKV_RELEASE_LOCK | quote }} || { printf '%s\n' "Missing required input: RELEASE_LOCK" >&2; exit 1; }''',
+  '''test -n {{ env.TASKV_OUTPUT | quote }} || { printf '%s\n' "Missing required input: OUTPUT" >&2; exit 1; }''',
+  "helm template inputs '{{ vars.ROOT_DIR }}/charts/pins' --show-only templates/pins.yaml --set-string tadossKey='{{ env.TASKV_TADOSS_KEY }}' --set-file files.dependencies='{{ vars.ROOT_DIR }}/dependencies.yaml',files.packages='{{ vars.ROOT_DIR }}/charts/packages/values.yaml',files.externalSecrets='{{ vars.ROOT_DIR }}/deploy/secrets/controller-values.yaml',files.releaseLock='{{ env.TASKV_RELEASE_LOCK }}',files.release='{{ env.TASKV_ASSETS }}/release.json',files.platform='{{ env.TASKV_ASSETS }}/dependencies.yaml',files.tadossLock='{{ vars.ROOT_DIR }}/deploy/tadoss/release.yaml',files.tadossRelease='{{ env.TASKV_TADOSS_ASSETS }}/release.json' > '{{ env.TASKV_OUTPUT }}'",
+]
+env.TASKV_OUTPUT = '''{{ env.OUTPUT | default(value="") }}'''
+env.TASKV_RELEASE_LOCK = '''{{ env.RELEASE_LOCK | default(value="") }}'''
+env.TASKV_TADOSS_KEY = '''{% if env.TADOSS_KEY is defined %}{{ env.TADOSS_KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r '.artifacts.\"release.json\"' " ~ (vars.ROOT_DIR) ~ "/deploy/tadoss/release.yaml") }}{% endif %}'''
+env.TASKV_KEY = '''{% if env.KEY is defined %}{{ env.KEY }}{% else %}{{ exec(command="cd " ~ (vars.ROOT_DIR | quote) ~ " && " ~ "yq -r .releaseSha256 " ~ ((env.TASKV_RELEASE_LOCK) | quote)) }}{% endif %}'''
+env.TASKV_TADOSS_ASSETS = "{% if env.TADOSS_ASSETS is defined %}{{ env.TADOSS_ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tadoss/{{ env.TASKV_TADOSS_KEY }}{% endif %}"
+env.TASKV_ASSETS = "{% if env.ASSETS is defined %}{{ env.ASSETS }}{% else %}{{ vars.ROOT_DIR }}/.local/tmp/tamoss/{{ env.TASKV_KEY }}{% endif %}"

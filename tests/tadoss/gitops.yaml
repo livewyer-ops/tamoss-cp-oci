@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'])): 1
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'traefik'])): 1
+(length(resources[?kind == 'HelmRelease' && metadata.name == 'cert-manager'])): 1
+(length(resources[?kind == 'Cluster' || kind == 'PsqlDbSystem' || kind == 'Secret'])): 0
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.blueprints.configMaps == null): true
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.worker.env == null): true
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.worker.lifecycle.postStart == null): true
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.values.additionalObjects[?kind == 'Job'] | [0]):
+  metadata:
+    name: tadoss-authentik-blueprint
+    annotations:
+      helm.sh/hook: post-install,post-upgrade
+  spec:
+    backoffLimit: 2
+    activeDeadlineSeconds: 300
+    template:
+      spec:
+        automountServiceAccountToken: false
+        containers:
+          - name: apply
+            command: [ak]
+            args: [apply_blueprint, /blueprints/mounted/cm-tadoss-authentik-blueprint/tadoss.yaml]
+            (env[?name == 'AUTHENTIK_POSTGRESQL__SSLMODE'] | [0].value): verify-full
+            (env[?name == 'TADOSS_CLIENT_SECRET'] | [0].valueFrom.secretKeyRef): {name: tadoss-oauth, key: password}
+(resources[?kind == 'HelmRelease' && metadata.name == 'authentik'] | [0].spec.dependsOn[?name == 'tadoss-config'] | length(@)): 1
+(resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[0].name): database-connection
+(resources[?kind == 'HelmRelease' && metadata.name == 'tadoss-config'] | [0].spec.valuesFrom[?targetPath == 'caBase64'] | [0]):
+  kind: ConfigMap
+  name: database-connection
+  valuesKey: DATABASE_CA_BASE64
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss-operator'] | [0].spec.sourceRef.kind): OCIRepository
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.deletionPolicy): Orphan
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.prune): false
+(resources[?kind == 'Kustomization' && metadata.name == 'tadoss'] | [0].spec.dependsOn[].name): [tadoss-operator, tadoss-credentials, platform, calico]
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?name == 'tadoss'] | length(@)): 1
+(resources[?kind == 'Kustomization' && metadata.name == 'deployment-ready'] | [0].spec.healthChecks[?kind == 'GitRepository'].name): [tamoss-bootstrap-product]
+(resources[?kind == 'Kustomization' && metadata.name == 'application-ready'] | [0].spec.healthChecks[?kind == 'Certificate'].name): [authentik-public-tls, tams-public-tls, tadoss-public-tls]

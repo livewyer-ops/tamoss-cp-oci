@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Render
+(length(resources[?kind == 'Secret'])): 0
+(resources[?kind == 'ConfigMap' && metadata.name == 'tadoss-database-ca'] | [0]):
+  metadata: {namespace: tads}
+  data: {ca.pem: fixture}
+  (binaryData == null): true
+(resources[?kind == 'Job'] | [0]):
+  metadata: {name: tadoss-database-init, namespace: auth}
+  spec:
+    backoffLimit: 2
+    activeDeadlineSeconds: 300
+    template:
+      spec:
+        automountServiceAccountToken: false
+        containers:
+          - name: initialise
+            command: [psql]
+            args: [--no-psqlrc, --set=ON_ERROR_STOP=1, --file=/sql/init.sql]
+            (env[?name == 'PGSSLMODE'] | [0].value): verify-full
+            (env[?name == 'TADOSS_PASSWORD'] | [0].valueFrom.secretKeyRef): {name: tadoss-database, key: password}

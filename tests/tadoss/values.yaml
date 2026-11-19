@@ -1,0 +1,5 @@
+tadoss:
+  enabled: true
+  release:
+    bundleURL: oci://ghcr.io/example/tadoss-release-assets
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

@@ -1,0 +1,10 @@
+["test:tadoss:prepare-retirement"]
+hide = true
+quiet = true
+run = [
+  "install -m 600 '{{ env.TEST_KUBECONFIG }}' '{{ vars.ENV_DIR }}/management.kubeconfig'",
+  '''yq -n '{"environment":{"region":"eu-frankfurt-1"}}' > '{{ vars.ENV_DIR }}/identity.yaml' ''',
+'''umask 077
+yq 'del(.users[].user.exec) | .clusters[].cluster.server = "https://kubernetes.default.svc"' '{{ env.TEST_KUBECONFIG }}' > '{{ vars.ENV_DIR }}/job.kubeconfig'
+kubectl -n tamoss-infra create secret generic oke-bootstrap-access --from-file=value.yaml='{{ vars.ENV_DIR }}/job.kubeconfig' --dry-run=client -o yaml | kubectl apply --server-side -f -''',
+]
