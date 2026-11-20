@@ -14,7 +14,7 @@ mise install --locked
 mise run setup --compartment-id "$COMPARTMENT_OCID" --contact-email "$CONTACT_EMAIL"
 ```
 
-Review `.local/environment/values.yaml`. For a private GitHub source, sign in with `mise exec -- gh auth login` using an account that can manage deploy keys. For a public source, set `source.private: false`.
+Review `.local/environment/values.yaml`. Flux reads this repository anonymously over HTTPS. If deploying from a private copy, set `source.private: true` and sign in with `mise exec -- gh auth login` using an account that can manage its deploy keys.
 
 ```bash
 mise run up

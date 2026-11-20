@@ -203,9 +203,16 @@ ENV_DIR='{{ env.TASKV_DIRECTORY }}/rendered' NODES=fixture-node mise run --dry-r
   '''yq eval-all -e '[select(.kind == "ConfigMap") | (.metadata.name == "tamoss-deployment" and .metadata.namespace == "tamoss-infra" and (.data."values.yaml" | from_yaml | .name) == "setup-test" and (.data."deployment.yaml" | from_yaml | .assets.secretName) == "deployment-git")] | [length > 0, all] | all' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
   '''yq eval-all -e '[select(.kind == "HelmRelease") | (.metadata.namespace == "tamoss-infra" and .spec.chart.spec.valuesFiles[1] == "./pins.yaml" and (.spec.valuesFrom | length) == 2)] | [length > 0, all] | all' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
   '''yq eval-all -e '[select(.kind == "GitRepository") | (.metadata.namespace == "tamoss-infra" and .spec.url == load("tests/source/source.yaml").url and .spec.secretRef.name == "deployment-git")] | [length > 0, all] | all' '{{ env.TASKV_DIRECTORY }}/seed.yaml'''',
-  '''yq -i '.assets.secretName = "" | .assets.url = "https://github.com/example/deployment.git"' '{{ env.TASKV_DIRECTORY }}/deployment.yaml'''',
+  '''yq -i -o=json '.private = false | .url = "https://github.com/example/deployment.git"' '{{ env.TASKV_DIRECTORY }}/source.json'''',
+  "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:facts",
   "ENV_DIR='{{ env.TASKV_DIRECTORY }}' mise run setup:overlay",
   '''yq -e '.spec.url == "https://github.com/example/deployment.git" and .spec.secretRef == null' '{{ env.TASKV_DIRECTORY }}/source.yaml'''',
+  '''helm template management charts/management -f pins.yaml -f '{{ env.TASKV_DIRECTORY }}/values.yaml' -f '{{ env.TASKV_DIRECTORY }}/deployment.yaml' --show-only templates/application.yaml |
+    yq -e 'select([.spec.valuesFrom[] | select(.kind == "Secret")] | length == 0) | .spec.values' > '{{ env.TASKV_DIRECTORY }}/public-root-values.yaml' ''',
+  '''helm template oke-root charts/remote-root -f '{{ env.TASKV_DIRECTORY }}/public-root-values.yaml' --set facts.vaultId=v,facts.environmentUid=e,facts.databaseSubnetId=d,facts.publicIp=i,facts.loadBalancerSubnetId=l |
+    yq eval-all -e '[select(.kind == "GitRepository" or (.kind == "Secret" and .metadata.name == "deployment-git"))] |
+      load("{{ env.TASKV_DIRECTORY }}/source.yaml").spec as $seed |
+      [length == 1, .[0].kind == "GitRepository", .[0].spec.url == $seed.url, .[0].spec.ref.commit == $seed.ref.commit, .[0].spec.secretRef == null] | all' - ''',
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/seed-inputs'
 

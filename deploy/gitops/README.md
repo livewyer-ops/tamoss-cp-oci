@@ -10,7 +10,7 @@ The product repository supplies the charts, manifests and [dependency pins](../.
 
 ## Repository access
 
-For a private product repository, `up` registers a read-only deploy key. The GitHub CLI token stays on the workstation. For anonymous HTTPS, set `source.private: false` in the deployment settings before `up`. The separate environment repository uses its own deploy key. `down` revokes both registered keys after their controllers finish.
+Kind and OKE fetch the public product repository over anonymous HTTPS. For a private copy, set `source.private: true` before `up` to register a read-only deploy key. `handover` registers its own key for the private environment repository. The GitHub CLI token stays on the workstation. `down` revokes the keys registered for the deployment.
 
 ## Inspect the applied revision
 

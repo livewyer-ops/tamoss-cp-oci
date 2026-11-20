@@ -14,7 +14,7 @@ kubectl --kubeconfig "$ENV_DIR/management.kubeconfig" -n tamoss-infra get events
 
 | Symptom | Inspect |
 | --- | --- |
-| Preflight fails | OCI signing profile, pushed Git revision, Docker access and GitHub deploy-key permissions |
+| Preflight fails | OCI signing profile, pushed Git revision, Docker access and, for a private product source, GitHub deploy-key permissions |
 | Bootstrap stalls in Kind | `TamossBootstrap` conditions, managed-resource events, provider health in `crossplane-system` and OCI work requests |
 | OKE API times out | Workstation or VPN egress address against `adminCidrs` |
 | OKE platform stalls | Kind's `oke-root` HelmRelease, then OKE's `tamoss-gitops` HelmRelease and `deployment-ready` Kustomization in `tamoss-infra` |

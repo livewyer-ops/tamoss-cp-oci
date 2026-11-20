@@ -22,7 +22,7 @@ To override discovery, set a value before `setup`. To refresh it, clear the valu
 | `name` | `media-demo`. Choose an unused name of 3–23 lowercase letters, digits or hyphens. Start with a letter and end with a letter or digit. |
 | `owner`, `acmeEmail`, `adminEmail` | Default to `contactEmail` |
 | `storage.bucket` | `tamoss-<name>-media` |
-| `source.private` | `true` uses a GitHub deploy key. Set `false` for anonymous HTTPS. |
+| `source.private` | Defaults to `false` for anonymous HTTPS. Set `true` to use a deploy key with a private product repository. |
 | `tadoss.enabled` | `false`. Enable before `up` or through the [environment Git repository](operations.md#keep-settings-in-an-environment-repository). |
 | `foundation.name` | `<name>-vault`. To reuse a Vault and key, supply the recorded `foundation.adoption` fields as proof of ownership. |
 

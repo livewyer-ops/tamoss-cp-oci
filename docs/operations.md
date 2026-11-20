@@ -81,7 +81,7 @@ To enable [TADOSS](../deploy/tadoss/README.md), edit the embedded `values.yaml` 
 mise run down
 ```
 
-`down` restarts Kind. OKE removes the applications, load balancer, database and bucket. Kind then removes the workers, cluster, network and deployment IAM. After verifying OCI inventory, the host revokes deploy keys and removes Kind. If interrupted, rerun `down` from the same directory. See [interrupted teardown](recovery.md#interrupted-teardown) if progress stops.
+`down` restarts Kind. OKE removes the applications, load balancer, database and bucket. Kind then removes the workers, cluster, network and deployment IAM. After verifying OCI inventory, the host revokes any deploy keys it registered and removes Kind. If interrupted, rerun `down` from the same directory. See [interrupted teardown](recovery.md#interrupted-teardown) if progress stops.
 
 Review `$ENV_DIR/inventory-after/` and `$ENV_DIR/retained-foundation.yaml`. The compartment, Vault, encryption key, Git repositories and local records remain. Keep the foundation ownership record. An administrator can then [retire the provisioner](../deploy/oci/README.md#retirement).
 

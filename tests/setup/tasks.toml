@@ -188,7 +188,7 @@ run = [
   "cp tests/setup/discovery/*.json tests/setup/discovery/public-ip '{{ env.TASKV_DIRECTORY }}/../fixtures/'",
   "rm -rf '{{ env.TASKV_DIRECTORY }}'",
   "MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery' run setup --compartment-id ocid1.compartment.oc1..fixture --contact-email operator@fixture.test",
-  """yq -e '[.compartmentId == "ocid1.compartment.oc1..fixture", .contactEmail == "operator@fixture.test", .storage.namespace == "fixture-namespace", .source.private == true] | all' '{{ env.TASKV_DIRECTORY }}/values.yaml' > /dev/null""",
+  """yq -e '[.compartmentId == "ocid1.compartment.oc1..fixture", .contactEmail == "operator@fixture.test", .storage.namespace == "fixture-namespace", .source.private == false] | all' '{{ env.TASKV_DIRECTORY }}/values.yaml' > /dev/null""",
   """test "$(stat -c '%a' '{{ env.TASKV_DIRECTORY }}/values.yaml')" = 600""",
 ]
 env.TASKV_DIRECTORY = '{{ vars.ROOT_DIR }}/.local/tmp/check/setup-discovery/environment'
@@ -217,11 +217,14 @@ yq '.compartmentId = "ocid1.compartment.oc1..fixture" | .contactEmail = "operato
 {% endif %}
 {% if env.CASE == "placeholder" %}
 cp environments/example/values.yaml '{{ env.TASKV_DIRECTORY }}/environment/values.yaml'
-{% elif env.CASE == "docker" or env.CASE == "gh" or env.CASE == "oci" %}
+{% elif env.CASE == "gh" %}
+yq -i '.source.private = true' '{{ env.TASKV_DIRECTORY }}/environment/values.yaml'
+touch '{{ env.TASKV_DIRECTORY }}/fail/gh'
+{% elif env.CASE == "docker" or env.CASE == "oci" %}
 touch '{{ env.TASKV_DIRECTORY }}/fail/{{ env.CASE }}'
 {% elif env.CASE == "public" %}
 touch '{{ env.TASKV_DIRECTORY }}/fail/gh'
-yq -i '.source.private = false' '{{ env.TASKV_DIRECTORY }}/environment/values.yaml'
+yq -i 'del(.source.private)' '{{ env.TASKV_DIRECTORY }}/environment/values.yaml'
 {% endif %}""",
   "PATH='{{ env.TASKV_DIRECTORY }}/bin':\"$PATH\" MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml mise -C '{{ env.TASKV_DIRECTORY }}' run preflight",
 ]

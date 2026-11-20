@@ -56,7 +56,7 @@ run = [
     select(fileIndex == 0) as $assets | select(fileIndex == 1) as $source | select(fileIndex == 0) |
     {"vars":{"ENV_DIR":strenv(DIRECTORY)},
      "task_config":{"shell":"bash -euo pipefail -c"},
-     "tasks":{"resolve":{"run":[$assets."assets:fetch".run[2]]}, "verify":$assets."assets:verify",
+     "tasks":{"resolve":{"run":[$assets."assets:fetch".run[2]]}, "fetch-revision":{"run":[$assets."assets:fetch".run[3]]}, "verify":$assets."assets:verify",
        "source:authenticate":$source."source:authenticate", "source:cleanup":$source."source:cleanup"}} |
     .tasks."source:authenticate".run = ["echo unexpected-authentication >&2; exit 23"] |
     .tasks[].dir = (strenv(DIRECTORY) + "/repository")' tasks/assets.toml tasks/source.toml > '{{ env.TASKV_DIRECTORY }}/fixture.mise.toml' ''',

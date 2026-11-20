@@ -2,7 +2,7 @@
 
 ## Prepare the workstation
 
-Use Linux amd64 with Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar, gzip and Docker. Your user must be able to run `docker info`. Install [mise](https://mise.jdx.dev/installing-mise.html), then install the pinned tools from the repository root:
+Use Linux amd64 with Bash, Git 2.36 or later, curl, OpenSSL, GNU coreutils and findutils, tar, gzip and Docker. Your user must be able to run `docker info`. Install [mise](https://mise.jdx.dev/installing-mise.html), then install the pinned tools from the repository root:
 
 ```bash
 git clone https://github.com/livewyer-ops/tamoss-cp-oci.git
@@ -38,7 +38,7 @@ mise run setup --compartment-id "$COMPARTMENT_OCID" --contact-email "$CONTACT_EM
 
 `setup` discovers OCI values and writes `.local/environment/values.yaml`. Review `adminCidrs` against the public egress IP you will use to reach OKE, particularly if you use a VPN. To add timed metadata at install time, set `tadoss.enabled: true`. See [Configuration](configuration.md) for overrides.
 
-Flux needs a clean checkout whose commit is available on the GitHub `origin`. For a private source, keep `source.private: true` and run `mise exec -- gh auth login --hostname github.com --git-protocol https` with permission to manage repository deploy keys. For a public source, set `source.private: false` to use anonymous HTTPS.
+Flux needs a clean checkout whose commit is available on the GitHub `origin`. The public product repository uses anonymous HTTPS by default. For a private copy, set `source.private: true` and run `mise exec -- gh auth login --hostname github.com --git-protocol https` with permission to manage its deploy keys.
 
 For another installation, export a fresh `ENV_DIR` before `setup`, set an unused `name` in its `values.yaml` and keep the same `ENV_DIR` for all subsequent commands.
 
