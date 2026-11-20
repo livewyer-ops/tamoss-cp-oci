@@ -1,91 +1,41 @@
-# TAMOSS on OCI Kubernetes Engine
+# TAMOSS on Oracle Kubernetes Engine
 
-Deploys [TAMOSS](https://github.com/livewyer-ops/tamoss) on Oracle Cloud
-Infrastructure (OCI) with three commands. TAMOSS implements the BBC
-Time-addressable Media Store (TAMS) API.
-
-## Deployment
-
-| Component | Configuration |
-| --- | --- |
-| Kubernetes | OKE with three workers spread across availability and fault domains |
-| Application | Replicated TAMOSS API, worker, UI and Console API |
-| PostgreSQL | Two OCI database nodes with verified TLS |
-| Media storage | Private OCI Object Storage bucket |
-| Public access | OCI load balancer, Authentik sign-in and trusted HTTPS |
-| Optional | [TADOSS](deploy/tadoss/README.md) timed metadata services on the same platform |
-
-A local Kind cluster on your workstation runs Flux and Crossplane. They create
-the network, the cluster and its identity, then hand over to Flux and Crossplane
-inside OKE, which create the database and bucket and install and maintain the
-application. `up` stops the Kind cluster when it finishes. Keep the stopped
-cluster and the deployment directory until you remove the deployment: Kind holds
-the infrastructure state and `down` restarts it. `down` cannot work without
-that cluster. If it is lost, the network, cluster, IAM and Vault secrets it
-created must be removed by hand; see
-[manual cleanup](docs/operations.md#manual-cleanup-after-losing-the-kind-cluster).
-See [architecture](docs/architecture.md).
-
-## Requirements
-
-- Linux amd64 workstation with Docker running and [mise](https://mise.jdx.dev/installing-mise.html) installed.
-- An empty OCI compartment and an OCI API signing profile granted the
-  [account permissions](deploy/oci/README.md#policy).
-- While this repository is private: GitHub access that can manage its deploy keys.
-
-Deployment takes about 35 minutes and removal about 20 minutes. The resources
-are billable while they exist; [posted billing](docs/operations.md#posted-billing)
-shows how to check the charges.
+Deploy [TAMOSS](https://github.com/livewyer-ops/tamoss), a time-addressable media store, on Oracle Kubernetes Engine (OKE). The deployment uses three workers, a two-node PostgreSQL system and a private OCI Object Storage bucket. Users reach the API and web UI over HTTPS and sign in through Authentik.
 
 ## Quickstart
 
+Use a Linux amd64 workstation with Docker and [mise](https://mise.jdx.dev/installing-mise.html). You need a dedicated OCI compartment and a provisioner with an API signing key. An account administrator can [create the provisioner](deploy/oci/README.md#create-the-provisioner). Set `COMPARTMENT_OCID` and `CONTACT_EMAIL` to your compartment OCID and contact email.
+
 ```bash
-git clone https://github.com/dodwyer/tamoss-cp-oci.git
+git clone https://github.com/livewyer-ops/tamoss-cp-oci.git
 cd tamoss-cp-oci
 mise trust
 mise install --locked
-mise exec -- gh auth login --hostname github.com --git-protocol https
-mise run setup --compartment-id 'ocid1.compartment.oc1..example' --contact-email 'you@example.com'
+mise run setup --compartment-id "$COMPARTMENT_OCID" --contact-email "$CONTACT_EMAIL"
+```
+
+Review `.local/environment/values.yaml`. For a private GitHub source, sign in with `mise exec -- gh auth login` using an account that can manage deploy keys. For a public source, set `source.private: false`.
+
+```bash
 mise run up
 ```
 
-Replace the example compartment OCID and email with your own. `gh auth login` is
-needed only while the repository is private. `setup` writes
-the private settings to `.local/environment/values.yaml` and fills in the
-tenancy and region settings from the OCI profile. `up` first checks Docker, the
-settings, GitHub access and the OCI profile, then prints the application URLs
-and the location of the initial login details when the deployment is ready.
+Open the UI URL printed by `up` and sign in with the credentials in `.local/environment/access/ui-login.json`. Keep the stopped Kind cluster, this checkout and the deployment directory until teardown completes.
 
-[Getting started](docs/getting-started.md) explains each step.
+## Remove the deployment
 
-## Removal
-
-```bash
-mise run down
-```
-
-**Removal deletes application data**, including the media bucket and database
-backups. See [teardown and retention](docs/operations.md#destroy-the-environment).
-
-## Commands
-
-| Command | Purpose |
-| --- | --- |
-| `mise run setup` | Prepare private deployment settings and discover OCI values. |
-| `mise run up` | Create a fresh deployment and wait for public HTTPS. |
-| `mise run apply` | Apply changed deployment settings to OKE and wait for readiness. |
-| `mise run handover --repository OWNER/NAME` | Move the deployment settings to a private GitHub repository that Flux in OKE follows. |
-| `mise run down` | Remove the application and OCI resources, then retire credentials. |
-
-`ENV_DIR` selects another private deployment directory; the default is
-`.local/environment`. Use the same value for every command of one deployment.
+**Teardown deletes the media, database and database backups.** When you are ready to remove them, run `mise run down` from the same checkout.
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md): prerequisites, deployment and access.
-- [Operations](docs/operations.md): inspection, failures, billing and teardown.
-- [Configuration](docs/configuration.md): optional settings and generated records.
-- [Architecture](docs/architecture.md): ownership, configuration, HA and storage.
-- [OCI account prerequisites](deploy/oci/README.md): policy for an account administrator.
-- [Contributing](CONTRIBUTING.md): local checks, qualification and release selection.
-- [Changelog](CHANGELOG.md): command and compatibility changes.
+| Guide | Use it to |
+| --- | --- |
+| [Getting started](docs/getting-started.md) | Prepare the workstation, configure OCI and verify the installation |
+| [Configuration](docs/configuration.md) | Choose worker placement, storage, network access and optional settings |
+| [Operations](docs/operations.md) | Query the API, apply settings, hand over to Git or tear down |
+| [Recovery](docs/recovery.md) | Diagnose a failed deployment or resume an interrupted teardown |
+| [Architecture](docs/architecture.md) | Identify which cluster and controller owns a resource |
+| [TADOSS](deploy/tadoss/README.md) | Add timed metadata to media stored in TAMOSS |
+| [Testing](docs/testing.md) | Verify ingest, playback and availability on a disposable installation |
+
+For contributions, see [Contributing](CONTRIBUTING.md). Use and distribution are subject to the [licence](LICENSE).
