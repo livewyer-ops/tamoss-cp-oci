@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+-oci[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency: release-${{ github.ref }}
+
+jobs:
+  check:
+    if: ${{ !github.event.deleted }}
+    uses: ./.github/workflows/check.yaml
+
+  release:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release commit and collect notes
+        run: |
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::The release commit must be on main."
+            exit 1
+          }
+          awk -v heading="## $GITHUB_REF_NAME" '
+            /^## / { selected = ($0 == heading); next }
+            selected { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md" || {
+            echo "::error::Missing release notes in CHANGELOG.md for $GITHUB_REF_NAME."
+            exit 1
+          }
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          test "$(gh api "repos/{owner}/{repo}/commits/$GITHUB_REF" --jq .sha)" = "$(git rev-parse HEAD)" || {
+            echo "::error::The remote tag no longer points at the checked commit."
+            exit 1
+          }
+          if ! gh release create "$tag" --verify-tag --title "$tag" --notes-file "$RUNNER_TEMP/release-notes.md"; then
+            # A retry can find a release published by the previous attempt.
+            test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = false
+          fi

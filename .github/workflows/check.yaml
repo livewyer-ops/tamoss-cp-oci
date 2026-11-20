@@ -1,26 +1,36 @@
 name: check
+
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
+
 permissions:
   contents: read
+
 concurrency:
-  group: check-${{ github.ref }}
-  cancel-in-progress: true
+  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: 2026.11.3
+          install_args: --locked
       - run: mise run check
-      - if: failure()
+      - name: Upload failed test reports
+        if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: reports
-          path: .local/reports
+          name: test-reports
+          path: .local/reports/*.xml
           include-hidden-files: true
+          retention-days: 7

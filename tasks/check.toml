@@ -114,6 +114,7 @@ yq eval-all '[select(. != null)] | {"apiVersion": "v1", "kind": "Render", "resou
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render",
   "mise run test:s3:render",
   "ROOT={{ vars.ROOT_DIR }} mise run test:bootstrap:render-native",
+  "helm dependency build --skip-refresh charts/retirement",
   "mise run test:retirement:render",
   "mise run test:bootstrap:credential-completion",
   "mise run test:bootstrap:seed-inputs",
@@ -207,7 +208,6 @@ dir = "{{ vars.ROOT_DIR }}"
 run = [
   '''yq 'select(.kind == "Job") | del(.spec.activeDeadlineSeconds)' {{ env.TASKV_CACHE }}/database-connection.yaml > {{ env.TASKV_CACHE }}/operation-no-deadline.yaml''',
   '''yq 'select(.kind == "Job") | .spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation = true' {{ env.TASKV_CACHE }}/database-connection.yaml > {{ env.TASKV_CACHE }}/operation-unsafe.yaml''',
-  "helm dependency build --skip-refresh charts/retirement",
   '''helm template retirement charts/retirement -n tamoss-infra -f tests/retirement/values.yaml --set images.oci="$(yq -r .oci.image dependencies.yaml)",images.kubectl="$(yq -r .connectionDetails.kubectlImage dependencies.yaml)" > '{{ env.TASKV_CACHE }}/retirement.yaml' ''',
   "crossplane resource validate '{{ env.TASKV_CACHE }}/schemas' '{{ env.TASKV_CACHE }}/retirement.yaml' --crossplane-image={{ vars.CORE }} --cache-dir='{{ env.TASKV_CACHE }}/crossplane' --error-on-missing-schemas --skip-success-results",
   '''helm template retirement charts/retirement -n tamoss-infra -f tests/retirement/values.yaml --set workloadIdentity.serviceAccount=services-retirement,images.oci="$(yq -r .oci.image dependencies.yaml)",images.kubectl="$(yq -r .connectionDetails.kubectlImage dependencies.yaml)" > '{{ env.TASKV_CACHE }}/retirement-workload.yaml' ''',

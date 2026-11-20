@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+To publish from the current tip of `main`, run `git fetch origin main`, then
+`git tag -a 8.2-oci1 origin/main -m 8.2-oci1` and `git push origin refs/tags/8.2-oci1`.
+Use the release version in both commands and in the heading below. GitHub
+publishes its notes after the tagged commit passes the checks.
+
+## 8.2-oci1
 
 First public release.
 
