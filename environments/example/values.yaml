@@ -1,5 +1,5 @@
 source:
-  private: true
+  private: false
 tadoss:
   enabled: false
 compartmentId: ocid1.compartment.oc1..REPLACE

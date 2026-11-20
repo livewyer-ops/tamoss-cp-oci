@@ -95,14 +95,14 @@ spec:
         - .repository == "example/deployment" and .url == "ssh://git@github.com/example/deployment.git"
           and .private == true
         - $DIRECTORY/source.json
-  - name: public source skips authentication
+  - name: omitted source privacy uses anonymous HTTPS even with an SSH origin
     try:
     - command:
         entrypoint: yq
         env: *id001
         args:
         - -i
-        - .source.private = false
+        - del(.source.private)
         - $DIRECTORY/values.yaml
     - command:
         entrypoint: env
@@ -121,6 +121,34 @@ spec:
         - -e
         - .url == "https://github.com/example/deployment.git" and .private == false
         - $DIRECTORY/source.json
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - GIT_ALLOW_PROTOCOL=file
+        - GIT_CONFIG_COUNT=1
+        - GIT_CONFIG_KEY_0=url.file://$DIRECTORY/repository.insteadOf
+        - GIT_CONFIG_VALUE_0=https://github.com/example/deployment.git
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - fetch-revision
+    - command:
+        entrypoint: env
+        env: *id001
+        args:
+        - GIT_ALLOW_PROTOCOL=file
+        - MISE_OVERRIDE_CONFIG_FILENAMES=fixture.mise.toml
+        - mise
+        - -C
+        - $DIRECTORY
+        - run
+        - fetch-revision
+        check:
+          ($error != null): true
+          (contains($stderr, 'not allowed')): true
     - command:
         entrypoint: env
         env: *id001
