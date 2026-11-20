@@ -5,7 +5,7 @@
 Use Linux amd64 with Bash, Git, curl, OpenSSL, GNU coreutils and findutils, tar, gzip and Docker. Your user must be able to run `docker info`. Install [mise](https://mise.jdx.dev/installing-mise.html), then install the pinned tools from the repository root:
 
 ```bash
-git clone https://github.com/dodwyer/tamoss-cp-oci.git
+git clone https://github.com/livewyer-ops/tamoss-cp-oci.git
 cd tamoss-cp-oci
 mise trust
 mise install --locked

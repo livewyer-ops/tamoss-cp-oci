@@ -7,7 +7,7 @@ Deploy [TAMOSS](https://github.com/livewyer-ops/tamoss), a time-addressable medi
 Use a Linux amd64 workstation with Docker and [mise](https://mise.jdx.dev/installing-mise.html). You need a dedicated OCI compartment and a provisioner with an API signing key. An account administrator can [create the provisioner](deploy/oci/README.md#create-the-provisioner). Set `COMPARTMENT_OCID` and `CONTACT_EMAIL` to your compartment OCID and contact email.
 
 ```bash
-git clone https://github.com/dodwyer/tamoss-cp-oci.git
+git clone https://github.com/livewyer-ops/tamoss-cp-oci.git
 cd tamoss-cp-oci
 mise trust
 mise install --locked
